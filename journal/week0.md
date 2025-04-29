@@ -15,3 +15,43 @@ task:
     unzip awscliv2.zip
     sudo ./aws/install
     cd $THEIA_WORKSPACE_ROOT
+-- Created a cloud watch billing alarm --
+  {
+"AlarmName": "DailyEstimatedCharges",
+"AlarmDescription": "This alarm would be triggered if the daily estimated charges exceeds 1$",
+"ActionsEnabled": true,
+"AlarmActions": [
+"arn:aws:sns:us-east-1:931637612335:fenton-billing-alarm"
+],
+"EvaluationPeriods": 1,
+"DatapointsToAlarm": 1,
+"Threshold": 1,
+"ComparisonOperator": "GreaterThanOrEqualToThreshold",
+"TreatMissingData": "breaching",
+"Metrics": [{
+
+		"ID": "m1",
+		"MetricStat": {
+		"Metric": {
+			"Namespace": "AWS/Billing",
+			"MetricName": "EstimatedCharges",                                                                                                                                                                                                                                                                                                                                                                                                                                                                    
+			"Dimensions": [
+				{
+					"Name": "Currency",
+					"Value": "USD"
+				}
+			]
+		},
+		"Period": 86400,
+		"Stat": "Maximum"
+	},
+	"ReturnData": false
+	},
+{
+	"Id": "e1",
+	"Expression": "IF(RATE(m1)>0,RATE(m1)*86400,0)",
+	"Label": "DailyEstimatedCharges",
+	"ReturData": true
+}]
+ 
+}
