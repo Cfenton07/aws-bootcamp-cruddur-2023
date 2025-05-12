@@ -52,5 +52,6 @@ task:
 	"Expression": "IF(RATE(m1)>0,RATE(m1)*86400,0)",
 	"Label": "DailyEstimatedCharges",
 	"ReturData": true
-}
+## }]
  
+}
