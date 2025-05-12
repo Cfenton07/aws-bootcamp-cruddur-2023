@@ -5,7 +5,7 @@
 
 ### The bash commands that I will use will be the same as the AWS CLI
 
-<p> task:
+task:
 - name: aws-cli
   env:
     AWS_CLI_AUTO_PROMPT: on-partial
@@ -52,6 +52,6 @@
 	"Expression": "IF(RATE(m1)>0,RATE(m1)*86400,0)",
 	"Label": "DailyEstimatedCharges",
 	"ReturData": true
-}]
- 
-}<p>
+}
+} 
+
