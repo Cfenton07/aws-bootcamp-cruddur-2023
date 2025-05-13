@@ -5,7 +5,7 @@
 
 ### The bash commands that I will use will be the same as the AWS CLI
 
->task:
+>***task:
 >- name: aws-cli
 >  env:
 >    AWS_CLI_AUTO_PROMPT: on-partial
@@ -53,5 +53,5 @@
 >	"Label": "DailyEstimatedCharges",
 >	"ReturData": true
 >}
->} 
+>} ***
 
