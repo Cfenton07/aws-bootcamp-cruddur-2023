@@ -4,8 +4,8 @@
 ### I am going to install AWS CLI to use partial autoprompt mode to make it easier to debug CLI commands
 
 ### The bash commands that I will use will be the same as the AWS CLI
-
->```** task: **
+```
+>** task: **
 >- name: aws-cli
 >  env:
 >    AWS_CLI_AUTO_PROMPT: on-partial
@@ -16,7 +16,7 @@
 >    sudo ./aws/install
 >    cd $THEIA_WORKSPACE_ROOT
 ** Created a cloud watch billing alarm **
-> ``` {
+> {
 >"AlarmName": "DailyEstimatedCharges",
 >"AlarmDescription": "This alarm would be triggered if the daily estimated charges exceeds 1$",
 >"ActionsEnabled": true,
