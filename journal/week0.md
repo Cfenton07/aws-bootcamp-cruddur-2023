@@ -4,6 +4,8 @@
 ### I am going to install AWS CLI to use partial autoprompt mode to make it easier to debug CLI commands
 
 ### The bash commands that I will use will be the same as the AWS CLI
+
+### I created a billing alarm via the AWS CLI via GitPod
 ```
 >** task: **
 >- name: aws-cli
