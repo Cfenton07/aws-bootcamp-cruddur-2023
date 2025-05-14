@@ -1,9 +1,12 @@
 # Week 0 — Billing and Architecture
-### I am going to install AWS CLI for my GitPod when it launches
+### I installed AWS CLI for my GitPod when it launches
 
-### I am going to install AWS CLI to use partial autoprompt mode to make it easier to debug CLI commands
+### I installed AWS CLI to use partial autoprompt mode to make it easier to debug CLI commands
 
 ### The bash commands that I will use will be the same as the AWS CLI
+
+### I created a logical desgin for my cloud archtecture
+![AWS Logical Design](assets/AWS_Fenton_LogicalDiagram%202025-05-14%20191420.png)
 
 ### I created a billing alarm via the AWS CLI via GitPod
 ```
