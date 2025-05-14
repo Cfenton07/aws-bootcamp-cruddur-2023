@@ -7,7 +7,7 @@
 
 ### I created a logical desgin for my cloud archtecture
 ![AWS Logical Design](assets/AWS_Fenton_LogicalDiagram%202025-05-14%20191420.png)
-
+[Lucid Charts Share Link](https://lucid.app/lucidchart/851a16af-b649-48c6-85bd-dab2b155625c/edit?viewport_loc=-456%2C-381%2C4173%2C1876%2C0_0&invitationId=inv_f58ad7de-badf-49b5-b3f6-c29148872ed3)
 ### I created a billing alarm via the AWS CLI via GitPod
 ```
 >** task: **
