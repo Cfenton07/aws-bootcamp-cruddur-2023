@@ -2,7 +2,7 @@
 
 > Gitpod make sure to install the docker extension
 ## Containerized Backend
-### Run Python
+### Run Flask
 
 ```sh
 cd backend-flask
