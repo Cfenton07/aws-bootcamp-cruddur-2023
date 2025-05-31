@@ -13,7 +13,7 @@ cd ..
 ```
 
 ### Script for docker container
-```go
+```yaml
 FROM python:3.10-slim-buster
 
 # Inside Container
