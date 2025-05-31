@@ -17,7 +17,7 @@ cd ..
 -  you should now see json
 
 
-### Script for docker container
+### Add docker file
 ```yaml
 FROM python:3.10-slim-buster
 
@@ -48,4 +48,8 @@ EXPOSE ${PORT}
 # CMD (Command) 
 # python3 -m flask run --host=0.0.0.0 --port=4567
 CMD ["python3", "-m", "flask", "run", "--host=0.0.0.0", "--port=4567"]
+```
+### Build Container
+```sh
+docker nuild -t backend-flask ./backend-flask
 ```
