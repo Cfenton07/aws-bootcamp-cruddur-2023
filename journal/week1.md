@@ -13,7 +13,7 @@ cd ..
 ```
 - make sure to unlock the port on the port tab next to the terminal
 - open the link for port 4567 in your web browser
--  make sure to update the url with the finishing path https://4567-cfenton07-awsbootcampcr-qy3ay4ksobg.ws-us120.gitpod.io/**api/activities/home**
+-  make sure to update the url with the finishing path **api/activities/home**. The full path should look like this: "https://4567-cfenton07-awsbootcampcr-qy3ay4ksobg.ws-us120.gitpod.io/api/activities/home"
 -  you should now see json
 
 
