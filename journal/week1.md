@@ -11,6 +11,11 @@ export BACKEND_URL="*"
 python3 -m flask run --host=0.0.0.0 --port=4567
 cd ..
 ```
+- make sure to unlock the port on the port tab next to the terminal
+- open the link for port 4567 in your web browser
+-  make sure to update the url with the finishing path "https://4567-cfenton07-awsbootcampcr-qy3ay4ksobg.ws-us120.gitpod.io/**api/activities/home**"
+-  you should now see json
+
 
 ### Script for docker container
 ```yaml
