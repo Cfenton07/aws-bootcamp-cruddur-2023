@@ -56,5 +56,32 @@ docker build -t backend-flask ./backend-flask
 ### Run Container
 ```sh
 docker run --rm -p 4567:4567 -it backend-flask
-FRONTEND_URL="*" BACKEN_URL="*" docker run --rm -p 4567:4567 -it backend-flask 
+FRONTEND_URL="*" BACKEN_URL="*" docker run --rm -p 4567:4567 -it backend-flask
+docker run --rm -p 4567:4567 -it backend-flask -e FRONTEND_URL -e BACKEN_URL
+export FRONTEND_URL="*"
+export BACKEND_URL="*"
+set FRONTEND_URL='*'
+set BACKEND_URL='*'
+docker run --rm -p 4567:4567 -it -e FRONTEND_URL='*' -e BACKEND_URL='*' backend-flask
+unset FRONTEND_URL='*'
+unset BACKEND_URL='*'
+```
+### Run in the background
+```sh
+docker run --rm -p 4567:4567 -d backend-flask
+```
+### Return the container id into an ENV Vat
+```sh
+CONTAINER_ID= $(docker run --rm -p 4567:4567 -d backend-flask)
+```
+| docker container run is idiomatic, docker run is legacy syntax but is commonly used
+
+### Get Container Images or Running Container IDs
+```sh
+docker ps
+docker images
+```
+### Send Curl to Test Server
+```sh
+
 ```
