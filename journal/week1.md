@@ -55,5 +55,6 @@ docker build -t backend-flask ./backend-flask
 ```
 ### Run Container
 ```sh
-docker run --rm -p 4567:4567 -it backend-flask 
+docker run --rm -p 4567:4567 -it backend-flask
+FRONTEND_URL="*" BACKEN_URL="*" docker run --rm -p 4567:4567 -it backend-flask 
 ```
