@@ -1,5 +1,11 @@
 # Week 1 — App Containerization
 
+## Simple commands to start or stop my created containers:
+### To start all stopped Docker containers on your system, you can use the following command, which utilizes a sub-command docker ps -aq to get a list of all container IDs (both running and stopped)
+docker start $(docker ps -aq)
+### To stop Docker containers in the terminal, use the docker stop command followed by the container ID or name. For example, to stop a container named "my_container", you would use: docker stop my_container. To stop all running containers, you can use: 
+docker stop $(docker ps -q)
+
 > Gitpod make sure to install the docker extension
 ## Containerized Backend
 ### Run Flask
