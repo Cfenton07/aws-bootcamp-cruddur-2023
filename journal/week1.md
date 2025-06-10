@@ -23,7 +23,7 @@ cd ..
 -  you should now see json
 
 
-### Add docker file FrontEnd
+### Add docker file BackEnd
 ```yaml
 FROM python:3.10-slim-buster
 
@@ -55,7 +55,7 @@ EXPOSE ${PORT}
 # python3 -m flask run --host=0.0.0.0 --port=4567
 CMD ["python3", "-m", "flask", "run", "--host=0.0.0.0", "--port=4567"]
 ```
-### Add docker file BackEnd
+### Add docker file FrontEnd (Note I must go into my frontend directory and do a "npm i" CMD for the install)
 ```yml
 FROM node:16.18
 
