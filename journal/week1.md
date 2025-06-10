@@ -67,7 +67,7 @@ RUN npm install
 EXPOSE ${PORT}
 CMD ["npm", "start"]
 ```
-### Build Container (This will download my container images)
+### Build Container (This will download & build my container image)
 ```sh
 docker build -t backend-flask ./backend-flask
 ```
