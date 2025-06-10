@@ -78,9 +78,9 @@ FRONTEND_URL="*" BACKEN_URL="*" docker run --rm -p 4567:4567 -it backend-flask
 docker run --rm -p 4567:4567 -it backend-flask -e FRONTEND_URL -e BACKEN_URL
 export FRONTEND_URL="*"
 export BACKEND_URL="*"
-set FRONTEND_URL='*'
+set FRONTEND_URL='*' (set Frontend and backend URLs first)
 set BACKEND_URL='*'
-**docker run --rm -p 4567:4567 -it -e FRONTEND_URL='*' -e BACKEND_URL='*' backend-flask**
+docker run --rm -p 4567:4567 -it -e FRONTEND_URL='*' -e BACKEND_URL='*' backend-flask (<<Use this command line to run my container with environmental variables after I download and build the container image)
 unset FRONTEND_URL='*'
 unset BACKEND_URL='*'
 ```
