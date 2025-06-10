@@ -85,7 +85,7 @@ docker run --rm -p 4567:4567 -it -e FRONTEND_URL='*' -e BACKEND_URL='*' backend-
 unset FRONTEND_URL='*'
 unset BACKEND_URL='*'
 ```
-#### Note to self ... I need to figure out a way to creat a bash script to run the CMD's that build and setup my back end container. May need to also do the same with the frontend
+#### Note to self ... I need to figure out a way to create a bash script to run the cmd's that build and setup my back end container. May need to also do the same with the frontend
 
 ### Run in the background
 ```sh
