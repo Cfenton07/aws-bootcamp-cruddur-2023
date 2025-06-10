@@ -17,7 +17,8 @@ export BACKEND_URL="*"
 python3 -m flask run --host=0.0.0.0 --port=4567
 cd ..
 ```
-- make sure to unlock the port on the port tab next to the terminal
+- This can all be checked after building the backend container with environmental variables set.
+- make sure to unlock the port on the port tab next to the terminal (This will make the container public)
 - open the link for port 4567 in your web browser
 -  make sure to update the url with the finishing path **api/activities/home**. The full path should look like this: "https://4567-cfenton07-awsbootcampcr-qy3ay4ksobg.ws-us120.gitpod.io/api/activities/home"
 -  you should now see json
@@ -67,7 +68,7 @@ RUN npm install
 EXPOSE ${PORT}
 CMD ["npm", "start"]
 ```
-### Build Container (This will download & build my container image)
+### Build Container (This will download & build my container image)(Make sure to cd into the backed directory to run this CMD to download and build the container image)
 ```sh
 docker build -t backend-flask ./backend-flask
 ```
@@ -84,6 +85,8 @@ docker run --rm -p 4567:4567 -it -e FRONTEND_URL='*' -e BACKEND_URL='*' backend-
 unset FRONTEND_URL='*'
 unset BACKEND_URL='*'
 ```
+#### Note to self ... I need to figure out a way to creat a bash script to run the CMD's that build and setup my back end container. May need to also do the same with the frontend
+
 ### Run in the background
 ```sh
 docker run --rm -p 4567:4567 -d backend-flask
