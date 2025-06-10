@@ -103,7 +103,7 @@ docker images
 ```sh
 
 ```
-# This yml code in the docker-compase file will allow us to run/orchestrate multiple containers at the same time
+# This yml code in the docker-compose file will allow us to run/orchestrate multiple containers at the same time
 ```yml
 version: "3.8"
 services:
