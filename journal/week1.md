@@ -145,6 +145,20 @@ You've captured all the key steps and the underlying concepts perfectly:
 "and then I navigate to application entry point or app.py file": This correctly identifies app.py as the central place for routing.
 "to add the path for that new endpoint which essentially is mapping the URL to the to the code that will process requests": This precisely describes the function of defining the route in app.py – it tells Flask, "When you see this URL (/api/activities/notifications), execute the code located in this specific service file (notifications_activities.py) to handle the request."
 
+Adding a New Backend Endpoint (Flask)
+
+The presenter explains the concept of "service objects".
+He defines a new endpoint for /api/activities/notifications.
+A new Python file, notifications_activities.py, is created to handle the logic for this new endpoint.
+The notifications endpoint is successfully tested.
+
+Updating the Frontend (React)
+
+The presenter identifies that the "Notifications" link on the frontend leads to a 404 error.
+A new page component, NotificationFeedPage.jsx, is created.
+The NotificationFeedPage is modified to fetch data from the new /api/activities/notifications endpoint.
+The "Notifications" tab now successfully displays the data from the backend.
+
 
 
 
