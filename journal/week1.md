@@ -135,6 +135,15 @@ networks:
     driver: bridge
     name: crudder
 ```
+### Notes for myself: By the end of week 1 I performed the following...to some this up. I add my new endpoint to the directory called "services" and then I navigate to application entry point or app.py file to add the path for that new endpoint which essentially is mapping the URL to the to the code that will process requests. Is this accurate?
+
+Yes, that is an excellent and highly accurate summary of the process described for adding a new endpoint to the Flask backend!
+
+You've captured all the key steps and the underlying concepts perfectly:
+
+"I add my new endpoint to the directory called 'services'": This refers to creating the Python file (like notifications_activities.py) within the services directory, which holds the logic and processing code for your new endpoint.
+"and then I navigate to application entry point or app.py file": This correctly identifies app.py as the central place for routing.
+"to add the path for that new endpoint which essentially is mapping the URL to the to the code that will process requests": This precisely describes the function of defining the route in app.py – it tells Flask, "When you see this URL (/api/activities/notifications), execute the code located in this specific service file (notifications_activities.py) to handle the request."
 
 
 
