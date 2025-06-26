@@ -169,7 +169,24 @@ To install the postgres client into Gitpod
     sudo apt update
     sudo apt install -y postgresql-client-13 libpq-dev
 ```
+### If I am in gitpod and I download postgres into my envirnment using my docker compose file, why do I need to download the postegres client in addition to communicate with postgres?
 
+###Answer:
+You need to install the PostgreSQL client separately in your Gitpod environment because of how Docker containers work, even when using Docker Compose.
+
+Here's why:
+
+Container Isolation: Your Docker Compose file spins up a PostgreSQL server within its own isolated container. This container has everything the PostgreSQL server needs to run, but it doesn't automatically expose command-line tools like psql or other client applications directly to your Gitpod workspace's main terminal or file system.
+
+Client-Server Model: To interact with the PostgreSQL server running inside its Docker container, your Gitpod workspace (which is essentially another environment, albeit also containerized by Gitpod) needs its own client software. This client acts as a bridge, sending commands to the PostgreSQL server and receiving results back.
+
+Separate Purposes:
+
+The Docker container (PostgreSQL server) is focused on running the database engine itself.
+
+The PostgreSQL client (like psql or your GUI "Database Client") is focused on providing you with tools to connect to and manage that database server from your local development environment.
+
+So, even though the server is running, you still need the client tools in your Gitpod workspace to talk to it. Think of it like having a web server running on a remote machine; you still need a web browser on your local machine to access it.
 
 
 
