@@ -160,5 +160,16 @@ The NotificationFeedPage is modified to fetch data from the new /api/activities/
 The "Notifications" tab now successfully displays the data from the backend.
 
 
+To install the postgres client into Gitpod
+```sh
+- name: postgres
+  init:
+    curl -fsSl https://www.postgresql.org/media/keys/ACCC4CF8.asc|sudo gpg --dearmor -o /ect/apt/trusted.gpg.d/postgresql.gpg
+    echo "deb http://apt.postgresql.org/pub/repos/apt/ `lsb_release -cs`-pgdg main" |sudo tee /etc/apt/sources.list.d/pgdg.list
+    sudo apt update
+    sudo apt install -y postgresql-client-13 libpq-dev
+```
+
+
 
 
