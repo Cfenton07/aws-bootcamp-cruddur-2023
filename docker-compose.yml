@@ -5,13 +5,37 @@ services:
       FRONTEND_URL: "https://3000-${GITPOD_WORKSPACE_ID}.${GITPOD_WORKSPACE_CLUSTER_HOST}"
       BACKEND_URL: "https://4567-${GITPOD_WORKSPACE_ID}.${GITPOD_WORKSPACE_CLUSTER_HOST}"
       OTEL_SERVICE_NAME: 'backend-flask'
-      OTEP_EXPORTER_OTLP_ENDPOINT: "https://api.honeycomb.io"
-      OTEP_EXPORTER_OTLP_HEADERS: "x-honeycomb-team=${HONEYCOMB_API_KEY}"
+      #OTEP_EXPORTER_OTLP_ENDPOINT: "https://api.honeycomb.io"
+      #OTEP_EXPORTER_OTLP_HEADERS: "x-honeycomb-team=${HONEYCOMB_API_KEY}"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318" # Flask app sends to the Collector service
     build: ./backend-flask
     ports:
       - "4567:4567"
     volumes:
       - ./backend-flask:/backendflasktype
+    depends_on:
+      - otel-collector # Ensure the Collector starts before the Flask app
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest # Use the contrib image for more features
+    command: ["--config=/etc/otelcol/config.yaml"] # Tell the Collector to use our mounted config
+    volumes:
+      # Mount your local config.yaml into the container
+      # Make sure you have a 'config.yaml' file in a './otel-collector/' directory at your project root
+      - ./otel-collector/config.yaml:/etc/otelcol/config.yaml
+    ports:
+      # Expose the OTLP HTTP port so your Flask app can reach it
+      - "4318:4318" # OTLP HTTP receiver
+      - "4317:4317" # OTLP gRPC receiver (optional, but good to expose if needed)
+      # You might also expose other ports for debugging, e.g., for Prometheus exporter or zPages
+      # - "8888:8888" # Prometheus metrics (if configured in Collector)
+    environment:
+      # Pass your Honeycomb API key to the Collector container
+      # This is how the Collector's config.yaml will get the ${env:HONEYCOMB_API_KEY} value
+      HONEYCOMB_API_KEY: "${HONEYCOMB_API_KEY}" # Reads from your host's environment variable
+      # If you use a specific dataset for Honeycomb Classic, you might also pass it here
+      # HONEYCOMB_DATASET: "${HONEYCOMB_DATASET_NAME}"
+    restart: unless-stopped # Automatically restart if it stops
   frontend-react-js:
     environment:
       REACT_APP_BACKEND_URL: "https://4567-${GITPOD_WORKSPACE_ID}.${GITPOD_WORKSPACE_CLUSTER_HOST}"
