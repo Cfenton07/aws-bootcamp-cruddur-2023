@@ -126,3 +126,5 @@ OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318": You've updated the ba
 depends_on: - otel-collector: This instructs Docker Compose to start the otel-collector service before attempting to start the backend-flask service. This helps prevent "connection refused" errors from your Flask app if the Collector isn't ready to receive data yet.
 
 In essence, you've shifted your observability strategy from direct application-to-Honeycomb communication to a more robust architecture where the OpenTelemetry Collector acts as an intermediary. Your Flask application now sends its traces to the local Collector, and the Collector is responsible for processing and securely forwarding that data to Honeycomb. This provides benefits like buffering, batching, and potential future routing to multiple observability backends without changing your application code.
+
+![Open Telemetry added director ](https://github.com/Cfenton07/aws-bootcamp-cruddur-2023/blob/main/_docs/assets/otel-collector%202025-07-08%20123142.png)
