@@ -1,0 +1,37 @@
+# config.yaml
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318 # Collector listens for OTLP over HTTP on port 4318
+      grpc:
+        endpoint: 0.0.0.0:4317 # Collector listens for OTLP over gRPC on port 4317
+
+processors:
+  batch: # Batches data for efficient export
+    send_batch_size: 1000
+    timeout: 10s
+
+exporters:
+  # This configures the Collector to forward data to Honeycomb
+  otlp/honeycomb:
+    endpoint: "https://api.honeycomb.io:443"
+    headers:
+      "x-honeycomb-team": "${env:HONEYCOMB_API_KEY}" # Reads API key from HONEYCOMB_API_KEY env var
+    # If you are using a specific dataset (for Honeycomb Classic users), uncomment and set:
+    # "x-honeycomb-dataset": "YOUR_DATASET_NAME"
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp/honeycomb]
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp/honeycomb]
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp/honeycomb]
