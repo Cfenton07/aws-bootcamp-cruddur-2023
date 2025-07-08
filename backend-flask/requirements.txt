@@ -1,2 +1,9 @@
 flask
 flask-cors
+
+opentelemetry-api
+opentelemetry-sdk
+opentelemetry-instrumentation-flask
+opentelemetry-instrumentation-requests
+opentelemetry-distro
+opentelemetry-exporter-otlp-proto-http
