@@ -94,4 +94,4 @@ volumes:
 Instead of downloading many individual files, I download one compressed .tar.gz file. Once downloaded, I use a command like tar -xvf to extract the actual executable (e.g., otelcol-contrib) from within it. I then run this extracted executable.
 
 So, its purpose is to provide a convenient and compressed way to package and distribute the OpenTelemetry Collector software for Linux systems.)
-![Open Telemetry .tar.gz file]("C:\Users\FentoC01\OneDrive - CPGPLC\Pictures\Opentelemetry_Collector_2025-07-08 122133.png")
+![Open Telemetry .tar.gz file](C:\Users\FentoC01\OneDrive - CPGPLC\Pictures\Opentelemetry_Collector_2025-07-08 122133.png)
