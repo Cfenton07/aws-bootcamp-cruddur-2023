@@ -96,3 +96,33 @@ Instead of downloading many individual files, I download one compressed .tar.gz 
 So, its purpose is to provide a convenient and compressed way to package and distribute the OpenTelemetry Collector software for Linux systems.)
 
 ![Open Telemetry ".tar.gz" file](https://github.com/Cfenton07/aws-bootcamp-cruddur-2023/blob/main/_docs/assets/Opentelemetry_Collector_2025-07-08%20122133.png)
+
+##Here's an explanation of what you've done in the docker-compose.yml file:
+
+In the provided docker-compose.yml file, you've integrated the OpenTelemetry Collector into your multi-service Docker setup. This is a significant step towards centralizing your application's observability.
+
+Specifically, you've made the following key changes:
+
+Introduced an otel-collector Service:
+
+You've added a new service block named otel-collector. This defines a new container that will run the OpenTelemetry Collector.
+
+image: otel/opentelemetry-collector-contrib:latest: This specifies that the Collector container will be built from the official otel/opentelemetry-collector-contrib Docker image, ensuring you have a feature-rich version of the Collector.
+
+command: ["--config=/etc/otelcol/config.yaml"]: This tells the Collector executable inside the container to use a specific configuration file.
+
+volumes: - ./otel-collector/config.yaml:/etc/otelcol/config.yaml: This is crucial for configuration. It mounts your local config.yaml file (which you should place in a ./otel-collector/ directory at your project root) into the /etc/otelcol/config.yaml path inside the Collector container. This allows you to manage the Collector's behavior from your local project files.
+
+ports: - "4318:4318" and - "4317:4317": These lines expose the standard OTLP (OpenTelemetry Protocol) ports from the Collector container to your host machine. This makes it possible for your backend-flask application (and potentially other services or external tools) to send telemetry data to the Collector. Port 4318 is for OTLP over HTTP, and 4317 is for OTLP over gRPC.
+
+environment: HONEYCOMB_API_KEY: "${HONEYCOMB_API_KEY}": This passes your HONEYCOMB_API_KEY environment variable (which you set on your host machine before running Docker Compose) into the otel-collector container. The Collector's config.yaml then uses this variable to authenticate when forwarding data to Honeycomb.
+
+restart: unless-stopped: This ensures that if the Collector container stops for any reason (e.g., due to an error), Docker will automatically try to restart it, improving the reliability of your observability pipeline.
+
+Modified the backend-flask Service:
+
+OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318": You've updated the backend-flask service's environment variables. Previously, it might have been configured to send traces directly to Honeycomb. Now, it's explicitly told to send its telemetry data to the otel-collector service (which is reachable by its service name otel-collector within the Docker Compose network) on port 4318.
+
+depends_on: - otel-collector: This instructs Docker Compose to start the otel-collector service before attempting to start the backend-flask service. This helps prevent "connection refused" errors from your Flask app if the Collector isn't ready to receive data yet.
+
+In essence, you've shifted your observability strategy from direct application-to-Honeycomb communication to a more robust architecture where the OpenTelemetry Collector acts as an intermediary. Your Flask application now sends its traces to the local Collector, and the Collector is responsible for processing and securely forwarding that data to Honeycomb. This provides benefits like buffering, batching, and potential future routing to multiple observability backends without changing your application code.
