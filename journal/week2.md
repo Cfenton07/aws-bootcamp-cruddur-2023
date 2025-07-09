@@ -1,6 +1,67 @@
 # Week 2 — Distributed Tracing
 ## Added yaml code to connect my container to Opentelemetry collector so that my backend-falsk can cend traces to the Collector and then forward them to Honeycomb.
 ### See code changes to my Docker-Compose file below
+
+### From the initial config set up for my Open Telemetry set up I was receiving the following error:
+What does this mean: Exception while exporting Span.
+
+Traceback (most recent call last):
+
+  File "/usr/local/lib/python3.10/site-packages/urllib3/connection.py", line 198, in _new_conn
+
+    sock = connection.create_connection(
+
+  File "/usr/local/lib/python3.10/site-packages/urllib3/util/connection.py", line 85, in create_connection
+
+    raise err
+
+  File "/usr/local/lib/python3.10/site-packages/urllib3/util/connection.py", line 73, in create_connection
+
+    sock.connect(sa)
+
+ConnectionRefusedError: [Errno 111] Connection refused
+
+## I inquired Gemini about this error and here is what I found out:
+
+### This means that your application successfully generated a trace span (a piece of telemetry data), but it failed to send it to its intended destination.
+
+Let's break down the error message and its implications:
+
+Exception while exporting Span.: This is the top-level message. It clearly states that the problem occurred during the "export" phase of a "Span."
+
+Span: In OpenTelemetry, a span represents a single operation or unit of work within a trace. For example, an API call, a database query, or a function execution can be a span.
+
+Exporting: This is the process of sending the collected telemetry data (spans, metrics, logs) from your application to an observability backend (like an OpenTelemetry Collector, Jaeger, Datadog, etc.).
+
+Traceback (most recent call last):: This is a standard Python traceback, showing the sequence of function calls that led to the error.
+
+File "/usr/local/lib/python3.10/site-packages/urllib3/connection.py", line 198, in _new_conn
+File "/usr/local/lib/python3.10/site-packages/urllib3/util/connection.py", line 85, in create_connection
+File "/usr/local/lib/python3.10/site-packages/urllib3/util/connection.py", line 73, in create_connection
+sock.connect(sa):
+These lines show that the error occurred deep within the urllib3 library, which is a Python HTTP client library often used by other libraries (like requests and, by extension, OpenTelemetry's OTLP HTTP exporter) to make network connections. Specifically, it happened when urllib3 tried to establish a raw socket connection (sock.connect(sa)) to a remote address.
+
+ConnectionRefusedError: [Errno 111] Connection refused:
+This is the core problem. It's an operating system error that means:
+
+Your application (the client) attempted to connect to a specific network address (IP address and port).
+
+The machine at that address actively refused the connection. It wasn't just unreachable; it explicitly sent back a "connection refused" signal.
+
+What does this imply in the context of OpenTelemetry?
+
+This error typically means one of the following:
+
+The OpenTelemetry Collector (or whatever service you're trying to send traces to) is not running. Your application is trying to "talk" to a server that isn't there or isn't listening for connections.
+
+The OpenTelemetry Collector is running, but it's not listening on the expected port or IP address. For example, your application might be configured to send to localhost:4318, but the Collector is configured to listen on a different port, or only on a specific network interface other than localhost.
+
+A firewall is blocking the connection. While less common for localhost connections (if both your application and the Collector are on the same machine), a strict firewall could prevent even internal connections. If the Collector is on a different machine, a network firewall is a very common cause.
+
+In summary, your application did its job of creating the telemetry data, but it failed at the last step: sending that data out because the intended recipient was not available or not accepting connections at the specified address and port.
+
+To resolve this, you need to ensure that the service that is supposed to receive your OpenTelemetry traces (most commonly an OpenTelemetry Collector) is running and correctly configured to listen on the address and port that your application's OpenTelemetry exporter is trying to connect to.
+
 ```yaml
 # docker-compose.yml
 
@@ -88,8 +149,8 @@ volumes:
     driver: local
 ```
 
-##I also had to download the OpenTelemetry tar.gz file since I kepts getting an connection refused issue with an initial setup for sending traces to Honeycomb.
-###(OpenTelemetry Collector, the .tar.gz file is used to distribute the pre-built executable binary along with any other necessary supporting files (though often it's just the single executable).
+## I also had to download the OpenTelemetry tar.gz file since I kepts getting an connection refused issue with an initial setup for sending traces to Honeycomb.
+### (OpenTelemetry Collector, the .tar.gz file is used to distribute the pre-built executable binary along with any other necessary supporting files (though often it's just the single executable).
 
 Instead of downloading many individual files, I download one compressed .tar.gz file. Once downloaded, I use a command like tar -xvf to extract the actual executable (e.g., otelcol-contrib) from within it. I then run this extracted executable.
 
@@ -97,7 +158,7 @@ So, its purpose is to provide a convenient and compressed way to package and dis
 
 ![Open Telemetry ".tar.gz" file](https://github.com/Cfenton07/aws-bootcamp-cruddur-2023/blob/main/_docs/assets/Opentelemetry_Collector_2025-07-08%20122133.png)
 
-##Here's an explanation of what you've done in the docker-compose.yml file:
+## Here's an explanation of what you've done in the docker-compose.yml file:
 
 In the provided docker-compose.yml file, you've integrated the OpenTelemetry Collector into your multi-service Docker setup. This is a significant step towards centralizing your application's observability.
 
@@ -128,3 +189,45 @@ depends_on: - otel-collector: This instructs Docker Compose to start the otel-co
 In essence, you've shifted your observability strategy from direct application-to-Honeycomb communication to a more robust architecture where the OpenTelemetry Collector acts as an intermediary. Your Flask application now sends its traces to the local Collector, and the Collector is responsible for processing and securely forwarding that data to Honeycomb. This provides benefits like buffering, batching, and potential future routing to multiple observability backends without changing your application code.
 
 ![Open Telemetry added director ](https://github.com/Cfenton07/aws-bootcamp-cruddur-2023/blob/main/_docs/assets/otel-collector%202025-07-08%20123142.png)
+
+## The file above .tar.gz was too large to commit back to my repo so I had to delete it and create a config.yaml file and added it to the otelcol directory set in my main worspace ... that yaml file had the instructions to set the ports for the otlp receiver for the Collector to listen to (port 4318) and and then set the port for the exporter to automatically forward from the Collector to Honeycomb on port 443. I also defined my receiver, processor and exporter in this file...see below
+
+```yaml
+# config.yaml
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318 # Collector listens for OTLP over HTTP on port 4318
+      grpc:
+        endpoint: 0.0.0.0:4317 # Collector listens for OTLP over gRPC on port 4317
+
+processors:
+  batch: # Batches data for efficient export
+    send_batch_size: 1000
+    timeout: 10s
+
+exporters:
+  # This configures the Collector to forward data to Honeycomb
+  otlp/honeycomb:
+    endpoint: "https://api.honeycomb.io:443"
+    headers:
+      "x-honeycomb-team": "${env:HONEYCOMB_API_KEY}" # Reads API key from HONEYCOMB_API_KEY env var
+    # If you are using a specific dataset (for Honeycomb Classic users), uncomment and set:
+    # "x-honeycomb-dataset": "YOUR_DATASET_NAME"
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp/honeycomb]
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp/honeycomb]
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp/honeycomb]
+```
