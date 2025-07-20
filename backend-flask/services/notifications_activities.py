@@ -1,9 +1,16 @@
 from datetime import datetime, timedelta, timezone
 from aws_xray_sdk.core import xray_recorder
 
+
+
 class NotificationsActivities:
   def run():
-    segment = xray_recorder.begin_segment('notifications_activities')
+    with xray_recorder.in_segment('notifications_activities') as segment:
+        try:
+            print("Segment started: notifications_activities")
+            print("Endpoint logic finished.")
+        finally:
+            print("Segment context manager exiting.")
 
     now = datetime.now(timezone.utc).astimezone()
     
@@ -28,13 +35,7 @@ class NotificationsActivities:
       }],
     }
     ]
-    #XRay---
-    subsegment = xray_recorder.begin_subsegment('mock-data')
-
-    dict = {
-      "now": now.isoformat(),
-      "results-size": len(results)
-    }
-    subsegment.put_metadata('key', dict, 'namespace')
+   
+    
     return results
     
