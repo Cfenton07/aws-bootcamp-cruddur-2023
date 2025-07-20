@@ -27,6 +27,57 @@ from opentelemetry.sdk.trace.export import ConsoleSpanExporter, SimpleSpanProces
 from aws_xray_sdk.core import xray_recorder
 from aws_xray_sdk.ext.flask.middleware import XRayMiddleware
 
+#AWS Watchtower Cloudwatch logs------
+import watchtower
+import logging
+import sys
+import time
+from time import strftime
+
+# Configuring Logger to Use CloudWatch
+# --- Configuration for CloudWatch Logs ---
+# IMPORTANT: Replace these with your desired Log Group and Region.
+# These can also be pulled from environment variables for flexibility.
+CLOUDWATCH_LOG_GROUP = os.environ.get('CLOUDWATCH_LOG_GROUP', 'cruddur') # Using 'cruddur' as default from your snippet
+AWS_REGION = os.environ.get('AWS_REGION', 'us-east-1') # e.g., 'us-east-1', 'eu-west-1'
+
+# The log stream name can be dynamic, e.g., based on instance ID, timestamp, etc.
+# For simplicity, we'll use a fixed name or a timestamp.
+# If running in ECS/Lambda, the environment might provide unique identifiers.
+CLOUDWATCH_LOG_STREAM = os.environ.get('CLOUDWATCH_LOG_STREAM', f"app-instance-{int(time.time())}")
+
+# --- Configure the Logger ---
+# Get the root logger or a specific logger for your application
+# Using __name__ is good practice for library code, but for an app.py,
+# you might use a more generic name or the root logger.
+LOGGER = logging.getLogger(__name__)
+LOGGER.setLevel(logging.DEBUG) # Set to DEBUG as in your snippet
+
+# --- Add a StreamHandler for console output (optional but recommended) ---
+# This ensures logs also appear in your console/Docker logs, which is useful for debugging.
+console_handler = logging.StreamHandler(sys.stdout)
+console_handler.setLevel(logging.DEBUG) # Set to DEBUG to match LOGGER
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+console_handler.setFormatter(formatter)
+LOGGER.addHandler(console_handler)
+
+# --- Add the Watchtower handler for CloudWatch Logs ---
+try:
+    cw_handler = watchtower.CloudWatchLogHandler(
+        log_group_name=CLOUDWATCH_LOG_GROUP,
+        log_stream_name=CLOUDWATCH_LOG_STREAM, # Added dynamic log stream name
+        region_name=AWS_REGION, # <-- THIS IS THE CRUCIAL ADDITION
+        create_log_group=True,  # Recommended for robustness
+        create_log_stream=True, # Recommended for robustness
+        # Add any other configuration as needed, e.g., boto3_session for specific credentials
+    )
+    LOGGER.addHandler(cw_handler)
+    LOGGER.info("CloudWatch logging configured successfully.")
+except Exception as e:
+    LOGGER.error(f"Failed to configure CloudWatch logging: {e}")
+    # You might want to exit or fallback to only console logging here
+
+
 
 
 #Initialize tracing and an exporter that can send data to Honeycomb ...
@@ -65,6 +116,12 @@ cors = CORS(
   methods="OPTIONS,GET,HEAD,POST"
 )
 
+@app.after_request
+def after_request(response):
+    timestamp = strftime('[%Y-%b-%d %H:%M]')
+    LOGGER.error('%s %s %s %s %s %s', timestamp, request.remote_addr, request.method, request.scheme, request.full_path, response.status)
+    return response
+
 @app.route("/api/message_groups", methods=['GET'])
 def data_message_groups():
   user_handle  = 'chrisfenton'
@@ -102,7 +159,7 @@ def data_create_message():
 
 @app.route("/api/activities/home", methods=['GET'])
 def data_home():
-  data = HomeActivities.run()
+  data = HomeActivities.run(logger=LOGGER)
   return data, 200
 
 @app.route("/api/activities/notifications", methods=['GET'])
