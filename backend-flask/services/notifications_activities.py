@@ -1,19 +1,20 @@
 from datetime import datetime, timedelta, timezone
-from aws_xray_sdk.core import xray_recorder
-
-
+from aws_xray_sdk.core import xray_recorder # Keep this import
 
 class NotificationsActivities:
   def run():
-    with xray_recorder.in_segment('notifications_activities') as segment:
+    # Changed to in_subsegment to indicate it's a child of the main request segment
+    with xray_recorder.in_subsegment('notifications_activities') as subsegment: # <-- CHANGED THIS LINE
         try:
-            print("Segment started: notifications_activities")
+            print("Subsegment started: notifications_activities") # <-- UPDATED PRINT MESSAGE
             print("Endpoint logic finished.")
+            # You can add custom annotations or metadata to this subsegment here
+            # subsegment.put_annotation('custom_key', 'custom_value')
         finally:
-            print("Segment context manager exiting.")
+            print("Subsegment context manager exiting.") # <-- UPDATED PRINT MESSAGE
 
     now = datetime.now(timezone.utc).astimezone()
-    
+
     results = [{
       'uuid': '68f126b0-1ceb-4a33-88be-d90fa7109eee',
       'handle':  'Antwuan Jacobs',
@@ -33,9 +34,6 @@ class NotificationsActivities:
         'reposts_count': 0,
         'created_at': (now - timedelta(days=2)).isoformat()
       }],
-    }
-    ]
-   
-    
+    }]
+
     return results
-    
