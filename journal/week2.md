@@ -1,5 +1,5 @@
 # Week 2 — Distributed Tracing
-## Added yaml code to connect my container to Opentelemetry collector so that my backend-falsk can cend traces to the Collector and then forward them to Honeycomb.
+## Added yaml code to connect my container to Opentelemetry collector so that my backend-falsk can send traces to the Collector and then forward them to Honeycomb.
 ### See code changes to my Docker-Compose file below
 
 ### From the initial config set up for my Open Telemetry set up I was receiving the following error:
