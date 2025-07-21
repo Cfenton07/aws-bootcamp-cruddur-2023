@@ -231,3 +231,452 @@ service:
       processors: [batch]
       exporters: [otlp/honeycomb]
 ```
+## I added the xray for python by building a container that runs the xray daemon. I also added the xray sdk for flask in my app.py file; added segments to the notifications_activities file to send trace data to xray when the endpoint is called. Lastly, I created a CloudWatch log group to capture activity from my home_activities file. In the process of building this out I ran into an issue with my xray. 
+
+### I kept seeing the following errors in my backend-flask logs for the container:
+(2025-07-21 00:58:54,392 - app - ERROR - Failed to configure CloudWatch logging: Handler.__init__() got an unexpected keyword argument 'region_name'
+2025-07-21 00:58:54,533 - app - INFO - initializing xray middleware
+ * Debug mode: off
+WARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:4567
+ * Running on http://172.18.0.7:4567
+Press CTRL+C to quit
+Segment started: notifications_activities
+Endpoint logic finished.
+Segment context manager exiting.
+2025-07-21 00:59:00,419 - app - ERROR - [2025-Jul-21 00:59] 192.168.86.137 GET http /api/activities/notifications? 200 OK
+cannot find the current segment/subsegment, please make sure you have a segment open
+2025-07-21 00:59:00,419 - app - ERROR - Exception on /api/activities/notifications [GET]
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.10/site-packages/flask/app.py", line 1511, in wsgi_app
+    response = self.full_dispatch_request()
+  File "/usr/local/lib/python3.10/site-packages/flask/app.py", line 920, in full_dispatch_request
+    return self.finalize_request(rv)
+  File "/usr/local/lib/python3.10/site-packages/flask/app.py", line 941, in finalize_request
+    response = self.process_response(response)
+  File "/usr/local/lib/python3.10/site-packages/flask/app.py", line 1319, in process_response
+    response = self.ensure_sync(func)(response)
+  File "/usr/local/lib/python3.10/site-packages/aws_xray_sdk/ext/flask/middleware.py", line 74, in _after_request
+    segment.put_http_meta(http.STATUS, response.status_code)
+AttributeError: 'NoneType' object has no attribute 'put_http_meta'
+2025-07-21 00:59:00,420 - app - ERROR - [2025-Jul-21 00:59] 192.168.86.137 GET http /api/activities/notifications? 500 INTERNAL SERVER ERROR
+cannot find the current segment/subsegment, please make sure you have a segment open
+2025-07-21 00:59:00,421 - app - ERROR - Request finalizing failed with an error while handling an error
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.10/site-packages/flask/app.py", line 1511, in wsgi_app
+    response = self.full_dispatch_request()
+  File "/usr/local/lib/python3.10/site-packages/flask/app.py", line 920, in full_dispatch_request
+    return self.finalize_request(rv)
+  File "/usr/local/lib/python3.10/site-packages/flask/app.py", line 941, in finalize_request
+    response = self.process_response(response)
+  File "/usr/local/lib/python3.10/site-packages/flask/app.py", line 1319, in process_response
+    response = self.ensure_sync(func)(response)
+  File "/usr/local/lib/python3.10/site-packages/aws_xray_sdk/ext/flask/middleware.py", line 74, in _after_request
+    segment.put_http_meta(http.STATUS, response.status_code)
+AttributeError: 'NoneType' object has no attribute 'put_http_meta'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.10/site-packages/flask/app.py", line 941, in finalize_request
+cannot find the current segment/subsegment, please make sure you have a segment open
+    response = self.process_response(response)
+  File "/usr/local/lib/python3.10/site-packages/flask/app.py", line 1319, in process_response
+    response = self.ensure_sync(func)(response)
+  File "/usr/local/lib/python3.10/site-packages/aws_xray_sdk/ext/flask/middleware.py", line 74, in _after_request
+    segment.put_http_meta(http.STATUS, response.status_code)
+AttributeError: 'NoneType' object has no attribute 'put_http_meta'
+192.168.86.137 - - [21/Jul/2025 00:59:00] "GET /api/activities/notifications HTTP/1.1" 500 -
+Segment started: notifications_activities
+Endpoint logic finished.
+Segment context manager exiting.
+2025-07-21 00:59:02,222 - app - ERROR - [2025-Jul-21 00:59] 192.168.86.137 GET http /api/activities/notifications? 200 OK
+cannot find the current segment/subsegment, please make sure you have a segment open
+2025-07-21 00:59:02,222 - app - ERROR - Exception on /api/activities/notifications [GET]
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.10/site-packages/flask/app.py", line 1511, in wsgi_app
+    response = self.full_dispatch_request()
+  File "/usr/local/lib/python3.10/site-packages/flask/app.py", line 920, in full_dispatch_request
+    return self.finalize_request(rv)
+  File "/usr/local/lib/python3.10/site-packages/flask/app.py", line 941, in finalize_request
+    response = self.process_response(response)
+  File "/usr/local/lib/python3.10/site-packages/flask/app.py", line 1319, in process_response
+    response = self.ensure_sync(func)(response)
+  File "/usr/local/lib/python3.10/site-packages/aws_xray_sdk/ext/flask/middleware.py", line 74, in _after_request
+    segment.put_http_meta(http.STATUS, response.status_code)
+AttributeError: 'NoneType' object has no attribute 'put_http_meta'
+2025-07-21 00:59:02,222 - app - ERROR - [2025-Jul-21 00:59] 192.168.86.137 GET http /api/activities/notifications? 500 INTERNAL SERVER ERROR
+cannot find the current segment/subsegment, please make sure you have a segment open
+2025-07-21 00:59:02,222 - app - ERROR - Request finalizing failed with an error while handling an error
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.10/site-packages/flask/app.py", line 1511, in wsgi_app
+    response = self.full_dispatch_request()
+  File "/usr/local/lib/python3.10/site-packages/flask/app.py", line 920, in full_dispatch_request
+    return self.finalize_request(rv)
+  File "/usr/local/lib/python3.10/site-packages/flask/app.py", line 941, in finalize_request
+    response = self.process_response(response)
+  File "/usr/local/lib/python3.10/site-packages/flask/app.py", line 1319, in process_response
+    response = self.ensure_sync(func)(response)
+  File "/usr/local/lib/python3.10/site-packages/aws_xray_sdk/ext/flask/middleware.py", line 74, in _after_request
+    segment.put_http_meta(http.STATUS, response.status_code)
+AttributeError: 'NoneType' object has no attribute 'put_http_meta'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.10/site-packages/flask/app.py", line 941, in finalize_request
+    response = self.process_response(response)
+  File "/usr/local/lib/python3.10/site-packages/flask/app.py", line 1319, in process_response
+    response = self.ensure_sync(func)(response)
+  File "/usr/local/lib/python3.10/site-packages/aws_xray_sdk/ext/flask/middleware.py", line 74, in _after_request
+cannot find the current segment/subsegment, please make sure you have a segment open
+    segment.put_http_meta(http.STATUS, response.status_code)
+AttributeError: 'NoneType' object has no attribute 'put_http_meta'
+192.168.86.137 - - [21/Jul/2025 00:59:02] "GET /api/activities/notifications HTTP/1.1" 500 -
+Segment started: notifications_activities
+Endpoint logic finished.
+Segment context manager exiting.
+2025-07-21 00:59:03,619 - app - ERROR - [2025-Jul-21 00:59] 192.168.86.137 GET http /api/activities/notifications? 200 OK
+cannot find the current segment/subsegment, please make sure you have a segment open
+2025-07-21 00:59:03,620 - app - ERROR - Exception on /api/activities/notifications [GET]
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.10/site-packages/flask/app.py", line 1511, in wsgi_app
+    response = self.full_dispatch_request()
+  File "/usr/local/lib/python3.10/site-packages/flask/app.py", line 920, in full_dispatch_request
+    return self.finalize_request(rv)
+  File "/usr/local/lib/python3.10/site-packages/flask/app.py", line 941, in finalize_request
+    response = self.process_response(response)
+  File "/usr/local/lib/python3.10/site-packages/flask/app.py", line 1319, in process_response
+    response = self.ensure_sync(func)(response)
+  File "/usr/local/lib/python3.10/site-packages/aws_xray_sdk/ext/flask/middleware.py", line 74, in _after_request
+    segment.put_http_meta(http.STATUS, response.status_code)
+AttributeError: 'NoneType' object has no attribute 'put_http_meta'
+2025-07-21 00:59:03,620 - app - ERROR - [2025-Jul-21 00:59] 192.168.86.137 GET http /api/activities/notifications? 500 INTERNAL SERVER ERROR
+cannot find the current segment/subsegment, please make sure you have a segment open
+2025-07-21 00:59:03,620 - app - ERROR - Request finalizing failed with an error while handling an error
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.10/site-packages/flask/app.py", line 1511, in wsgi_app
+    response = self.full_dispatch_request()
+  File "/usr/local/lib/python3.10/site-packages/flask/app.py", line 920, in full_dispatch_request
+    return self.finalize_request(rv)
+  File "/usr/local/lib/python3.10/site-packages/flask/app.py", line 941, in finalize_request
+    response = self.process_response(response)
+  File "/usr/local/lib/python3.10/site-packages/flask/app.py", line 1319, in process_response
+cannot find the current segment/subsegment, please make sure you have a segment open
+    response = self.ensure_sync(func)(response)
+  File "/usr/local/lib/python3.10/site-packages/aws_xray_sdk/ext/flask/middleware.py", line 74, in _after_request
+    segment.put_http_meta(http.STATUS, response.status_code)
+AttributeError: 'NoneType' object has no attribute 'put_http_meta'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.10/site-packages/flask/app.py", line 941, in finalize_request
+    response = self.process_response(response)
+  File "/usr/local/lib/python3.10/site-packages/flask/app.py", line 1319, in process_response
+    response = self.ensure_sync(func)(response)
+  File "/usr/local/lib/python3.10/site-packages/aws_xray_sdk/ext/flask/middleware.py", line 74, in _after_request
+    segment.put_http_meta(http.STATUS, response.status_code)
+AttributeError: 'NoneType' object has no attribute 'put_http_meta'
+192.168.86.137 - - [21/Jul/2025 00:59:03] "GET /api/activities/notifications HTTP/1.1" 500 -)
+
+## The core issue is that the AWS X-Ray SDK was losing track of the main request segment that its Flask middleware is supposed to manage. This causes the AttributeError: 'NoneType' object has no attribute 'put_http_meta' because the middleware tries to update a segment that no longer exists in its context.
+
+My previous suggestions were aimed at troubleshooting this context loss. Now, we'll implement a more robust solution by:
+
+Ensuring the Flask route itself is explicitly captured by X-Ray: This helps solidify the main request segment's context.
+
+Using in_subsegment in your NotificationsActivities.run(): This is the correct way to create a nested trace within an existing parent segment (which the Flask middleware provides).
+
+Here are the exact updates you need to make:
+
+1. Update your app.py file
+Replace the entire content of your current app.py file with the following code. The key change is adding @xray_recorder.capture('notifications_api_call') above your data_notifications route.
+Okay, I understand. You want the complete, updated code for both files directly in this response, along with a very clear, step-by-step guide. No problem!
+
+The core issue is still that the AWS X-Ray SDK is losing track of the main request segment that its Flask middleware is supposed to manage. This causes the AttributeError: 'NoneType' object has no attribute 'put_http_meta' because the middleware tries to update a segment that no longer exists in its context.
+
+My previous suggestions were aimed at troubleshooting this context loss. Now, we'll implement a more robust solution by:
+
+Ensuring the Flask route itself is explicitly captured by X-Ray: This helps solidify the main request segment's context.
+
+Using in_subsegment in your NotificationsActivities.run(): This is the correct way to create a nested trace within an existing parent segment (which the Flask middleware provides).
+
+Here are the exact updates you need to make:
+
+1. Update your app.py file
+Replace the entire content of your current app.py file with the following code. The key change is adding @xray_recorder.capture('notifications_api_call') above your data_notifications route.
+
+2. Update your services/notifications_activities.py file
+Replace the entire content of your services/notifications_activities.py file with the following code. The key change is using xray_recorder.in_subsegment() instead of xray_recorder.in_segment(). I've also updated the print statements to reflect "subsegment" for clarity.
+
+4-Step Action Plan:
+Open app.py: Copy the entire content from the "Updated app.py" immersive above and paste it, replacing everything in your app.py file. (made updates to make xray work
+```py
+from flask import Flask
+from flask import request
+from flask_cors import CORS, cross_origin
+import os
+
+from services.home_activities import *
+from services.notifications_activities import *
+from services.user_activities import *
+from services.create_activity import *
+from services.create_reply import *
+from services.search_activities import *
+from services.message_groups import *
+from services.messages import *
+from services.create_message import *
+from services.show_activity import *
+
+# Honeycomb observability ... via open telemetry
+from opentelemetry import trace
+from opentelemetry.instrumentation.flask import FlaskInstrumentor
+from opentelemetry.instrumentation.requests import RequestsInstrumentor
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.sdk.trace.export import ConsoleSpanExporter, SimpleSpanProcessor
+
+# X-Ray-------
+from aws_xray_sdk.core import xray_recorder
+from aws_xray_sdk.ext.flask.middleware import XRayMiddleware
+
+# AWS Watchtower Cloudwatch logs------
+import watchtower
+import logging
+import sys
+import time
+from time import strftime
+
+# --- Configuration for CloudWatch Logs ---
+CLOUDWATCH_LOG_GROUP = os.environ.get('CLOUDWATCH_LOG_GROUP', 'cruddur')
+AWS_REGION = os.environ.get('AWS_REGION', 'us-east-1')
+CLOUDWATCH_LOG_STREAM = os.environ.get('CLOUDWATCH_LOG_STREAM', f"app-instance-{int(time.time())}")
+
+# --- Configure the Logger ---
+LOGGER = logging.getLogger(__name__)
+LOGGER.setLevel(logging.DEBUG)
+
+console_handler = logging.StreamHandler(sys.stdout)
+console_handler.setLevel(logging.DEBUG)
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+console_handler.setFormatter(formatter)
+LOGGER.addHandler(console_handler)
+
+# --- Add the Watchtower handler for CloudWatch Logs ---
+try:
+    cw_handler = watchtower.CloudWatchLogHandler(
+        log_group_name=CLOUDWATCH_LOG_GROUP,
+        log_stream_name=CLOUDWATCH_LOG_STREAM,
+        region_name=AWS_REGION,
+        create_log_group=True,
+        create_log_stream=True,
+    )
+    LOGGER.addHandler(cw_handler)
+    LOGGER.info("CloudWatch logging configured successfully.")
+except Exception as e:
+    LOGGER.error(f"Failed to configure CloudWatch logging: {e}")
+
+# Initialize tracing and an exporter that can send data to Honeycomb ...
+provider = TracerProvider()
+processor = BatchSpanProcessor(OTLPSpanExporter())
+provider.add_span_processor(processor)
+
+# X-Ray------ Starting the recorder
+xray_url = os.getenv("AWS_XRAY_URL")
+xray_recorder.configure(service='backend-flask', dynamic_naming=xray_url)
+
+
+# Will show in logs within the backend-flask app (STDOUT)
+simple_processor = SimpleSpanProcessor(ConsoleSpanExporter())
+provider.add_span_processor(simple_processor)
+
+trace.set_tracer_provider(provider)
+tracer = trace.get_tracer(__name__)
+
+app = Flask(__name__)
+
+# X-Ray------ Initialize X-Ray Middleware FIRST
+XRayMiddleware(app, xray_recorder)
+
+# Initialize automatic instrumentation with Flask (Honeycomb)
+# IMPORTANT: This line is commented out to avoid conflict with X-Ray Flask middleware.
+# FlaskInstrumentor().instrument_app(app)
+# Keep RequestsInstrumentor if you want OpenTelemetry to trace outgoing HTTP requests
+RequestsInstrumentor().instrument()
+
+frontend = os.getenv('FRONTEND_URL')
+backend = os.getenv('BACKEND_URL')
+origins = [frontend, backend]
+cors = CORS(
+    app,
+    resources={r"/api/*": {"origins": origins}},
+    expose_headers="location,link",
+    allow_headers="content-type,if-modified-since",
+    methods="OPTIONS,GET,HEAD,POST"
+)
+
+@app.after_request
+def after_request(response):
+    timestamp = strftime('[%Y-%b-%d %H:%M]')
+    LOGGER.error('%s %s %s %s %s %s', timestamp, request.remote_addr, request.method, request.scheme, request.full_path, response.status)
+    return response
+
+@app.route("/api/message_groups", methods=['GET'])
+def data_message_groups():
+    user_handle  = 'chrisfenton'
+    model = MessageGroups.run(user_handle=user_handle)
+    if model['errors'] is not None:
+        return model['errors'], 422
+    else:
+        return model['data'], 200
+
+@app.route("/api/messages/@<string:handle>", methods=['GET'])
+def data_messages(handle):
+    user_sender_handle = 'chrisfenton'
+    user_receiver_handle = request.args.get('user_reciever_handle')
+
+    model = Messages.run(user_sender_handle=user_sender_handle, user_receiver_handle=user_receiver_handle)
+    if model['errors'] is not None:
+        return model['errors'], 422
+    else:
+        return model['data'], 200
+    return
+
+@app.route("/api/messages", methods=['POST','OPTIONS'])
+@cross_origin()
+def data_create_message():
+    user_sender_handle = 'chrisfenton'
+    user_receiver_handle = request.json['user_receiver_handle']
+    message = request.json['message']
+
+    model = CreateMessage.run(message=message,user_sender_handle=user_sender_handle,user_receiver_handle=user_receiver_handle)
+    if model['errors'] is not None:
+        return model['errors'], 422
+    else:
+        return model['data'], 200
+    return
+
+@app.route("/api/activities/home", methods=['GET'])
+def data_home():
+    data = HomeActivities.run(logger=LOGGER)
+    return data, 200
+
+@app.route("/api/activities/notifications", methods=['GET'])
+@xray_recorder.capture('notifications_api_call') # <-- ADD THIS LINE
+def data_notifications():
+    data = NotificationsActivities.run()
+    return data, 200
+
+@app.route("/api/activities/@<string:handle>", methods=['GET'])
+def data_handle(handle):
+    model = UserActivities.run(handle)
+    if model['errors'] is not None:
+        return model['errors'], 422
+    else:
+        return model['data'], 200
+
+@app.route("/api/activities/search", methods=['GET'])
+def data_search():
+    term = request.args.get('term')
+    model = SearchActivities.run(term)
+    if model['errors'] is not None:
+        return model['errors'], 422
+    else:
+        return model['data'], 200
+    return
+
+@app.route("/api/activities", methods=['POST','OPTIONS'])
+@cross_origin()
+def data_activities():
+    user_handle  = 'chrisfenton'
+    message = request.json['message']
+    ttl = request.json['ttl']
+    model = CreateActivity.run(message, user_handle, ttl)
+    if model['errors'] is not None:
+        return model['errors'], 422
+    else:
+        return model['data'], 200
+    return
+
+@app.route("/api/activities/<string:activity_uuid>", methods=['GET'])
+def data_show_activity(activity_uuid):
+    data = ShowActivity.run(activity_uuid=activity_uuid)
+    return data, 200
+
+@app.route("/api/activities/<string:activity_uuid>/reply", methods=['POST','OPTIONS'])
+@cross_origin()
+def data_activities_reply(activity_uuid):
+    user_handle  = 'chrisfenton'
+    message = request.json['message']
+    model = CreateReply.run(message, user_handle, activity_uuid)
+    if model['errors'] is not None:
+        return model['errors'], 422
+    else:
+        return model['data'], 200
+    return
+
+if __name__ == "__main__":
+    app.run(debug=True)
+
+```
+
+Open services/notifications_activities.py: Copy the entire content from the "Updated notifications_activities.py" immersive above and paste it, replacing everything in your services/notifications_activities.py file.
+```py
+from datetime import datetime, timedelta, timezone
+from aws_xray_sdk.core import xray_recorder # Keep this import
+
+class NotificationsActivities:
+  def run():
+    # Changed to in_subsegment to indicate it's a child of the main request segment
+    with xray_recorder.in_subsegment('notifications_activities') as subsegment: # <-- CHANGED THIS LINE
+        try:
+            print("Subsegment started: notifications_activities") # <-- UPDATED PRINT MESSAGE
+            print("Endpoint logic finished.")
+            # You can add custom annotations or metadata to this subsegment here
+            # subsegment.put_annotation('custom_key', 'custom_value')
+        finally:
+            print("Subsegment context manager exiting.") # <-- UPDATED PRINT MESSAGE
+
+    now = datetime.now(timezone.utc).astimezone()
+
+    results = [{
+      'uuid': '68f126b0-1ceb-4a33-88be-d90fa7109eee',
+      'handle':  'Antwuan Jacobs',
+      'message': 'AI Automation is the Future!',
+      'created_at': (now - timedelta(days=2)).isoformat(),
+      'expires_at': (now + timedelta(days=5)).isoformat(),
+      'likes_count': 100,
+      'replies_count': 1,
+      'reposts_count': 0,
+      'replies': [{
+        'uuid': '26e12864-1c26-5c3a-9658-97a10f8fea67',
+        'reply_to_activity_uuid': '68f126b0-1ceb-4a33-88be-d90fa7109eee',
+        'handle':  'Worf',
+        'message': 'This post has no honor! Follow my posts instead',
+        'likes_count': 0,
+        'replies_count': 0,
+        'reposts_count': 0,
+        'created_at': (now - timedelta(days=2)).isoformat()
+      }],
+    }]
+
+    return results
+
+```
+
+Save Both Files: Make sure you save both app.py and services/notifications_activities.py after making these changes.
+
+Restart Your Flask Application: Stop your Flask application if it's running, and then start it again. This ensures the new code is loaded.
+
+Test the Endpoint: Access the /api/activities/notifications endpoint in your browser or through a tool like Postman/curl.
+
+Why these changes?
+
+@xray_recorder.capture('notifications_api_call') in app.py: This decorator on the Flask route function explicitly tells the X-Ray SDK to create and manage a segment (or subsegment if a parent exists) for the entire execution of that route. This helps reinforce the X-Ray context from the very beginning of the request handling, making it more likely that the Flask middleware will find an active segment when it needs to add HTTP metadata at the end.
+
+xray_recorder.in_subsegment() in notifications_activities.py: When the Flask middleware is active, it already creates a top-level segment for the incoming HTTP request. Any custom tracing you want to do within that request should be done as a subsegment of the main request. in_subsegment() is designed for this purpose, ensuring it correctly attaches to the existing segment context and doesn't inadvertently close the parent segment.
+
+This combination should provide the necessary context for the X-Ray middleware to function correctly throughout the request lifecycle, resolving the NoneType error.
