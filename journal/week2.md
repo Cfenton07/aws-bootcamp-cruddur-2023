@@ -768,3 +768,48 @@ OpenTelemetry Traces: You'll see OpenTelemetry trace output in your Flask logs (
 CloudWatch Logs: All LOGGER.error and LOGGER.info calls (including the after_request hook) are sent to CloudWatch Logs, providing a centralized place to monitor your application's operational logs.
 
 In essence, your system is now configured for robust observability, sending traces to both AWS X-Ray (for request tracing) and OpenTelemetry Collector (for other specific spans and outgoing calls), and sending application logs to CloudWatch.
+
+# Summary of Week 2
+You've had a productive and challenging Week 2 in Distributed Tracing, focusing on integrating observability tools like OpenTelemetry, Honeycomb, and AWS X-Ray into your Flask backend. Here's a summary of your progress and the issues you've tackled:
+
+OpenTelemetry and Honeycomb Integration
+You've successfully refactored your Docker Compose setup to centralize your OpenTelemetry trace collection.
+
+Initial Setup: You added YAML code to your docker-compose.yml to connect your backend-flask container to an OpenTelemetry Collector. This allows your Flask application to send traces to the Collector, which then forwards them to Honeycomb.
+
+Error Encountered: You initially faced a ConnectionRefusedError: [Errno 111] Connection refused when your Flask app tried to export spans.
+
+Troubleshooting: Through research (and consulting Gemini), you understood this error indicates that your application successfully generated trace data but failed to send it because the intended recipient (the OpenTelemetry Collector) was either not running, not listening on the expected port/IP, or blocked by a firewall.
+
+Solution Implemented:
+
+You introduced a dedicated otel-collector service in your docker-compose.yml, using the otel/opentelemetry-collector-contrib:latest image.
+
+The backend-flask service was configured to send traces to http://otel-collector:4318 within the Docker network, and a depends_on clause was added to ensure the Collector starts before Flask.
+
+You mounted a local config.yaml file (from ./otel-collector/config.yaml) into the Collector container (/etc/otelcol/config.yaml) to define its behavior.
+
+The config.yaml specifies OTLP HTTP (port 4318) and gRPC (port 4317) receivers for the Collector, a batch processor, and an OTLP exporter configured to send data to https://api.honeycomb.io:443, using the HONEYCOMB_API_KEY from environment variables.
+
+AWS X-Ray Integration and Debugging
+You also integrated AWS X-Ray for more granular tracing, specifically for Python.
+
+X-Ray Setup:
+
+You built a container to run the X-Ray daemon.
+
+You added the X-Ray SDK for Flask to your app.py.
+
+You added segments (specifically in notifications_activities) to send trace data to X-Ray when the endpoint is called.
+
+You configured CloudWatch logging to capture activity from your home_activities file.
+
+X-Ray Errors Encountered: You observed repeated AttributeError: 'NoneType' object has no attribute 'put_http_meta' errors in your backend-flask logs. The core issue was that the AWS X-Ray SDK was losing the context of the main request segment managed by its Flask middleware, causing subsequent attempts to update the segment to fail.
+
+Solution for X-Ray Context Loss:
+
+You updated app.py by adding @xray_recorder.capture('notifications_api_call') directly above the data_notifications route definition. This explicitly ensures the Flask route is captured by X-Ray.
+
+You updated services/notifications_activities.py to use xray_recorder.in_subsegment() instead of xray_recorder.in_segment(). This is the correct method for creating nested traces within an existing parent segment provided by the Flask middleware.
+
+In summary, you've established a robust distributed tracing architecture for your application, leveraging OpenTelemetry for general observability to Honeycomb and integrating AWS X-Ray for detailed tracing within your Flask service. You've also gained valuable experience debugging common Connection Refused errors in distributed systems and intricate context management issues with tracing SDKs.
