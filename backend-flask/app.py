@@ -40,28 +40,28 @@ AWS_REGION = os.environ.get('AWS_REGION', 'us-east-1')
 CLOUDWATCH_LOG_STREAM = os.environ.get('CLOUDWATCH_LOG_STREAM', f"app-instance-{int(time.time())}")
 
 # --- Configure the Logger ---
-LOGGER = logging.getLogger(__name__)
-LOGGER.setLevel(logging.DEBUG)
+#LOGGER = logging.getLogger(__name__)
+#LOGGER.setLevel(logging.DEBUG)
 
-console_handler = logging.StreamHandler(sys.stdout)
-console_handler.setLevel(logging.DEBUG)
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-console_handler.setFormatter(formatter)
-LOGGER.addHandler(console_handler)
+#console_handler = logging.StreamHandler(sys.stdout)
+#console_handler.setLevel(logging.DEBUG)
+#formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+#console_handler.setFormatter(formatter)
+#LOGGER.addHandler(console_handler)
 
 # --- Add the Watchtower handler for CloudWatch Logs ---
-try:
-    cw_handler = watchtower.CloudWatchLogHandler(
-        log_group_name=CLOUDWATCH_LOG_GROUP,
-        log_stream_name=CLOUDWATCH_LOG_STREAM,
-        # region_name=AWS_REGION,
-        create_log_group=True,
-        create_log_stream=True,
-    )
-    LOGGER.addHandler(cw_handler)
-    LOGGER.info("CloudWatch logging configured successfully.")
-except Exception as e:
-    LOGGER.error(f"Failed to configure CloudWatch logging: {e}")
+#try:
+    #cw_handler = watchtower.CloudWatchLogHandler(
+        #log_group_name=CLOUDWATCH_LOG_GROUP,
+        #log_stream_name=CLOUDWATCH_LOG_STREAM,
+        # region_name=AWS_REGION,(do not use this line)
+        #create_log_group=True,
+        #create_log_stream=True,
+    #)
+    #LOGGER.addHandler(cw_handler)
+    #LOGGER.info("CloudWatch logging configured successfully.")
+#except Exception as e:
+    #LOGGER.error(f"Failed to configure CloudWatch logging: {e}")
 
 # Initialize tracing and an exporter that can send data to Honeycomb ...
 provider = TracerProvider()
@@ -69,8 +69,8 @@ processor = BatchSpanProcessor(OTLPSpanExporter())
 provider.add_span_processor(processor)
 
 # X-Ray------ Starting the recorder
-xray_url = os.getenv("AWS_XRAY_URL")
-xray_recorder.configure(service='backend-flask', dynamic_naming=xray_url)
+#xray_url = os.getenv("AWS_XRAY_URL")
+#xray_recorder.configure(service='backend-flask', dynamic_naming=xray_url)
 
 
 # Will show in logs within the backend-flask app (STDOUT)
@@ -87,7 +87,7 @@ XRayMiddleware(app, xray_recorder)
 
 # Initialize automatic instrumentation with Flask (Honeycomb)
 # IMPORTANT: This line is commented out to avoid conflict with X-Ray Flask middleware.
-# FlaskInstrumentor().instrument_app(app)
+# FlaskInstrumentor().instrument_app(app) -- Do not use this line
 # Keep RequestsInstrumentor if you want OpenTelemetry to trace outgoing HTTP requests
 RequestsInstrumentor().instrument()
 
@@ -102,11 +102,11 @@ cors = CORS(
     methods="OPTIONS,GET,HEAD,POST"
 )
 
-@app.after_request
-def after_request(response):
-    timestamp = strftime('[%Y-%b-%d %H:%M]')
-    LOGGER.error('%s %s %s %s %s %s', timestamp, request.remote_addr, request.method, request.scheme, request.full_path, response.status)
-    return response
+#@app.after_request
+#def after_request(response):
+    #timestamp = strftime('[%Y-%b-%d %H:%M]')
+    #LOGGER.error('%s %s %s %s %s %s', timestamp, request.remote_addr, request.method, request.scheme, request.full_path, response.status)
+    #return response
 
 @app.route("/api/message_groups", methods=['GET'])
 def data_message_groups():
@@ -145,11 +145,11 @@ def data_create_message():
 
 @app.route("/api/activities/home", methods=['GET'])
 def data_home():
-    data = HomeActivities.run(logger=LOGGER)
+    data = HomeActivities.run()#data = HomeActivities.run(logger=LOGGER) will add later maybe
     return data, 200
 
 @app.route("/api/activities/notifications", methods=['GET'])
-@xray_recorder.capture('notifications_api_call') # <-- ADD THIS LINE
+#@xray_recorder.capture('notifications_api_call') # <-- ADD THIS LINE
 def data_notifications():
     data = NotificationsActivities.run()
     return data, 200
