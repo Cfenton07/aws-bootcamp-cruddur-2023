@@ -1,5 +1,5 @@
-#from datetime import datetime, timedelta, timezone
-#from aws_xray_sdk.core import xray_recorder # Keep this import
+from datetime import datetime, timedelta, timezone
+from aws_xray_sdk.core import xray_recorder # Keep this import
 
 class NotificationsActivities:
   def run():
