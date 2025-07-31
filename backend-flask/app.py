@@ -24,20 +24,20 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.sdk.trace.export import ConsoleSpanExporter, SimpleSpanProcessor
 
 # X-Ray-------
-from aws_xray_sdk.core import xray_recorder
-from aws_xray_sdk.ext.flask.middleware import XRayMiddleware
+#from aws_xray_sdk.core import xray_recorder
+#from aws_xray_sdk.ext.flask.middleware import XRayMiddleware
 
 # AWS Watchtower Cloudwatch logs------
-import watchtower
-import logging
-import sys
-import time
-from time import strftime
+#import watchtower
+#import logging
+#import sys
+#import time
+#from time import strftime
 
 # --- Configuration for CloudWatch Logs ---
-CLOUDWATCH_LOG_GROUP = os.environ.get('CLOUDWATCH_LOG_GROUP', 'cruddur')
-AWS_REGION = os.environ.get('AWS_REGION', 'us-east-1')
-CLOUDWATCH_LOG_STREAM = os.environ.get('CLOUDWATCH_LOG_STREAM', f"app-instance-{int(time.time())}")
+#CLOUDWATCH_LOG_GROUP = os.environ.get('CLOUDWATCH_LOG_GROUP', 'cruddur')
+#AWS_REGION = os.environ.get('AWS_REGION', 'us-east-1')
+#CLOUDWATCH_LOG_STREAM = os.environ.get('CLOUDWATCH_LOG_STREAM', f"app-instance-{int(time.time())}")
 
 # --- Configure the Logger ---
 #LOGGER = logging.getLogger(__name__)
@@ -83,7 +83,7 @@ tracer = trace.get_tracer(__name__)
 app = Flask(__name__)
 
 # X-Ray------ Initialize X-Ray Middleware FIRST
-XRayMiddleware(app, xray_recorder)
+#XRayMiddleware(app, xray_recorder)
 
 # Initialize automatic instrumentation with Flask (Honeycomb)
 # IMPORTANT: This line is commented out to avoid conflict with X-Ray Flask middleware.
