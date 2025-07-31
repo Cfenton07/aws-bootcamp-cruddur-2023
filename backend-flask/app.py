@@ -28,45 +28,52 @@ from opentelemetry.sdk.trace.export import ConsoleSpanExporter, SimpleSpanProces
 #from aws_xray_sdk.ext.flask.middleware import XRayMiddleware
 
 # AWS Watchtower Cloudwatch logs------
-#import watchtower
-#import logging
-#import sys
-#import time
-#from time import strftime
+import watchtower
+import logging
+import sys
+import time
+from time import strftime
+
+# ROLLBAR ------
+import rollbar
+import rollbar.contrib.flask
+from flask import got_request_exception
 
 # --- Configuration for CloudWatch Logs ---
-#CLOUDWATCH_LOG_GROUP = os.environ.get('CLOUDWATCH_LOG_GROUP', 'cruddur')
-#AWS_REGION = os.environ.get('AWS_REGION', 'us-east-1')
-#CLOUDWATCH_LOG_STREAM = os.environ.get('CLOUDWATCH_LOG_STREAM', f"app-instance-{int(time.time())}")
+CLOUDWATCH_LOG_GROUP = os.environ.get('CLOUDWATCH_LOG_GROUP', 'cruddur')
+AWS_REGION = os.environ.get('AWS_REGION', 'us-east-1')
+CLOUDWATCH_LOG_STREAM = os.environ.get('CLOUDWATCH_LOG_STREAM', f"app-instance-{int(time.time())}")
 
 # --- Configure the Logger ---
-#LOGGER = logging.getLogger(__name__)
-#LOGGER.setLevel(logging.DEBUG)
+LOGGER = logging.getLogger(__name__)
+LOGGER.setLevel(logging.DEBUG)
 
-#console_handler = logging.StreamHandler(sys.stdout)
-#console_handler.setLevel(logging.DEBUG)
-#formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-#console_handler.setFormatter(formatter)
-#LOGGER.addHandler(console_handler)
+console_handler = logging.StreamHandler(sys.stdout)
+console_handler.setLevel(logging.DEBUG)
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+console_handler.setFormatter(formatter)
+LOGGER.addHandler(console_handler)
 
 # --- Add the Watchtower handler for CloudWatch Logs ---
-#try:
-    #cw_handler = watchtower.CloudWatchLogHandler(
-        #log_group_name=CLOUDWATCH_LOG_GROUP,
-        #log_stream_name=CLOUDWATCH_LOG_STREAM,
+try:
+    cw_handler = watchtower.CloudWatchLogHandler(
+        log_group_name=CLOUDWATCH_LOG_GROUP,
+        log_stream_name=CLOUDWATCH_LOG_STREAM,
         # region_name=AWS_REGION,(do not use this line)
-        #create_log_group=True,
-        #create_log_stream=True,
-    #)
-    #LOGGER.addHandler(cw_handler)
-    #LOGGER.info("CloudWatch logging configured successfully.")
-#except Exception as e:
-    #LOGGER.error(f"Failed to configure CloudWatch logging: {e}")
+        create_log_group=True,
+        create_log_stream=True,
+    )
+    LOGGER.addHandler(cw_handler)
+    LOGGER.info("CloudWatch logging configured successfully.")
+except Exception as e:
+    LOGGER.error(f"Failed to configure CloudWatch logging: {e}")
 
 # Initialize tracing and an exporter that can send data to Honeycomb ...
 provider = TracerProvider()
 processor = BatchSpanProcessor(OTLPSpanExporter())
 provider.add_span_processor(processor)
+
+
 
 # X-Ray------ Starting the recorder
 #xray_url = os.getenv("AWS_XRAY_URL")
@@ -81,6 +88,7 @@ trace.set_tracer_provider(provider)
 tracer = trace.get_tracer(__name__)
 
 app = Flask(__name__)
+ 
 
 # X-Ray------ Initialize X-Ray Middleware FIRST
 #XRayMiddleware(app, xray_recorder)
@@ -102,11 +110,32 @@ cors = CORS(
     methods="OPTIONS,GET,HEAD,POST"
 )
 
-#@app.after_request
-#def after_request(response):
-    #timestamp = strftime('[%Y-%b-%d %H:%M]')
-    #LOGGER.error('%s %s %s %s %s %s', timestamp, request.remote_addr, request.method, request.scheme, request.full_path, response.status)
-    #return response
+# Rollbar --------
+rollbar_access_token = os.getenv('ROLLBAR_ACCESS_TOKEN')
+def init_rollbar():
+    """init rollbar module"""
+    rollbar.init(
+        # Access token
+        rollbar_access_token,
+        # environment name
+        'production',
+        root=os.path.dirname(os.path.realpath(__file__)),
+        # flask already setup logging
+        allow_logging_basic_config=False)
+
+    # send exceptions from app to rollbar, using flasks signal system.
+    got_request_exception.connect(rollbar.contrib.flask.report_exception, app)   
+
+@app.route('/rollbar/test')
+def rollbar_test():
+    rollbar.report_message('Hello World!', 'warning')
+    return "Hello World!"
+
+@app.after_request
+def after_request(response):
+    timestamp = strftime('[%Y-%b-%d %H:%M]')
+    LOGGER.error('%s %s %s %s %s %s', timestamp, request.remote_addr, request.method, request.scheme, request.full_path, response.status)
+    return response
 
 @app.route("/api/message_groups", methods=['GET'])
 def data_message_groups():
@@ -145,7 +174,7 @@ def data_create_message():
 
 @app.route("/api/activities/home", methods=['GET'])
 def data_home():
-    data = HomeActivities.run()#data = HomeActivities.run(logger=LOGGER) will add later maybe
+    data = HomeActivities.run(logger=LOGGER) #data = HomeActivities.run(logger=LOGGER) will add later maybe
     return data, 200
 
 @app.route("/api/activities/notifications", methods=['GET'])
