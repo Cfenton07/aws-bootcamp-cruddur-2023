@@ -81,8 +81,8 @@ provider.add_span_processor(processor)
 
 
 # Will show in logs within the backend-flask app (STDOUT)
-simple_processor = SimpleSpanProcessor(ConsoleSpanExporter())
-provider.add_span_processor(simple_processor)
+#simple_processor = SimpleSpanProcessor(ConsoleSpanExporter())
+#provider.add_span_processor(simple_processor)
 
 trace.set_tracer_provider(provider)
 tracer = trace.get_tracer(__name__)
@@ -112,19 +112,19 @@ cors = CORS(
 
 # Rollbar --------
 rollbar_access_token = os.getenv('ROLLBAR_ACCESS_TOKEN')
-def init_rollbar():
-    """init rollbar module"""
+if rollbar_access_token: # Good practice: only init if token is available
     rollbar.init(
-        # Access token
         rollbar_access_token,
-        # environment name
-        'production',
+        'production', # Or an environment variable like os.getenv('FLASK_ENV', 'development')
         root=os.path.dirname(os.path.realpath(__file__)),
-        # flask already setup logging
-        allow_logging_basic_config=False)
-
-    # send exceptions from app to rollbar, using flasks signal system.
-    got_request_exception.connect(rollbar.contrib.flask.report_exception, app)   
+        allow_logging_basic_config=False
+    )
+    # The signal connection needs to be done within an app context
+    # if you were outside the app context, but here it's fine.
+    with app.app_context():
+        got_request_exception.connect(rollbar.contrib.flask.report_exception, app)
+else:
+    print("ROLLBAR_ACCESS_TOKEN not found, Rollbar not initialized.")   
 
 @app.route('/rollbar/test')
 def rollbar_test():
