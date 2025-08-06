@@ -24,8 +24,8 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.sdk.trace.export import ConsoleSpanExporter, SimpleSpanProcessor
 
 # X-Ray-------
-#from aws_xray_sdk.core import xray_recorder
-#from aws_xray_sdk.ext.flask.middleware import XRayMiddleware
+from aws_xray_sdk.core import xray_recorder
+from aws_xray_sdk.ext.flask.middleware import XRayMiddleware
 
 # AWS Watchtower Cloudwatch logs------
 import watchtower
@@ -76,10 +76,10 @@ provider.add_span_processor(processor)
 
 
 # X-Ray------ Starting the recorder
-#xray_url = os.getenv("AWS_XRAY_URL")
-#xray_recorder.configure(service='backend-flask', dynamic_naming=xray_url)
+xray_url = os.getenv("AWS_XRAY_URL")
+xray_recorder.configure(service='backend-flask', dynamic_naming=xray_url)
 
-
+#OTEL --------- Generic processor
 # Will show in logs within the backend-flask app (STDOUT)
 #simple_processor = SimpleSpanProcessor(ConsoleSpanExporter())
 #provider.add_span_processor(simple_processor)
@@ -91,7 +91,7 @@ app = Flask(__name__)
  
 
 # X-Ray------ Initialize X-Ray Middleware FIRST
-#XRayMiddleware(app, xray_recorder)
+XRayMiddleware(app, xray_recorder)
 
 # Initialize automatic instrumentation with Flask (Honeycomb)
 # IMPORTANT: This line is commented out to avoid conflict with X-Ray Flask middleware.
@@ -126,11 +126,13 @@ if rollbar_access_token: # Good practice: only init if token is available
 else:
     print("ROLLBAR_ACCESS_TOKEN not found, Rollbar not initialized.")   
 
+#Rollbar ------
 @app.route('/rollbar/test')
 def rollbar_test():
     rollbar.report_message('Hello World!', 'warning')
     return "Hello World!"
 
+#CloudWatch ----->
 @app.after_request
 def after_request(response):
     timestamp = strftime('[%Y-%b-%d %H:%M]')
@@ -178,7 +180,7 @@ def data_home():
     return data, 200
 
 @app.route("/api/activities/notifications", methods=['GET'])
-#@xray_recorder.capture('notifications_api_call') # <-- ADD THIS LINE
+@xray_recorder.capture('notifications_api_call') # <-- ADD THIS LINE
 def data_notifications():
     data = NotificationsActivities.run()
     return data, 200
