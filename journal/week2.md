@@ -769,7 +769,7 @@ CloudWatch Logs: All LOGGER.error and LOGGER.info calls (including the after_req
 
 In essence, your system is now configured for robust observability, sending traces to both AWS X-Ray (for request tracing) and OpenTelemetry Collector (for other specific spans and outgoing calls), and sending application logs to CloudWatch.
 
-# Summary of Week 2
+# Summary of Week 2 (HoneyComb and XRay)
 You've had a productive and challenging Week 2 in Distributed Tracing, focusing on integrating observability tools like OpenTelemetry, Honeycomb, and AWS X-Ray into your Flask backend. Here's a summary of your progress and the issues you've tackled:
 
 OpenTelemetry and Honeycomb Integration
@@ -813,3 +813,59 @@ You updated app.py by adding @xray_recorder.capture('notifications_api_call') di
 You updated services/notifications_activities.py to use xray_recorder.in_subsegment() instead of xray_recorder.in_segment(). This is the correct method for creating nested traces within an existing parent segment provided by the Flask middleware.
 
 In summary, you've established a robust distributed tracing architecture for your application, leveraging OpenTelemetry for general observability to Honeycomb and integrating AWS X-Ray for detailed tracing within your Flask service. You've also gained valuable experience debugging common Connection Refused errors in distributed systems and intricate context management issues with tracing SDKs.
+
+# Week 2 Summary (Rollbar and CloudWatch)
+
+I added/implemented a Rollbar function to my workspace. I created a new endpoint for Rollbar for my function to use for testing. I did run into some errors with implmenting this at first with the main issue being that the Rollbar client was not able to properly initialized with an access token.
+
+The cause: This confirms the issue from our earlier discussion. Your Rollbar initialization (rollbar.init()) is either:
+
+ - Not being called at all (e.g., if you're using a Flask version where @app.before_first_request is deprecated or removed).
+
+ - Being called, but the os.getenv('ROLLBAR_ACCESS_TOKEN') call is returning None because the environment variable is not set.
+
+I did set my envars for the access token for Rollbar, so I have to update the code to use another initialization method "rollbar.init()" for the Rollbar decorator '@app.before_first_request' in my app.py file
+
+```py
+# --- Rollbar Initialization (Moved from @app.before_first_request) ---
+rollbar_access_token = os.getenv('ROLLBAR_ACCESS_TOKEN')
+if rollbar_access_token: # Good practice: only init if token is available
+    rollbar.init(
+        rollbar_access_token,
+        'production', # Or an environment variable like os.getenv('FLASK_ENV', 'development')
+        root=os.path.dirname(os.path.realpath(__file__)),
+        allow_logging_basic_config=False
+    )
+    # The signal connection needs to be done within an app context
+    # if you were outside the app context, but here it's fine.
+    with app.app_context():
+        got_request_exception.connect(rollbar.contrib.flask.report_exception, app)
+else:
+    print("ROLLBAR_ACCESS_TOKEN not found, Rollbar not initialized.")
+```
+
+## I also added Cloudwatch Logs
+
+How Logging Works in My Code
+The app.py file uses the standard Python logging library, which is a powerful way to manage log messages. Instead of printing directly, I configured a logger and attach handlers to it.
+
+Console Handler: This is the key part that directs logs to standard output.
+
+Python
+
+console_handler = logging.StreamHandler(sys.stdout)
+...
+LOGGER.addHandler(console_handler)
+The logging.StreamHandler(sys.stdout) line creates a handler that is specifically configured to write all log messages it receives to the standard output stream (sys.stdout). The LOGGER.addHandler() line then attaches this handler to your main LOGGER object.
+
+Log Messages: When you make a call to the logger, like LOGGER.error(...) or LOGGER.info(...), the message is sent to all attached handlers.
+
+Python
+
+LOGGER.error('%s %s %s %s %s %s', timestamp, request.remote_addr, request.method, request.scheme, request.full_path, response.status)
+In this example, the LOGGER.error() call sends the log message to the console_handler, which then formats the message and writes it to standard output.
+
+CloudWatch Handler: I also correctly configured a separate handler for CloudWatch, which sends a copy of the same log messages directly to the CloudWatch Logs service. This is a very clean way to have your logs go to two places at once: the container's standard output (for local viewing and Docker's awslogs driver) and directly to CloudWatch via the Watchtower library.
+
+So, while you don't see explicit print() or sys.stdout.write() calls, the logging module is still writing to standard output behind the scenes as part of its normal operation. Docker then captures this output and sends it to CloudWatch.
+
