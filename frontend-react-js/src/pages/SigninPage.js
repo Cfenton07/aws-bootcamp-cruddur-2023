@@ -4,26 +4,82 @@ import {ReactComponent as Logo} from '../components/svg/logo.svg';
 import { Link } from "react-router-dom";
 
 // [TODO] Authenication
-import Cookies from 'js-cookie'
+import { signIn } from 'aws-amplify/auth';
+import { getCurrentUser } from 'aws-amplify/auth';
+//import Cookies from 'js-cookie'
 
 export default function SigninPage() {
 
   const [email, setEmail] = React.useState('');
+  const [username, setUsername] = React.useState('');
   const [password, setPassword] = React.useState('');
-  const [errors, setErrors] = React.useState('');
+  const [cognitoErrors, setCognitoErrors] = React.useState('');
+
+  // const onsubmit = async (event) => {
+  //   event.preventDefault();
+  //   setErrors('')
+  //   console.log('onsubmit')
+  //   if (Cookies.get('user.email') === email && Cookies.get('user.password') === password){
+  //     Cookies.set('user.logged_in', true)
+  //     window.location.href = "/"
+  //   } else {
+  //     setErrors("Email and password is incorrect or account doesn't exist")
+  //   }
+  //   return false
+  // }
 
   const onsubmit = async (event) => {
-    event.preventDefault();
-    setErrors('')
-    console.log('onsubmit')
-    if (Cookies.get('user.email') === email && Cookies.get('user.password') === password){
-      Cookies.set('user.logged_in', true)
-      window.location.href = "/"
-    } else {
-      setErrors("Email and password is incorrect or account doesn't exist")
+  setCognitoErrors('');
+  event.preventDefault();
+  
+  try {
+    // The new signIn function takes an object with username and password
+    const { isSignedIn, nextStep } = await signIn({
+    username: email, 
+    password: password,
+    });
+    
+    // In v6, the user's session is managed automatically by Amplify.
+    // The return value of signIn now gives you the next step in the auth flow.
+    // We can also call getCurrentUser to get the user object.
+    const user = await getCurrentUser();
+    
+    // You no longer need to manually manage the JWT token in localStorage,
+    // but if you have an external service that needs it, you can
+    // fetch the current session and get the token.
+    // const session = await fetchAuthSession();
+    // const accessToken = session.tokens.accessToken.toString();
+    
+    // For a successful sign-in, the nextStep will be 'DONE'
+    if (nextStep.signInStep === 'DONE') {
+        window.location.href = "/";
     }
-    return false
+
+  } catch (error) {
+    // The error handling logic is now more streamlined
+    console.log('Error signing in: ', error);
+
+    // This is how you would check for a "User Not Confirmed" error in v6
+    // The error object has a different structure, so we check the name property
+    if (error.name === 'UserNotConfirmedException') {
+      window.location.href = "/confirm";
+    }
+
+    setCognitoErrors(error.message);
   }
+};
+
+let errors;
+if (cognitoErrors){
+  errors = <div className='errors'>{cognitoErrors}</div>;
+}
+
+// ... your form with username and password inputs, and submit button
+// just before submit component
+{errors}
+
+
+
 
   const email_onchange = (event) => {
     setEmail(event.target.value);
