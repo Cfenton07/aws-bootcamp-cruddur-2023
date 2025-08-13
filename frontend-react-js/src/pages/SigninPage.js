@@ -11,7 +11,7 @@ import { getCurrentUser } from 'aws-amplify/auth';
 export default function SigninPage() {
 
   const [email, setEmail] = React.useState('');
-  const [username, setUsername] = React.useState('');
+  //const [username, setUsername] = React.useState('');
   const [password, setPassword] = React.useState('');
   const [cognitoErrors, setCognitoErrors] = React.useState('');
 
@@ -74,9 +74,11 @@ if (cognitoErrors){
   errors = <div className='errors'>{cognitoErrors}</div>;
 }
 
+
+
 // ... your form with username and password inputs, and submit button
 // just before submit component
-{errors}
+//{errors}
 
 
 
