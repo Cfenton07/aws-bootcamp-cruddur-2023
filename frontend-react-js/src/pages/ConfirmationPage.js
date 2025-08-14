@@ -4,12 +4,12 @@ import { useParams } from 'react-router-dom';
 import {ReactComponent as Logo} from '../components/svg/logo.svg';
 
 // [TODO] Authenication
-import Cookies from 'js-cookie'
+import { confirmSignUp, resendSignUpCode } from 'aws-amplify/auth';
 
 export default function ConfirmationPage() {
   const [email, setEmail] = React.useState('');
   const [code, setCode] = React.useState('');
-  const [errors, setErrors] = React.useState('');
+  const [cognitoErrors, setCognitoErrors] = React.useState(''); // Changed here for consistency
   const [codeSent, setCodeSent] = React.useState(false);
 
   const params = useParams();
@@ -22,35 +22,33 @@ export default function ConfirmationPage() {
   }
 
   const resend_code = async (event) => {
-    console.log('resend_code')
-    // [TODO] Authenication
+  setCognitoErrors(''); // It's better to use one error state variable
+  try {
+    // Amplify v6's resendSignUpCode takes a 'username' object
+    await resendSignUpCode({ username: email });
+    console.log('code resent successfully');
+    setCodeSent(true);
+  } catch (err) {
+    console.log(err);
+    // Error messages may vary, so it's safer to not rely on specific strings
+    setCognitoErrors(err.message);
   }
+};
 
-  const onsubmit = async (event) => {
-    event.preventDefault();
-    console.log('ConfirmationPage.onsubmit')
-    // [TODO] Authenication
-    if (Cookies.get('user.email') === undefined || Cookies.get('user.email') === '' || Cookies.get('user.email') === null){
-      setErrors("You need to provide an email in order to send Resend Activiation Code")   
-    } else {
-      if (Cookies.get('user.email') === email){
-        if (Cookies.get('user.confirmation_code') === code){
-          Cookies.set('user.logged_in',true)
-          window.location.href = "/"
-        } else {
-          setErrors("Code is not valid")
-        }
-      } else {
-        setErrors("Email is invalid or cannot be found.")   
-      }
-    }
-    return false
+const onsubmit = async (event) => {
+  event.preventDefault();
+  setCognitoErrors('');
+  try {
+    // Amplify v6's confirmSignUp takes a 'username' and 'confirmationCode' object
+    await confirmSignUp({ username: email, confirmationCode: code });
+    // After confirmation, the user is signed in if autoSignIn was enabled
+    // Redirect to the home page
+    window.location.href = "/";
+  } catch (error) {
+    setCognitoErrors(error.message);
   }
-
-  let el_errors;
-  if (errors){
-    el_errors = <div className='errors'>{errors}</div>;
-  }
+  return false;
+};
 
 
   let code_button;
@@ -64,7 +62,7 @@ export default function ConfirmationPage() {
     if (params.email) {
       setEmail(params.email)
     }
-  }, [])
+  }, [params.email]) // Dependency array added
 
   return (
     <article className="confirm-article">

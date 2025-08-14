@@ -8,7 +8,9 @@ import ActivityForm from '../components/ActivityForm';
 import ReplyForm from '../components/ReplyForm';
 
 // [TODO] Authenication
-import Cookies from 'js-cookie'
+//import Cookies from 'js-cookie'
+// Import the new Amplify v6 Auth functions
+import { getCurrentUser, signOut, fetchAuthSession } from 'aws-amplify/auth';
 
 export default function HomeFeedPage() {
   const [activities, setActivities] = React.useState([]);
@@ -18,7 +20,8 @@ export default function HomeFeedPage() {
   const [user, setUser] = React.useState(null);
   const dataFetchedRef = React.useRef(false);
 
-  const loadData = async () => {
+   const loadData = async () => {
+    console.log('user', user);
     try {
       const backend_url = `${process.env.REACT_APP_BACKEND_URL}/api/activities/home`
       const res = await fetch(backend_url, {
@@ -36,24 +39,51 @@ export default function HomeFeedPage() {
   };
 
   const checkAuth = async () => {
-    console.log('checkAuth')
-    // [TODO] Authenication
-    if (Cookies.get('user.logged_in')) {
+    console.log('checkAuth');
+    try {
+      // Force refresh of the user session to ensure all attributes are available
+      const { tokens } = await fetchAuthSession({ forceRefresh: true });
+
+
+      // Use getCurrentUser() to get the user's details
+      const cognitoUser = await getCurrentUser();
+
+      
+     // Use cognitoUser.attributes.name with a safe navigation check
+      const displayName = cognitoUser.attributes?.name || cognitoUser.username;
+
       setUser({
-        display_name: Cookies.get('user.name'),
-        handle: Cookies.get('user.username')
-      })
+        display_name: displayName,
+        handle: cognitoUser.username
+      });
+
+      console.log('User is authenticated:', cognitoUser);
+
+    } catch (err) {
+      console.log('User is not authenticated:', err);
+      // Set user to null if not authenticated
+      setUser(null);
+    }
+  };
+
+  // New function to handle sign out
+  const handleSignOut = async () => {
+    try {
+      await signOut();
+      window.location.href = "/"; // Redirects to the home page after sign-out
+    } catch (error) {
+      console.log('Error signing out: ', error);
     }
   };
 
   React.useEffect(()=>{
-    //prevents double call
+    // Prevents double call
     if (dataFetchedRef.current) return;
     dataFetchedRef.current = true;
 
     loadData();
     checkAuth();
-  }, [])
+  }, []);
 
   return (
     <article>

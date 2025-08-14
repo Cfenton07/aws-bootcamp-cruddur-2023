@@ -28,9 +28,10 @@ export default function SigninPage() {
   //   return false
   // }
 
-  const onsubmit = async (event) => {
+  const onsubmit = async (event) => { 
   setCognitoErrors('');
   event.preventDefault();
+  
   
   try {
     // The new signIn function takes an object with username and password
@@ -39,11 +40,12 @@ export default function SigninPage() {
     password: password,
     });
     
+ 
     // In v6, the user's session is managed automatically by Amplify.
     // The return value of signIn now gives you the next step in the auth flow.
     // We can also call getCurrentUser to get the user object.
     const user = await getCurrentUser();
-    
+ 
     // You no longer need to manually manage the JWT token in localStorage,
     // but if you have an external service that needs it, you can
     // fetch the current session and get the token.

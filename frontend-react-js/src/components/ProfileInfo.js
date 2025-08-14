@@ -13,16 +13,15 @@ export default function ProfileInfo(props) {
     setPopped(!popped)
   }
 
-  const signOut = async () => {
-  try {
-    // Calling the signOut function directly.
-    // The { global: true } option is still valid and works the same way.
-    await signOut({ global: true });
-    window.location.href = "/";
-  } catch (error) {
-    console.log('error signing out: ', error);
-  }
-}
+  // Renamed to handleSignOut to avoid name collision with the imported function
+  const handleSignOut = async () => {
+    try {
+      await signOut({ global: true }); // Corrected: passing the option as an object
+      window.location.href = "/";
+    } catch (error) {
+      console.log('error signing out: ', error);
+    }
+  };
   const classes = () => {
     let classes = ["profile-info-wrapper"];
     if (popped == true){
@@ -34,7 +33,7 @@ export default function ProfileInfo(props) {
   return (
     <div className={classes()}>
       <div className="profile-dialog">
-        <button onClick={signOut}>Sign Out</button> 
+        <button onClick={handleSignOut}>Sign Out</button> 
       </div>
       <div className="profile-info" onClick={click_pop}>
         <div className="profile-avatar"></div>
