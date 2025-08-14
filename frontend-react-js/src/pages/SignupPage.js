@@ -5,8 +5,7 @@ import { Link } from "react-router-dom";
 
 // [TODO] Authenication
 import { signUp } from 'aws-amplify/auth';
-import { getCurrentUser } from 'aws-amplify/auth';
-//import Cookies from 'js-cookie'
+
 
 export default function SignupPage() {
 
@@ -15,7 +14,7 @@ export default function SignupPage() {
   const [email, setEmail] = React.useState('');
   const [username, setUsername] = React.useState('');
   const [password, setPassword] = React.useState('');
-  const [errors, setErrors] = React.useState('');
+  //const [errors, setErrors] = React.useState('');
   const [passwordConfirmation, setPasswordConfirmation] = React.useState('');
    // State for displaying errors
   const [cognitoErrors, setCognitoErrors] = React.useState('');
@@ -54,8 +53,12 @@ export default function SignupPage() {
                 email: email,
                 preferred_username: username,
             },
+            // Auto-sign in the user after they have been confirmed
+        autoSignIn: true 
         }
       });
+
+      console.log(user);
       
       // For a successful sign-up, the nextStep will be 'CONFIRM_SIGN_UP'
       // You should redirect the user to a page where they can confirm their email.
@@ -81,10 +84,13 @@ export default function SignupPage() {
   const password_onchange = (event) => {
     setPassword(event.target.value);
   }
+  const password_confirmation_onchange = (event) => {
+    setPasswordConfirmation(event.target.value);
+  }
 
   let el_errors;
-  if (errors){
-    el_errors = <div className='errors'>{errors}</div>;
+  if (cognitoErrors){
+    el_errors = <div className='errors'>{cognitoErrors}</div>;
   }
 
   return (
@@ -132,6 +138,15 @@ export default function SignupPage() {
                 type="password"
                 value={password}
                 onChange={password_onchange} 
+              />
+            </div>
+             {/* This is the missing password confirmation field */}
+            <div className='field text_field password_confirmation'>
+              <label>Password Confirmation</label>
+              <input
+                type="password"
+                value={passwordConfirmation}
+                onChange={password_confirmation_onchange} 
               />
             </div>
           </div>
