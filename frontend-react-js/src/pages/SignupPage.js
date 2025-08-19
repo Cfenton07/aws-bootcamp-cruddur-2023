@@ -58,12 +58,15 @@ export default function SignupPage() {
         }
       });
 
-      console.log(user);
+      //console.log(user);
       
-      // For a successful sign-up, the nextStep will be 'CONFIRM_SIGN_UP'
-      // You should redirect the user to a page where they can confirm their email.
+     // For a successful sign-up, the nextStep will be 'CONFIRM_SIGN_UP'
       if (nextStep.signUpStep === 'CONFIRM_SIGN_UP') {
           window.location.href = `/confirm?email=${email}`;
+      } else {
+          // If the sign-up is complete and no confirmation is needed, redirect the user
+          // This is where auto-sign in would have taken effect
+          window.location.href = "/";
       }
 
     } catch (error) {

@@ -10,7 +10,7 @@ import ReplyForm from '../components/ReplyForm';
 // [TODO] Authenication
 //import Cookies from 'js-cookie'
 // Import the new Amplify v6 Auth functions
-import { getCurrentUser, signOut, fetchAuthSession } from 'aws-amplify/auth';
+import { getCurrentUser, signOut, fetchAuthSession, fetchUserAttributes } from 'aws-amplify/auth';
 
 export default function HomeFeedPage() {
   const [activities, setActivities] = React.useState([]);
@@ -50,11 +50,18 @@ export default function HomeFeedPage() {
 
       
      // Use cognitoUser.attributes.name with a safe navigation check
-      const displayName = cognitoUser.attributes?.name || cognitoUser.username;
+      //const displayName = cognitoUser.attributes?.name || cognitoUser.username;
+
+      // Fetch the full list of user attributes
+      const userAttributes = await fetchUserAttributes();
 
       setUser({
-        display_name: displayName,
-        handle: cognitoUser.username
+        //display_name: displayName,
+        //handle: cognitoUser.username,
+        display_name: userAttributes.name,
+        handle: userAttributes.preferred_username,
+        // The sub is a useful identifier for many back-end calls
+        cognito_user_id: userAttributes.sub
       });
 
       console.log('User is authenticated:', cognitoUser);
@@ -87,7 +94,7 @@ export default function HomeFeedPage() {
 
   return (
     <article>
-      <DesktopNavigation user={user} active={'home'} setPopped={setPopped} />
+      <DesktopNavigation user={user} active={'home'} setPopped={setPopped} handleSignOut={handleSignOut} />
       <div className='content'>
         <ActivityForm  
           popped={popped}
