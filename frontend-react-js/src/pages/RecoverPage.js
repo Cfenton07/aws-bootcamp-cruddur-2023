@@ -2,6 +2,8 @@ import './RecoverPage.css';
 import React from "react";
 import {ReactComponent as Logo} from '../components/svg/logo.svg';
 import { Link } from "react-router-dom";
+import { resetPassword, confirmResetPassword } from 'aws-amplify/auth';
+//import { Auth } from 'aws-amplify/auth';
 
 export default function RecoverPage() {
   // Username is Eamil
@@ -11,17 +13,39 @@ export default function RecoverPage() {
   const [code, setCode] = React.useState('');
   const [errors, setErrors] = React.useState('');
   const [formState, setFormState] = React.useState('send_code');
+   // The isAmplifyReady state is no longer needed since the functions are imported directly.
+  // We can just set it to true initially.
+  const [isAmplifyReady, setIsAmplifyReady] = React.useState(true);
+  
+  // The useEffect hook with setInterval is now redundant and has been removed.
 
-  const onsubmit_send_code = async (event) => {
+    const onsubmit_send_code = async (event) => {
     event.preventDefault();
-    console.log('onsubmit_send_code')
-    return false
-  }
+    setErrors('');
+    try {
+      // FIX: Call the correct function for sending the recovery code
+      await resetPassword({ username });
+      setFormState('confirm_code');
+    } catch (err) {
+      setErrors(err.message);
+    }
+  };
+
   const onsubmit_confirm_code = async (event) => {
     event.preventDefault();
-    console.log('onsubmit_confirm_code')
-    return false
-  }
+    setErrors('');
+    if (password === passwordAgain) {
+      try {
+        // FIX: Call the correct function for confirming the code and setting the new password
+        await confirmResetPassword({ username, confirmationCode: code, newPassword: password });
+        setFormState('success');
+      } catch (err) {
+        setErrors(err.message);
+      }
+    } else {
+      setErrors('Passwords do not match');
+    }
+  };
 
   const username_onchange = (event) => {
     setUsername(event.target.value);

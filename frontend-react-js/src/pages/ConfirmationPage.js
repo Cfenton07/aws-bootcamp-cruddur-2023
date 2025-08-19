@@ -1,25 +1,34 @@
 import './ConfirmationPage.css';
 import React from "react";
-import { useParams } from 'react-router-dom';
+//import { useParams } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 import {ReactComponent as Logo} from '../components/svg/logo.svg';
 
 // [TODO] Authenication
 import { confirmSignUp, resendSignUpCode } from 'aws-amplify/auth';
+import { Hub } from 'aws-amplify/utils';
 
 export default function ConfirmationPage() {
-  const [email, setEmail] = React.useState('');
+  const location = useLocation();
+  const params = new URLSearchParams(location.search);
+  
+  // FIX: Only extract the email from the URL.
+  const initialEmail = params.get('email') || '';
+
+
+  const [email, setEmail] = React.useState(initialEmail);
   const [code, setCode] = React.useState('');
   const [cognitoErrors, setCognitoErrors] = React.useState(''); // Changed here for consistency
   const [codeSent, setCodeSent] = React.useState(false);
 
-  const params = useParams();
+  //const params = useParams();
 
   const code_onchange = (event) => {
     setCode(event.target.value);
   }
-  const email_onchange = (event) => {
-    setEmail(event.target.value);
-  }
+  // const email_onchange = (event) => {
+  //   setEmail(event.target.value);
+  // }
 
   const resend_code = async (event) => {
   setCognitoErrors(''); // It's better to use one error state variable
@@ -39,16 +48,35 @@ const onsubmit = async (event) => {
   event.preventDefault();
   setCognitoErrors('');
   try {
-    // Amplify v6's confirmSignUp takes a 'username' and 'confirmationCode' object
-    await confirmSignUp({ username: email, confirmationCode: code });
-    // After confirmation, the user is signed in if autoSignIn was enabled
-    // Redirect to the home page
-    window.location.href = "/";
+      // Step 1: Confirm the user's email
+      await confirmSignUp({ username: email, confirmationCode: code });
+      
+      // Step 2: Sign the user in immediately after confirmation
+      //await signIn({ username: email });
+      
+      // Step: 3 Only redirect when the user is confirmed and signed in  
+        window.location.href = "/";
+
   } catch (error) {
+    console.log(error);
     setCognitoErrors(error.message);
   }
   return false;
 };
+
+    React.useEffect(() => {
+      const hubListenerCancelToken = Hub.listen('auth', ({ payload }) => {
+        // Check for a 'signedIn' event
+        if (payload.event === 'signedIn') {
+        // Only redirect when the user is confirmed and signed in  
+        window.location.href = "/";
+        }
+      });
+
+    // Cleanup the listener when the component unmounts
+       return () => hubListenerCancelToken();
+       
+    }, []);    
 
 
   let code_button;
@@ -58,11 +86,6 @@ const onsubmit = async (event) => {
     code_button = <button className="resend" onClick={resend_code}>Resend Activation Code</button>;
   }
 
-  React.useEffect(()=>{
-    if (params.email) {
-      setEmail(params.email)
-    }
-  }, [params.email]) // Dependency array added
 
   return (
     <article className="confirm-article">
@@ -81,7 +104,8 @@ const onsubmit = async (event) => {
               <input
                 type="text"
                 value={email}
-                onChange={email_onchange} 
+                //onChange={email_onchange}
+                disabled={true} 
               />
             </div>
             <div className='field text_field code'>
@@ -93,7 +117,7 @@ const onsubmit = async (event) => {
               />
             </div>
           </div>
-          {el_errors}
+          {cognitoErrors && <div className='errors'>{cognitoErrors}</div>}
           <div className='submit'>
             <button type='submit'>Confirm Email</button>
           </div>
