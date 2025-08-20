@@ -8,8 +8,6 @@ import ActivityForm from '../components/ActivityForm';
 import ReplyForm from '../components/ReplyForm';
 
 // [TODO] Authenication
-//import Cookies from 'js-cookie'
-// Import the new Amplify v6 Auth functions
 import { getCurrentUser, signOut, fetchAuthSession, fetchUserAttributes } from 'aws-amplify/auth';
 
 export default function HomeFeedPage() {
@@ -18,15 +16,25 @@ export default function HomeFeedPage() {
   const [poppedReply, setPoppedReply] = React.useState(false);
   const [replyActivity, setReplyActivity] = React.useState({});
   const [user, setUser] = React.useState(null);
-  const dataFetchedRef = React.useRef(false);
+  //const dataFetchedRef = React.useRef(false);
 
    const loadData = async () => {
     console.log('user', user);
     try {
-      const backend_url = `${process.env.REACT_APP_BACKEND_URL}/api/activities/home`
+       // Get the authentication session to retrieve the access token
+      const session = await fetchAuthSession();
+      const accessToken = session.tokens.accessToken.toString();
+
+      const backend_url = `${process.env.REACT_APP_BACKEND_URL}/api/activities/home`;
+      
+      // Pass the access token in the Authorization header
       const res = await fetch(backend_url, {
-        method: "GET"
+        method: "GET",
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+        },
       });
+
       let resJson = await res.json();
       if (res.status === 200) {
         setActivities(resJson)
@@ -44,13 +52,8 @@ export default function HomeFeedPage() {
       // Force refresh of the user session to ensure all attributes are available
       const { tokens } = await fetchAuthSession({ forceRefresh: true });
 
-
       // Use getCurrentUser() to get the user's details
       const cognitoUser = await getCurrentUser();
-
-      
-     // Use cognitoUser.attributes.name with a safe navigation check
-      //const displayName = cognitoUser.attributes?.name || cognitoUser.username;
 
       // Fetch the full list of user attributes
       const userAttributes = await fetchUserAttributes();
@@ -83,14 +86,27 @@ export default function HomeFeedPage() {
     }
   };
 
-  React.useEffect(()=>{
-    // Prevents double call
-    if (dataFetchedRef.current) return;
-    dataFetchedRef.current = true;
+  // React.useEffect(()=>{
+  //   // Prevents double call
+  //   if (dataFetchedRef.current) return;
+  //   dataFetchedRef.current = true;
 
-    loadData();
+  //   loadData();
+  //   checkAuth();
+  // }, []);
+
+  React.useEffect(() => {
+    // This effect runs on component mount and checks for auth status
     checkAuth();
   }, []);
+
+  React.useEffect(() => {
+    // This effect runs whenever the `user` state changes
+    // It will trigger loadData only after a user is authenticated
+    if (user) {
+      loadData(user);
+    }
+  }, [user]);
 
   return (
     <article>
