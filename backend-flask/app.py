@@ -104,10 +104,18 @@ backend = os.getenv('BACKEND_URL')
 origins = [frontend, backend]
 cors = CORS(
     app,
-    resources={r"/api/*": {"origins": origins}},
-    expose_headers="location,link",
-    allow_headers="content-type,if-modified-since",
-    methods="OPTIONS,GET,HEAD,POST"
+  resources={r"/api/*": {
+    "origins": origins,
+    "allow_headers": ["Authorization", "Content-Type", "if-modified-since"],
+    "expose_headers": ["location", "link", "Authorization"],
+    "methods": ["OPTIONS", "GET", "HEAD", "POST"]
+  }}
+    # Old code.
+    # app,
+    # resources={r"/api/*": {"origins": origins}},
+    # expose_headers="location,link",
+    # allow_headers="content-type,if-modified-since",
+    # methods="OPTIONS,GET,HEAD,POST"
 )
 
 # Rollbar --------
@@ -176,6 +184,29 @@ def data_create_message():
 
 @app.route("/api/activities/home", methods=['GET'])
 def data_home():
+    # Retrieve the Authorization header from the request
+    auth_header = request.headers.get('Authorization')
+
+    # Check if the header exists
+    if not auth_header:
+        # If no header, return an error
+        return {"error": "Authorization header is missing"}, 401
+
+    # Assuming the header is in the format "Bearer <token>"
+    try:
+        token_type, access_token = auth_header.split()
+        if token_type.lower() != 'bearer':
+            return {"error": "Invalid token type"}, 401
+    except ValueError:
+        return {"error": "Invalid Authorization header format"}, 401
+
+    # Now you have the access_token, you can use it to validate the request.
+    # For now, we will print it to confirm it's being received.
+    print(f"Received access token: {access_token}")
+    
+    # [TODO] You would typically add code here to validate the token
+    # For example, by calling an external service or a function that checks its validity.
+    
     data = HomeActivities.run(logger=LOGGER) #data = HomeActivities.run(logger=LOGGER) will add later maybe
     return data, 200
 
