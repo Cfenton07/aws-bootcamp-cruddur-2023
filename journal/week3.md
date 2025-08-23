@@ -244,4 +244,17 @@ For authenticated users: If a user is logged in (i.e., cognito_user_id is not No
 
 For unauthenticated users: If a user is not logged in, the if block is skipped, and they will only see the original list of activities.
 
-In short, I've successfully added a dynamic, personalized message that only appears at the top of the home feed for authenticated users
+In short, I've successfully added a dynamic, personalized message that only appears at the top of the home feed for authenticated users.
+
+## HomeFeeds Page also update:
+
+HomeFeedPage.js file has been fixed for the blank page issue that occurred after signing out. The problem was that the code was designed to fetch data only when the user state was a non-null value, which meant it stopped fetching data when you signed out.
+
+Here is a summary of the key changes I made:
+
+Refactored loadData: The loadData function was updated to handle both authenticated and unauthenticated requests. It now attempts to get a session and an accessToken, but it's designed to continue even if no session is found. It then uses the headers object, which is now correctly defined, to conditionally add the Authorization token to the fetch request.
+
+Simplified useEffect: I removed the second useEffect hook that was dependent on the user state. Now, a single useEffect hook calls both checkAuth() and loadData() when the component first loads. This ensures the app always attempts to load the home feed, regardless of whether a user is currently logged in or not.
+
+These changes ensure that the frontend will always request data from the backend, and the backend (which we previously corrected) will respond with the appropriate public data when a user is signed out, preventing the blank page from appearing.
+
