@@ -14,6 +14,8 @@ from services.messages import *
 from services.create_message import *
 from services.show_activity import *
 
+from lib.cognito_jwt_token import CognitoJwtToken, extract_access_token, TokenVerifyError
+
 # Honeycomb observability ... via open telemetry
 from opentelemetry import trace
 from opentelemetry.instrumentation.flask import FlaskInstrumentor
@@ -88,6 +90,12 @@ trace.set_tracer_provider(provider)
 tracer = trace.get_tracer(__name__)
 
 app = Flask(__name__)
+
+cognito_jwt_token = CognitoJwtToken(
+  user_pool_id=os.getenv("AWS_COGNITO_USER_POOL_ID"), 
+  user_pool_client_id=os.getenv("AWS_COGNITO_USER_POOL_CLIENT_ID"),
+  region=os.getenv("AWS_REGION")
+)
  
 
 # X-Ray------ Initialize X-Ray Middleware FIRST
@@ -183,32 +191,70 @@ def data_create_message():
     return
 
 @app.route("/api/activities/home", methods=['GET'])
+@xray_recorder.capture('activities_home')
 def data_home():
+    """
+    Handles authenticated and unauthenticated requests for the home activities feed.
+    
+    This function extracts the JWT access token from the Authorization header.
+    It attempts to verify the token using the CognitoJwtToken library.
+    
+    - If the token is valid, it retrieves the user's claims and serves an
+      authenticated feed based on the user's ID.
+    - If the token is invalid or missing, it catches the TokenVerifyError
+      and serves a generic, unauthenticated feed.
+      
+    This is the standard and correct pattern for handling optional authentication
+    on a Flask endpoint.
+    """
+    # 1. Extract the access token from the request headers
+    # The 'extract_access_token' function handles splitting the header
+    # and ensures the format is correct (e.g., 'Bearer <token>').
+    access_token = extract_access_token(request.headers)
+     
+    
     # Retrieve the Authorization header from the request
-    auth_header = request.headers.get('Authorization')
+    #auth_header = request.headers.get('Authorization')
 
     # Check if the header exists
-    if not auth_header:
+    #if not auth_header:
         # If no header, return an error
-        return {"error": "Authorization header is missing"}, 401
+        #return {"error": "Authorization header is missing"}, 401
 
     # Assuming the header is in the format "Bearer <token>"
     try:
-        token_type, access_token = auth_header.split()
-        if token_type.lower() != 'bearer':
-            return {"error": "Invalid token type"}, 401
-    except ValueError:
-        return {"error": "Invalid Authorization header format"}, 401
+        # This line will raise a TokenVerifyError if the token is invalid or missing
+        claims = cognito_jwt_token.verify(access_token)
 
-    # Now you have the access_token, you can use it to validate the request.
-    # For now, we will print it to confirm it's being received.
-    print(f"Received access token: {access_token}")
+        # authenicatied request
+        app.logger.debug("authenticated")
+        app.logger.debug(claims)
+        app.logger.debug(claims['username'])
+
+        # Call the HomeActivities service with the authenticated user's ID
+        data = HomeActivities().run(cognito_user_id=claims['username'])
+
+        #token_type, access_token = auth_header.split()
+        #if token_type.lower() != 'bearer':
+        return data, 200 #{"error": "Invalid token type"}, 401
+
+    except TokenVerifyError as e:
+        # unauthenicatied request
+        app.logger.debug(e)
+        app.logger.debug("unauthenticated")
+
+        # Call the HomeActivities service without a user ID
+        data = HomeActivities().run()
+
+        # Now you have the access_token, you can use it to validate the request.
+        # For now, we will print it to confirm it's being received.
+        #print(f"Received access token: {access_token}")
     
-    # [TODO] You would typically add code here to validate the token
-    # For example, by calling an external service or a function that checks its validity.
-    
-    data = HomeActivities.run(logger=LOGGER) #data = HomeActivities.run(logger=LOGGER) will add later maybe
-    return data, 200
+        
+        # data = HomeActivities.run(logger=LOGGER) #data = HomeActivities.run(logger=LOGGER) will add later maybe
+
+        # Return the unauthenticated data
+        return data, 200
 
 @app.route("/api/activities/notifications", methods=['GET'])
 @xray_recorder.capture('notifications_api_call') # <-- ADD THIS LINE
