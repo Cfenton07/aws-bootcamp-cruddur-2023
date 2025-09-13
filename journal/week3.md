@@ -261,3 +261,82 @@ These changes ensure that the frontend will always request data from the backend
 ## I made some quality of life changes to the homepage UI. I modified the .css code in the frontend so that the color pallet appeared more readable and easier to the human eye to deal with:
 
 ![Cruddur Homepage:](https://github.com/Cfenton07/aws-bootcamp-cruddur-2023/blob/main/_docs/assets/Cruddur_%20UI_Changes(css%20code)%202025-09-13%20114957.png)
+
+```css
+:root {
+  --bg: rgb(61,13,123);
+  --fg: rgb(8,1,14);
+  --field-border: rgb(255,255,255,0.29);
+  --field-border-focus: rgb(149,0,255,1);
+  --field-bg: rgb(31,31,31);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  height: 100%;
+  width: 100%;
+  background-color: #121212;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+
+  position: relative;
+  overflow: hidden;
+  min-height: 100vh; /* <-- Add or change this line */
+}
+
+body::before {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 200px;
+  height: 200px;
+  background-color: rgba(149, 0, 255, 0.9);
+  border-radius: 50%;
+  transform-origin: 0% 100%;
+  filter: blur(100px);
+  z-index: 10;
+  animation: backgroundBrightGlow 4s infinite ease-in-out,
+             spin 10s infinite linear; /* Added a new animation */
+}
+
+
+code {
+  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
+    monospace;
+}
+
+@keyframes backgroundBrightGlow {
+  0% {
+    transform: scale(0.6);
+    opacity: 0.2;
+  }
+  50% {
+    transform: scale(1.5);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(0.6);
+    opacity: 0.2;
+  }
+}
+/* New keyframes for the continuous spinning effect */
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+```
