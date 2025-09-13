@@ -258,3 +258,6 @@ Simplified useEffect: I removed the second useEffect hook that was dependent on 
 
 These changes ensure that the frontend will always request data from the backend, and the backend (which we previously corrected) will respond with the appropriate public data when a user is signed out, preventing the blank page from appearing.
 
+## I made some quality of life changes to the homepage UI. I modified the .css code in the frontend so that the color pallet appeared more readable and easier to the human eye to deal with:
+
+![Cruddur Homepage:](https://github.com/Cfenton07/aws-bootcamp-cruddur-2023/blob/main/_docs/assets/Cruddur_%20UI_Changes(css%20code)%202025-09-13%20114957.png)
