@@ -30,3 +30,153 @@
 - db/seed.sql (1:49:30): Contains INSERT statements to populate initial data into the tables, demonstrating how to use the db_seed script to load this data.
 - Debugging (1:52:45): The instructor debugs an issue where a column was missing in the schema, demonstrating the iterative process of development.
 Outlook (1:54:20): The instructor mentions further work, including API endpoints, AWS Lambda, and future topics like DynamoDB, while reassuring participants about homework challenges given the complexity of the week's content.
+
+# Week 4 Continued...
+
+## PostgreSQL Database Setup and RDS Connection - Detailed Walkthrough
+
+Initial Database Exploration and Script Creation
+I started by connecting to my local PostgreSQL database using a script I had previously created called bin/db-connect. After connecting, I ran \dt to view my tables and executed SELECT * FROM activities to see the seeded data. I discovered that using \x (expanded display mode) made the records much easier to read, and I could also use \x auto to let PostgreSQL decide when to use it.
+Creating Database Management Scripts
+1. Sessions Monitoring Script (bin/db-sessions)
+I created bin/db-sessions to view active database connections. This was necessary because when I tried to drop the database, I got an error saying "the database is being accessed by other users." The script queries pg_stat_activity to show all active connections. I had to make it executable with chmod u+x bin/db-sessions.
+I discovered that the Database Explorer in the IDE was keeping connections open, which prevented me from dropping the database. After closing those connections and running docker compose down and docker compose up, I was able to proceed.
+2. Setup Script (bin/db-setup)
+I created bin/db-setup to streamline my workflow by running multiple commands in sequence:
+
+bin/db-drop
+bin/db-create
+bin/db-schema-load
+bin/db-seed
+
+The script includes set -e at the top to fail fast - if any command fails, it stops executing the rest. I defined a bin_path variable to source the other scripts correctly. This approach mirrors what frameworks like Rails provide, making database management much easier without needing complex frameworks.
+Installing PostgreSQL Python Driver
+3. Updated backend-flask/requirements.txt
+I added two libraries at the bottom:
+
+psycopg[binary] - the PostgreSQL driver for Python (version 3)
+psycopg[pool] - for connection pooling
+
+I ran pip install -r requirements.txt to install them locally (though they'd need to be rebuilt in Docker anyway).
+I explained that connection pooling manages multiple database connections efficiently by reusing them rather than constantly creating new ones. This is crucial because databases have connection limits. Lambda functions can't leverage connection pooling effectively since each invocation spins up fresh, which is why you'd need RDS Proxy for serverless applications.
+4. Created backend-flask/lib/db.py
+I created this new library file to set up the connection pool. The file:
+
+Imports the connection pool from psycopg
+Imports os for environment variables
+Sets up a connection pool using the CONNECTION_URL environment variable
+Created two helper functions: query_array_json() and query_object_json()
+
+These helper functions use PostgreSQL's built-in JSON functions (row_to_json() and json_agg()) to return data directly as JSON strings from the database, avoiding the overhead of transforming data in Python. This is much more efficient than using ORMs that fetch data into memory and then manipulate it.
+5. Updated docker-compose.yml
+I added the CONNECTION_URL environment variable to the backend-flask service, passing it through from my environment.
+Implementing Database Queries
+6. Modified backend-flask/services/home_activities.py
+I updated this file to actually query the database instead of returning mock data:
+
+Imported pool from lib.db
+Removed all the mock data code
+Established a connection using pool.connection()
+Created a cursor with conn.cursor()
+Defined my SQL query in a heredoc (using triple quotes)
+Called query_array_json() to execute the query and return JSON
+Used fetchone()[0] to get the first element of the tuple returned
+
+I initially tried a simple SELECT * FROM activities but later replaced it with a proper query that explicitly listed columns and joined with the users table:
+```sql
+sqlSELECT
+  activities.uuid,
+  users.display_name,
+  users.handle,
+  activities.message,
+  activities.replies_count,
+  activities.reposts_count,
+  activities.likes_count,
+  activities.reply_to_activity_uuid,
+  activities.expires_at,
+  activities.created_at
+FROM public.activities
+LEFT JOIN public.users ON users.uuid = activities.user_uuid
+ORDER BY activities.created_at DESC
+```
+
+Troubleshooting Local Development
+I encountered several issues:
+
+X-ray and tracing errors that I commented out to focus on the database work
+Connection refused errors because I was using 127.0.0.1 instead of db as the hostname in Docker
+Missing return statements in my db.py helper functions (I had accidentally removed them)
+Template syntax issues with curly braces that needed to be escaped with double curlies {{}}
+Had to add f prefix to make string interpolation work in the SQL heredoc
+
+After running docker compose up and refreshing, I successfully retrieved data from my local database.
+Production RDS Setup
+7. Started RDS Instance
+I went to the AWS console and started my RDS PostgreSQL instance. Even though it initially said it failed to start, checking the database list showed it was actually available.
+8. Security Group Configuration
+I needed to allow my GitPod workspace to connect to RDS. I:
+
+Found my GitPod IP using curl ifconfig.me
+Set it as an environment variable: export GITPOD_IP=$(curl ifconfig.me)
+Added it to GitPod's environment: gp env GITPOD_IP=$(curl ifconfig.me)
+Manually added an inbound rule to the RDS security group for port 5432 (PostgreSQL)
+
+9. Reset RDS Password
+I realized I hadn't saved my original RDS password, so I:
+
+Modified the RDS instance in the console
+Set a new master password: DBpassword123 (not recommended for real use!)
+Applied it immediately
+
+10. Created Production Connection String
+I assembled the connection string in a scratch file:
+
+postgresql://cruddurroot:DBpassword123@<RDS-ENDPOINT>:5432/cruddur
+
+Then set it as an environment variable:
+```sh
+bashexport PROD_CONNECTION_URL="postgresql://..."
+gp env PROD_CONNECTION_URL="postgresql://..."
+```
+12. Created bin/rds-update-sg-rule
+I created this script to automatically update the RDS security group with my current GitPod IP address. The script:
+
+Sets environment variables for DB_SG_ID and DB_SG_RULE_ID
+Uses AWS CLI command aws ec2 modify-security-group-rules to update the inbound rule
+Sets the CIDR block to $GITPOD_IP/32 (single IP address)
+Sets the description to "GITPOD"
+
+I made it executable with chmod u+x bin/rds-update-sg-rule.
+12. Updated .gitpod.yml
+I added commands to the postgres initialization task:
+```yaml
+yaml- name: postgres
+  init: |
+    curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc|sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/postgresql.gpg
+    echo "deb http://apt.postgresql.org/pub/repos/apt/ `lsb_release -cs`-pgdg main" |sudo tee  /etc/apt/sources.list.d/pgdg.list
+    sudo apt update
+    sudo apt install -y postgresql-client-13 libpq-dev
+  command: |
+    export GITPOD_IP=$(curl ifconfig.me)
+    source "$THEIA_WORKSPACE_ROOT/backend-flask/bin/rds-update-sg-rule"
+```
+
+This ensures that every time I launch a GitPod workspace, my current IP is automatically added to the RDS security group.
+13. Updated bin/db-connect
+I added conditional logic to support both local and production connections:
+```sh
+bashif [ "$1" = "prod" ]; then
+  URL=$PROD_CONNECTION_URL
+else
+  URL=$CONNECTION_URL
+fi
+```
+
+Now I could run bin/db-connect prod to connect to production.
+14. Updated backend-flask/lib/db.py
+I temporarily changed the connection to use PROD_CONNECTION_URL instead of CONNECTION_URL to test against production.
+15. Loaded Schema to Production
+I ran bin/db-schema-load prod to create the tables in the production RDS instance.
+After refreshing my application, I got a 200 response with no data (which was expected since there were no records yet). The production database was now properly connected and ready for use.
+Key Takeaways
+The session ended with a working production database connection, but no data. To actually create users, I'd need to set up a Lambda function to sync Cognito users with the database upon signup - something that was planned for the next session.
