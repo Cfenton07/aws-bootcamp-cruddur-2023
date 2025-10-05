@@ -31,6 +31,266 @@
 - Debugging (1:52:45): The instructor debugs an issue where a column was missing in the schema, demonstrating the iterative process of development.
 Outlook (1:54:20): The instructor mentions further work, including API endpoints, AWS Lambda, and future topics like DynamoDB, while reassuring participants about homework challenges given the complexity of the week's content.
 
+RDS Instance Provisioning
+1. Created RDS PostgreSQL Instance via AWS CLI
+Purpose: Set up a production database that could be temporarily stopped to avoid costs.
+I walked through the AWS Console first to explain the options (though I didn't actually use it), then used this CLI command:
+```sh
+aws rds create-db-instance \
+  --db-instance-identifier cruddur-db-instance \
+  --db-instance-class db.t3.micro \
+  --engine postgres \
+  --engine-version 14.6 \
+  --master-username cruddurroot \
+  --master-user-password <my-password> \
+  --allocated-storage 20 \
+  --availability-zone ca-central-1a \
+  --backup-retention-period 0 \
+  --port 5432 \
+  --no-multi-az \
+  --storage-type gp2 \
+  --publicly-accessible \
+  --storage-encrypted \
+  --enable-performance-insights \
+  --performance-insights-retention-period 7 \
+  --no-deletion-protection
+```
+Key decisions:
+
+Used publicly accessible (with security group protection)
+Disabled backups to speed up provisioning
+Enabled encryption by default
+Set to us-east-1a availability zone
+
+After creation, I immediately stopped the instance temporarily (AWS allows 7 days) to avoid charges.
+
+Local PostgreSQL Setup
+2. Verified Docker Compose Configuration
+File: docker-compose.yml
+Purpose: Ensure postgres container was configured from previous week.
+I confirmed the postgres database definition existed and commented out DynamoDB to save container resources.
+3. Started Local Postgres Container
+I ran docker compose up to start the local development environment.
+4. Connected to Local Postgres
+I used the psql client to connect:
+```sh
+psql -U postgres -h localhost
+```
+Password: POSTGRES_PASSWORD
+Note: The -h localhost flag is required when working in Docker environments.
+5. Created Local Database
+Inside the psql client:
+```sql
+CREATE DATABASE cruddur;
+```
+
+Connection URL Strings
+6. Created Connection URL Environment Variables
+Purpose: Simplify database connections and avoid typing passwords repeatedly.
+Local connection string:
+```sh
+export CONNECTION_URL="postgresql://postgres:POSTGRES_PASSWORD@localhost:5432/cruddur"
+gp env CONNECTION_URL="postgresql://postgres:POSTGRES_PASSWORD@localhost:5432/cruddur"
+```
+Production connection string:
+```sh
+export PROD_CONNECTION_URL="postgresql://cruddurroot:JfUa365Jl1383@cruddur-db-instance.cg3e6skiib1h.us-east-1.rds.amazonaws.com:5432/cruddur"
+gp env PROD_CONNECTION_URL="postgresql://cruddurroot:JfUa365Jl1383@cruddur-db-instance.cg3e6skiib1h.us-east-1.rds.amazonaws.com:5432/cruddur"
+```
+I could then connect simply with:
+```sh
+psql $CONNECTION_URL
+```
+
+Database Schema File
+7. Created backend-flask/db/schema.sql
+Purpose: Define the database structure with tables for users and activities.
+Key elements:
+
+Enabled UUID extension for generating unique identifiers
+Used public schema namespace explicitly (good practice for future microservices)
+Created DROP statements to allow re-running the script
+
+Tables created:
+users table:
+```sql
+DROP TABLE IF EXISTS public.users;
+CREATE TABLE public.users (
+  uuid UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  display_name text,
+  handle text,
+  cognito_user_id text,
+  created_at TIMESTAMP default current_timestamp NOT NULL
+);
+```
+activities table:
+```sql
+DROP TABLE IF EXISTS public.activities;
+CREATE TABLE public.activities (
+  uuid UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  user_uuid UUID NOT NULL,
+  message text NOT NULL,
+  replies_count integer DEFAULT 0,
+  reposts_count integer DEFAULT 0,
+  likes_count integer DEFAULT 0,
+  reply_to_activity_uuid integer,
+  expires_at TIMESTAMP,
+  created_at TIMESTAMP default current_timestamp NOT NULL
+);
+```
+
+Bash Scripts for Database Management
+8. Created backend-flask/bin/ Directory
+Purpose: Store executable bash scripts for common database operations.
+9. Created backend-flask/bin/db-create
+Purpose: Create the cruddur database.
+```sh
+#!/usr/bin/bash
+
+NO_DB_CONNECTION_URL=$(sed 's/\/cruddur//g' <<<"$CONNECTION_URL")
+psql $NO_DB_CONNECTION_URL -c "CREATE DATABASE cruddur;"
+```
+Key technique: Used sed to strip the database name from the connection URL (can't connect to a database that doesn't exist yet).
+10. Created backend-flask/bin/db-drop
+Purpose: Drop the cruddur database.
+```sh
+#!/usr/bin/bash
+
+NO_DB_CONNECTION_URL=$(sed 's/\/cruddur//g' <<<"$CONNECTION_URL")
+psql $NO_DB_CONNECTION_URL -c "DROP DATABASE cruddur;"
+```
+11. Created backend-flask/bin/db-schema-load
+Purpose: Load the schema.sql file into the database, with support for both local and production.
+```sh
+#!/usr/bin/bash
+
+CYAN='\033[1;36m'
+NO_COLOR='\033[0m'
+LABEL="db-schema-load"
+printf "${CYAN}== ${LABEL}${NO_COLOR}\n"
+
+schema_path="$(realpath .)/db/schema.sql"
+
+
+if [ "$1" = "prod" ]; then
+  echo "using production"
+  URL=$PROD_CONNECTION_URL
+else
+  URL=$CONNECTION_URL
+fi
+
+psql $URL cruddur < $schema_path
+```
+Key features:
+
+Used realpath to get absolute file path
+Added color-coded output (cyan) for better visibility
+Conditional logic: if first argument is "prod", use production URL
+Dollar sign $1 references the first command-line argument
+
+12. Created backend-flask/bin/db-connect
+Purpose: Quickly connect to the database.
+```sh
+#!/usr/bin/bash
+
+psql $CONNECTION_URL
+```
+13. Made Scripts Executable
+Used chmod u+x on all scripts:
+```sh
+chmod u+x bin/db-create
+chmod u+x bin/db-drop
+chmod u+x bin/db-schema-load
+chmod u+x bin/db-connect
+chmod u+x bin/db-seed
+```
+Explanation: Files aren't executable by default. The u+x flag adds execute permission for the user.
+
+Seed Data
+14. Created backend-flask/db/seed.sql
+Purpose: Insert test data for development.
+```sql
+
+INSERT INTO public.users (display_name, handle, cognito_user_id)
+VALUES
+  ('Chris Fenton', 'chrisfenton', 'MOCK'),
+  ('Antwuan Jacobs', 'bayko', 'MOCK');
+
+INSERT INTO public.activities (user_uuid, message, expires_at)
+VALUES
+  (
+    (SELECT uuid from public.users WHERE users.handle = 'chrisfenton' LIMIT 1),
+    'This was imported as seed data!',
+    current_timestamp + interval '10 day'
+  );
+```
+15. Created backend-flask/bin/db-seed
+Purpose: Load seed data with production/local toggle.
+```sh
+#!/usr/bin/bash
+
+CYAN='\033[1;36m'
+NO_COLOR='\033[0m'
+LABEL="db-seed"
+printf "${CYAN}== ${LABEL}${NO_COLOR}\n"
+
+seed_path="$(realpath .)/db/seed.sql"
+
+if [ "$1" = "prod" ]; then
+  echo "using production"
+  URL=$PROD_CONNECTION_URL
+else
+  URL=$CONNECTION_URL
+fi
+
+psql $URL cruddur < $seed_path
+```
+
+Bash Scripting Techniques Learned
+Shebangs: All scripts started with #!/usr/bin/bash to specify bash interpreter
+Color coding: Used ANSI escape codes for colored terminal output
+```sh
+CYAN='\033[1;36m'
+NO_COLOR='\033[0m'
+printf "${CYAN}== ${LABEL}${NO_COLOR}\n"
+```
+Command-line arguments: Used $1 for first argument (e.g., "prod")
+Conditional statements:
+```sh
+if [ "$1" = "prod" ]; then
+  URL=$PROD_CONNECTION_URL
+else
+  URL=$CONNECTION_URL
+fi
+```
+String manipulation with sed: Removed database name from connection string
+```sh
+NO_DB_CONNECTION_URL=$(sed 's/\/cruddur//g' <<<"$CONNECTION_URL")
+```
+File paths with realpath: Got absolute paths relative to script location
+```sh
+bashschema_path="$(realpath .)/db/schema.sql"
+```
+
+Verification and Testing
+I tested the complete workflow:
+
+./bin/db-drop - Dropped the database
+./bin/db-create - Created the database
+./bin/db-schema-load - Loaded tables
+./bin/db-seed - Inserted test data
+./bin/db-connect - Connected to verify
+
+Using \dt in psql showed both tables (users and activities) were created successfully.
+
+Key Learnings and Notes
+
+Docker networking: When connecting to postgres in Docker, use localhost (not the container name)
+Security group: For RDS, I'll need to update the security group with my GitPod IP address each time the workspace starts
+Temporary stop limitation: RDS instances automatically restart after 7 days even when stopped
+Character sets: I didn't explicitly set UTF-8 encoding - this could cause issues later
+Bash vs source: Scripts can be run with ./script.sh, source script.sh, or . script.sh
+
 # Week 4 Continued...
 
 ## PostgreSQL Database Setup and RDS Connection - Detailed Walkthrough
