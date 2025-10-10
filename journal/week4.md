@@ -569,7 +569,7 @@ Formatted SQL as multi-line for readability (Python 3.13 style):
 ```
 Used proper error handling (catching specific exceptions):
 
-python   except psycopg2.DatabaseError as error:
+```python   except psycopg2.DatabaseError as error:
        print(f"Database error: {error}")
    except KeyError as error:
        print(f"Missing user attribute: {error}")
@@ -580,15 +580,17 @@ python   except psycopg2.DatabaseError as error:
            cur.close()
        if conn is not None:
            conn.close()
-
+```
 Added debug print statements:
 
-python   print('userAttributes')
+```python   print('userAttributes')
    print(user)
    print('entered-try')
    print(f'SQL Statement: {sql}')
+```
 Complete updated function:
-pythonimport json
+```python
+import json
 import os
 import psycopg2
 
@@ -628,7 +630,7 @@ def lambda_handler(event: dict, context) -> dict:
             user_cognito_id
         ]
         
-        cur.execute(sql, *params)
+        cur.execute(sql, params)
         conn.commit()
         
     except psycopg2.DatabaseError as error:
@@ -646,16 +648,16 @@ def lambda_handler(event: dict, context) -> dict:
             print('Database connection closed.')
     
     return event
-
+```
 Step 5: Set Environment Variables
 Location: Lambda function → Configuration → Environment variables
 Variables I added:
 
 Key: CONNECTION_URL
 Value: Production PostgreSQL connection string
-
+```
   postgresql://cruddurroot:password@<RDS-ENDPOINT>:5432/cruddur
-
+```
 Step 6: Configure VPC Access for Database Connectivity
 Problem I encountered: Lambda timed out when trying to connect to RDS (timeout after 3.01 seconds).
 Root cause: Lambda functions can't reach RDS unless they're in the same VPC and security group.
@@ -699,7 +701,7 @@ Changes I made:
 Added email column to users table
 Added NOT NULL constraints where appropriate:
 
-sql  DROP TABLE IF EXISTS public.users;
+```sql  DROP TABLE IF EXISTS public.users;
   CREATE TABLE public.users (
     uuid UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
     display_name text NOT NULL,
@@ -708,6 +710,7 @@ sql  DROP TABLE IF EXISTS public.users;
     cognito_user_id text NOT NULL,
     created_at TIMESTAMP DEFAULT current_timestamp NOT NULL
   );
+```
 Deployment:
 
 Ran bin/db-schema-load prod to recreate tables with new schema
@@ -722,8 +725,11 @@ Cleaned up SQL formatting
 Removed extraneous quotation marks
 Used single quotes for string literals (PostgreSQL standard):
 
-sql  INSERT INTO public.users (display_name, email, handle, cognito_user_id)
+```sql
+  INSERT INTO public.users (display_name, email, handle, cognito_user_id)
   VALUES (%s, %s, %s, %s)
+```
+***Qoutes are not needed for python v 3.13 and were therefor removed from try block***
 
 Step 10: Deploy and Test
 Testing process I followed:
@@ -742,29 +748,29 @@ Verified in CloudWatch Logs: Checked Lambda execution logs for errors
 Verified in database: Connected to production database and queried users table
 
 Final verification:
-bashbin/db-connect prod
+```bash
+bin/db-connect prod
 \dt  # List tables
 SELECT * FROM users;  # Confirmed new user record was inserted
 Result: User record successfully created in database with all fields populated.
-
+```
 Key Debugging Techniques I Used
 
-CloudWatch Logs monitoring: Checked logs after each test to see errors
-Print statements: Added debug output to understand execution flow
-Database verification: Connected directly to database to confirm inserts worked
-Incremental testing: Tested after each code change rather than all at once
-Log deletion: Deleted old logs to easily identify new execution logs
-Layer version tracking: Named layers with Python versions to avoid future confusion
+-CloudWatch Logs monitoring: Checked logs after each test to see errors
+-Print statements: Added debug output to understand execution flow
+-Database verification: Connected directly to database to confirm inserts worked
+-Incremental testing: Tested after each code change rather than all at once
+-Layer version tracking: Named layers with Python versions to avoid future confusion
 
 
 Important Considerations and Caveats
 Connection pooling not implemented: Lambda creates a new connection for each invocation, which is inefficient at scale. For production, I would need RDS Proxy (additional cost: ~$36/month).
 Error handling limitations: I noticed some errors weren't being caught by the exception handler properly. This is something I need to improve.
+
 Security notes:
 
-Lambda layer source was from external account—I should verify legitimacy
-Connection string with credentials in environment variables—acceptable for this context but I should use Secrets Manager in production
-Database credentials visible in CloudWatch logs during debugging—acceptable for development, but I should mask sensitive data in production
+- Connection string with credentials in environment variables—acceptable for this context but I should use Secrets Manager in production
+- Database credentials visible in CloudWatch logs during debugging—acceptable for development, but I should mask sensitive data in production
 
 Python 3.13 compatibility: The transition from Python 3.8 to Python 3.13 required:
 
@@ -774,7 +780,8 @@ Using f-strings in print statements for better formatting
 Proper exception handling specific to 3.13
 
 
-Files Created/Modified
+## Files Created/Modified
+
 Created:
 
 backend-flask/lambdas/cruddur-post-confirmation.py — Lambda handler function (Python 3.13)
