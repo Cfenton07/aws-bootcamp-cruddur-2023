@@ -756,11 +756,11 @@ Result: User record successfully created in database with all fields populated.
 ```
 Key Debugging Techniques I Used
 
--CloudWatch Logs monitoring: Checked logs after each test to see errors
--Print statements: Added debug output to understand execution flow
--Database verification: Connected directly to database to confirm inserts worked
--Incremental testing: Tested after each code change rather than all at once
--Layer version tracking: Named layers with Python versions to avoid future confusion
+- CloudWatch Logs monitoring: Checked logs after each test to see errors
+- Print statements: Added debug output to understand execution flow
+- Database verification: Connected directly to database to confirm inserts worked
+- Incremental testing: Tested after each code change rather than all at once
+- Layer version tracking: Named layers with Python versions to avoid future confusion
 
 
 Important Considerations and Caveats
