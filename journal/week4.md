@@ -440,3 +440,359 @@ I ran bin/db-schema-load prod to create the tables in the production RDS instanc
 After refreshing my application, I got a 200 response with no data (which was expected since there were no records yet). The production database was now properly connected and ready for use.
 Key Takeaways
 The session ended with a working production database connection, but no data. To actually create users, I'd need to set up a Lambda function to sync Cognito users with the database upon signup - something that was planned for the next session.
+
+# AWS Bootcamp Week 4.2 - Cognito Post Confirmation Lambda Setup (Python 3.13)
+
+## Overview
+I set up a Lambda function that automatically inserts user data into the PostgreSQL database when a user completes the Cognito sign-up process. The goal was to link Cognito user IDs with database user records. However, I encountered compatibility issues because I had written my function code in Python 3.13, while the existing Lambda layer was compiled for Python 3.8.
+
+- Why This Was Needed
+Problem: The database requires a cognito_user_id field for every user record, but this ID only exists in Cognito after sign-up. Without automating this insertion, users couldn't be properly tracked in the database.
+Solution: Use a Cognito PostConfirmation trigger to invoke a Lambda function that inserts the user into the database.
+
+Step-by-Step Implementation
+Step 1: Create the Lambda Function
+Location: AWS Lambda Console
+Actions I took:
+
+Clicked "Create Function"
+Named it: cruddur-post-confirmation
+Initially set Runtime to Python 3.8 (following the existing layer compatibility)
+Set Architecture to x86_64
+Created new execution role with basic Lambda permissions
+Skipped advanced settings (VPC, code signing, function URLs, tags)
+Clicked "Create function"
+
+Initial mistake: I selected Python 3.8 based on the available psycopg2 layer, not realizing this would create a version mismatch with my actual application code written in Python 3.13.
+
+Step 2: Discover the Python Version Incompatibility Issue
+Problem: When I tested the Lambda function after initial setup, I received this error:
+Unable to import module 'lambda_function': No module named 'psycopg2'
+Root cause: The psycopg2-py38 layer I was using was compiled for Python 3.8. Even though it was attached to the Lambda, Python 3.8's compiled C extensions for psycopg2 are not compatible with Python 3.13. The binary files are version-specific.
+Why this happened: I had two options when creating the Lambda:
+
+Match the Lambda runtime to the available layer (Python 3.8)
+Create a new layer for Python 3.13
+
+I chose option 1 initially, but my actual code had been written using Python 3.13 syntax and features.
+
+Step 3: Create a Python 3.13-Compatible psycopg2 Layer
+Actions I took:
+
+Created the correct directory structure locally:
+
+```sh
+   mkdir -p python/lib/python3.13/site-packages
+```
+Installed psycopg2-binary for Python 3.13:
+
+```bash
+pip install psycopg2-binary -t python/lib/python3.13/site-packages/
+```
+Important note: I used psycopg2-binary, not psycopg2, because:
+
+psycopg2 requires compilation (doesn't work in Lambda environments)
+psycopg2-binary is pre-compiled and works directly
+
+
+Zipped the layer:
+
+```bash
+zip -r psycopg2-py313-layer.zip python/
+```
+Uploaded to AWS Lambda Layers:
+
+Navigated to Lambda → Layers → Create layer
+Named it: psycopg2-py313
+Uploaded the zip file
+Selected "Python 3.13" as the compatible runtime
+Clicked "Create"
+
+
+Removed the old layer and attached the new one:
+
+Went to my Lambda function
+Removed the psycopg2-py38 layer
+Added the new psycopg2-py313 layer
+Clicked "Deploy" to save changes
+
+
+
+Lesson learned: Layer names should include the Python version (e.g., psycopg2-py313) to avoid this confusion in the future.
+
+Step 4: Update Lambda Function Code for Python 3.13
+File created: backend-flask/lambdas/cruddur-post-confirmation.py
+Key updates I made for Python 3.13 compatibility:
+
+Added type hints (standard practice in Python 3.13):
+
+```python
+   import json
+   import os
+   import psycopg2
+   
+   def lambda_handler(event: dict, context) -> dict:
+```
+Improved variable initialization (to prevent UnboundLocalError):
+
+```python
+   conn = None
+   cur = None
+```
+Used connection URL string instead of separate parameters:
+
+```python
+conn = psycopg2.connect(os.getenv('CONNECTION_URL'))
+```
+Extracted user attributes clearly:
+
+```python
+   user = event['request']['userAttributes']
+   
+   user_display_name = user['name']
+   user_email = user['email']
+   user_handle = user['preferred_username']
+   user_cognito_id = user['sub']
+```
+Formatted SQL as multi-line for readability (Python 3.13 style):
+
+```python
+  sql = """
+       INSERT INTO public.users (
+           display_name,
+           email,
+           handle,
+           cognito_user_id
+       ) 
+       VALUES(%s, %s, %s, %s)
+   """
+```
+Used proper error handling (catching specific exceptions):
+
+python   except psycopg2.DatabaseError as error:
+       print(f"Database error: {error}")
+   except KeyError as error:
+       print(f"Missing user attribute: {error}")
+   except Exception as error:
+       print(f"Unexpected error: {error}")
+   finally:
+       if cur is not None:
+           cur.close()
+       if conn is not None:
+           conn.close()
+
+Added debug print statements:
+
+python   print('userAttributes')
+   print(user)
+   print('entered-try')
+   print(f'SQL Statement: {sql}')
+Complete updated function:
+pythonimport json
+import os
+import psycopg2
+
+def lambda_handler(event: dict, context) -> dict:
+    user = event['request']['userAttributes']
+    print('userAttributes')
+    print(user)
+
+    user_display_name = user['name']
+    user_email = user['email']
+    user_handle = user['preferred_username']
+    user_cognito_id = user['sub']
+    
+    conn = None
+    cur = None
+    
+    try:
+        print('entered-try')
+        sql = """
+            INSERT INTO public.users (
+                display_name,
+                email,
+                handle,
+                cognito_user_id
+            ) 
+            VALUES(%s, %s, %s, %s)
+        """
+        print(f'SQL Statement: {sql}')
+        
+        conn = psycopg2.connect(os.getenv('CONNECTION_URL'))
+        cur = conn.cursor()
+        
+        params = [
+            user_display_name,
+            user_email,
+            user_handle,
+            user_cognito_id
+        ]
+        
+        cur.execute(sql, *params)
+        conn.commit()
+        
+    except psycopg2.DatabaseError as error:
+        print(f"Database error: {error}")
+    except KeyError as error:
+        print(f"Missing user attribute: {error}")
+    except Exception as error:
+        print(f"Unexpected error: {error}")
+    
+    finally:
+        if cur is not None:
+            cur.close()
+        if conn is not None:
+            conn.close()
+            print('Database connection closed.')
+    
+    return event
+
+Step 5: Set Environment Variables
+Location: Lambda function → Configuration → Environment variables
+Variables I added:
+
+Key: CONNECTION_URL
+Value: Production PostgreSQL connection string
+
+  postgresql://cruddurroot:password@<RDS-ENDPOINT>:5432/cruddur
+
+Step 6: Configure VPC Access for Database Connectivity
+Problem I encountered: Lambda timed out when trying to connect to RDS (timeout after 3.01 seconds).
+Root cause: Lambda functions can't reach RDS unless they're in the same VPC and security group.
+Actions I took:
+
+Created IAM policy for VPC execution
+
+Service: EC2
+Actions: ec2:CreateNetworkInterface, ec2:DescribeNetworkInterfaces, ec2:DeleteNetworkInterface
+Policy name: lambda-vpc-execution
+Attached to Lambda's execution role
+
+
+Added Lambda to VPC
+
+Went to Lambda Configuration → VPC
+Selected default VPC
+Selected availability zone: ca-central-1a (matched RDS AZ)
+Selected default security group (already added to RDS security group)
+Clicked "Save"
+
+
+
+Result: Lambda could now reach the RDS database.
+
+Step 7: Connect Cognito to Lambda via Trigger
+Location: Cognito User Pool → Lambda Triggers
+Actions I took:
+
+Trigger type: PostConfirmation
+Lambda function: cruddur-post-confirmation
+Granted Cognito permission to invoke the Lambda
+Saved configuration
+
+
+Step 8: Update Database Schema
+Issue I found: The database schema was missing the email column that the Lambda was trying to insert.
+File modified: backend-flask/db/schema.sql
+Changes I made:
+
+Added email column to users table
+Added NOT NULL constraints where appropriate:
+
+sql  DROP TABLE IF EXISTS public.users;
+  CREATE TABLE public.users (
+    uuid UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+    display_name text NOT NULL,
+    email text NOT NULL,
+    handle text NOT NULL,
+    cognito_user_id text NOT NULL,
+    created_at TIMESTAMP DEFAULT current_timestamp NOT NULL
+  );
+Deployment:
+
+Ran bin/db-schema-load prod to recreate tables with new schema
+
+
+Step 9: Debug SQL Syntax Errors
+Issue: Encountered "Unterminated quoted identifier" error on line 13
+Root cause: Stray quotation marks in the SQL statement from my multi-line formatting
+Fix I applied:
+
+Cleaned up SQL formatting
+Removed extraneous quotation marks
+Used single quotes for string literals (PostgreSQL standard):
+
+sql  INSERT INTO public.users (display_name, email, handle, cognito_user_id)
+  VALUES (%s, %s, %s, %s)
+
+Step 10: Deploy and Test
+Testing process I followed:
+
+Deleted existing test user from Cognito User Pool
+Signed up new user through the application UI
+
+Name: Chris Fenton
+Email: chris@example.pro
+Username: chrisfenton
+Password: TestingPassword123!
+
+
+Confirmed email with verification code
+Verified in CloudWatch Logs: Checked Lambda execution logs for errors
+Verified in database: Connected to production database and queried users table
+
+Final verification:
+bashbin/db-connect prod
+\dt  # List tables
+SELECT * FROM users;  # Confirmed new user record was inserted
+Result: User record successfully created in database with all fields populated.
+
+Key Debugging Techniques I Used
+
+CloudWatch Logs monitoring: Checked logs after each test to see errors
+Print statements: Added debug output to understand execution flow
+Database verification: Connected directly to database to confirm inserts worked
+Incremental testing: Tested after each code change rather than all at once
+Log deletion: Deleted old logs to easily identify new execution logs
+Layer version tracking: Named layers with Python versions to avoid future confusion
+
+
+Important Considerations and Caveats
+Connection pooling not implemented: Lambda creates a new connection for each invocation, which is inefficient at scale. For production, I would need RDS Proxy (additional cost: ~$36/month).
+Error handling limitations: I noticed some errors weren't being caught by the exception handler properly. This is something I need to improve.
+Security notes:
+
+Lambda layer source was from external account—I should verify legitimacy
+Connection string with credentials in environment variables—acceptable for this context but I should use Secrets Manager in production
+Database credentials visible in CloudWatch logs during debugging—acceptable for development, but I should mask sensitive data in production
+
+Python 3.13 compatibility: The transition from Python 3.8 to Python 3.13 required:
+
+Creating a new compiled layer
+Updating function code with type hints
+Using f-strings in print statements for better formatting
+Proper exception handling specific to 3.13
+
+
+Files Created/Modified
+Created:
+
+backend-flask/lambdas/cruddur-post-confirmation.py — Lambda handler function (Python 3.13)
+psycopg2-py313 Lambda Layer — PostgreSQL driver for Python 3.13
+IAM policy: lambda-vpc-execution — VPC permissions
+
+Modified:
+
+backend-flask/db/schema.sql — Added email column and NOT NULL constraints
+AWS Lambda configuration (environment variables, VPC, triggers, runtime)
+Cognito User Pool configuration (added PostConfirmation trigger)
+
+
+Next Steps Mentioned
+
+Hook up the CREATE action for activities (allow users to create posts)
+Implement filtering to show only activities from the authenticated user
+Improve error handling in the Lambda function
+Consider implementing RDS Proxy for production scalability
+Monitor CloudWatch logs for any unexpected errors
+RetryClaude does not have the ability to run the code it generates yet.
