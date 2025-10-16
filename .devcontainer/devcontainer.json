@@ -1,36 +1,125 @@
-// For format details, see https://aka.ms/devcontainer.json. For config options, see the
-// README at: https://github.com/devcontainers/templates/tree/main/src/docker-existing-docker-compose
 {
-	"name": "Cruddur Configurations",
-
-	// The optional 'workspaceFolder' property is the path VS Code should open by default when
-	// connected. This is typically a file mount in .devcontainer/docker-compose.yml
-	"workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
-	// Features to add to the dev container. More info: https://containers.dev/features.
-	"features": {
-		"ghcr.io/devcontainers/features/aws-cli:1": {}
-	},
-
-	"remoteEnv": {
-		"AWS_CLI_AUTO_PROMPT": "on-partial"
-	},
-
-	"customizations": {
-		"vscode": {
-			"extensions": [
-				"ms-azuretools.vscode-docker",
-				"ms-python.python"
-			]
-		}
-	}
-
-
-	// Use 'forwardPorts' to make a list of ports inside the container available locally.
-	// "forwardPorts": [],
-
-	// Configure tool-specific properties.
-	// "customizations": {},
-
-	// Uncomment to connect as an existing user other than the container default. More info: https://aka.ms/dev-containers-non-root.
-	// "remoteUser": "devcontainer"
+  // ========================================
+  // BASIC CONFIGURATION
+  // ========================================
+  
+  // Display name for your dev container (shows in VS Code)
+  "name": "AWS Bootcamp Cruddur 2023",
+  
+  // Path to your docker-compose.yml file
+  // This tells Codespaces to use your existing Docker setup instead of creating a new container
+  "dockerComposeFile": "../docker-compose.yml",
+  
+  // Which service from docker-compose.yml to use as the main development container
+  // This will be where your terminal opens and where you edit code
+  "service": "backend-flask",
+  
+  // The folder path inside the container where your code will be mounted
+  // ${localWorkspaceFolderBasename} = your repo name (aws-bootcamp-cruddur-2023)
+  "workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
+  
+  // ========================================
+  // FEATURES (Pre-built Tools & Runtimes)
+  // ========================================
+  // Features are pre-packaged tools that get installed automatically
+  // More info: https://containers.dev/features
+  
+  "features": {
+    // Installs AWS CLI (command-line tool for AWS services)
+    // Equivalent to the "aws-cli" task in your .gitpod.yml
+    "ghcr.io/devcontainers/features/aws-cli:1": {
+      "version": "latest"
+    },
+    
+    // Enables Docker inside your Codespace (Docker-in-Docker)
+    // Required to run "docker compose up" and manage containers
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {},
+    
+    // Installs Node.js v18 (JavaScript runtime)
+    // Required for your React frontend (npm install, npm start)
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "18"
+    }
+  },
+  
+  // ========================================
+  // VS CODE CUSTOMIZATIONS
+  // ========================================
+  
+  "customizations": {
+    "vscode": {
+      // Extensions that will be automatically installed in your Codespace
+      // These match the extensions from your .gitpod.yml file
+      "extensions": [
+        // OpenAPI (Swagger) support for API documentation
+        "42Crunch.vscode-openapi",
+        
+        // Database client for viewing PostgreSQL tables visually
+        "cweijan.vscode-mysql-client2",
+        
+        // Docker support (view containers, images, logs)
+        "ms-azuretools.vscode-docker",
+        
+        // Python language support (syntax highlighting, debugging)
+        "ms-python.python"
+      ]
+    }
+  },
+  
+  // ========================================
+  // ENVIRONMENT VARIABLES
+  // ========================================
+  // These variables are available in your terminal and code
+  
+  "remoteEnv": {
+    // Enables interactive AWS CLI prompts (helps with autocomplete)
+    // Equivalent to the env section in your .gitpod.yml
+    "AWS_CLI_AUTO_PROMPT": "on-partial"
+  },
+  
+  // ========================================
+  // LIFECYCLE SCRIPTS
+  // ========================================
+  
+  // Runs ONCE when the container is first created
+  // This installs PostgreSQL client, npm packages, pip packages, etc.
+  // Equivalent to "init" tasks in your .gitpod.yml
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+  
+  // Runs EVERY TIME the container starts (including after sleep/wake)
+  // This updates your RDS security group with the current IP address
+  // Equivalent to "command" tasks in your .gitpod.yml
+  "postStartCommand": "bash .devcontainer/post-start.sh",
+  
+  // ========================================
+  // PORT FORWARDING
+  // ========================================
+  // These ports will be automatically forwarded from the container to your browser
+  
+  "forwardPorts": [
+    3000,  // Frontend (React app)
+    4567,  // Backend (Flask API)
+    2000,  // AWS X-Ray daemon
+    5432   // PostgreSQL database
+  ],
+  
+  // Configure how each port behaves when forwarded
+  "portsAttributes": {
+    "3000": {
+      "label": "frontend",              // Friendly name in Ports panel
+      "onAutoForward": "openBrowser"    // Automatically open in browser
+    },
+    "4567": {
+      "label": "backend",
+      "onAutoForward": "openBrowser"    // Automatically open in browser
+    },
+    "2000": {
+      "label": "xray-daemon",
+      "onAutoForward": "ignore"         // Don't notify or open (background service)
+    },
+    "5432": {
+      "label": "postgres",
+      "onAutoForward": "ignore"         // Don't notify or open (database)
+    }
+  }
 }
