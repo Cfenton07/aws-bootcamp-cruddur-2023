@@ -6,19 +6,44 @@
 # Equivalent to the "command" section in your .gitpod.yml postgres task
 #
 # Purpose: Update RDS security group with current Codespace IP address
+#          AND refresh dependencies if needed
 # When it runs: Every start, restart, or wake from sleep
 # Why needed: Codespaces get different IP addresses each time they start
 # ========================================
 
 echo "============================================"
-echo "🌐 Updating RDS Security Group with Codespace IP"
+echo "🚀 Codespaces Post-Start Setup"
 echo "============================================"
+
+# ========================================
+# INSTALL/UPDATE FRONTEND DEPENDENCIES
+# ========================================
+# This ensures npm packages are always up-to-date
+# Runs on every start (similar to your .gitpod.yml react-js task)
+
+echo "📦 Checking frontend dependencies..."
+
+# Navigate to frontend directory
+cd frontend-react-js
+
+# Install/update npm packages
+# npm install is safe to run multiple times - it only installs missing packages
+npm install
+
+# Return to root directory
+cd ..
+
+echo "✅ Frontend dependencies ready"
 
 # ========================================
 # GET CURRENT CODESPACE IP ADDRESS
 # ========================================
 # Each Codespace has a unique public IP address
 # We need to tell AWS RDS to allow connections from this IP
+
+echo ""
+echo "🌐 Updating RDS Security Group with Codespace IP"
+echo "============================================"
 
 # Use ifconfig.me service to get our public IP address
 # -s flag = silent (no progress bar)
@@ -45,6 +70,7 @@ if [ -z "$AWS_ACCESS_KEY_ID" ]; then
   echo "   - AWS_DEFAULT_REGION"
   echo "3. Rebuild your Codespace"
   echo ""
+  echo "Skipping RDS security group update..."
   # Exit gracefully (don't fail the entire startup)
   exit 0
 fi
@@ -98,6 +124,7 @@ rm -f /tmp/rds-update-temp.sh
 # HELPFUL TIPS
 # ========================================
 
+echo ""
 echo "============================================"
 echo "💡 Helpful Tips:"
 echo ""
