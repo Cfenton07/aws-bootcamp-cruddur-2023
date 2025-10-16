@@ -19,7 +19,8 @@ tasks:
     sudo apt update
     sudo apt install -y postgresql-client-13 libpq-dev 
   command: |
-      export GITPOD_IP=$(curl ifconfig.me)
+      # export GITPOD_IP=$(curl ifconfig.me)
+      export CODESPACES_IP=$(curl -s checkip.amazonaws.com)
       source  "$THEIA_WORKSPACE_ROOT/backend-flask/bin/rds-update-sg-rule"
 vscode:
   extensions:
