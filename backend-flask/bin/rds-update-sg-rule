@@ -6,6 +6,22 @@ NO_COLOR='\033[0m'
 LABEL="rds-sg-updated"
 printf "${CYAN}==== ${LABEL}${NO_COLOR}\n"
 
+# 1. Retrieve the Codespaces public IP address
+echo "Retrieving current Codespaces IP..."
+CODESPACES_IP=$(curl -s checkip.amazonaws.com)
+
+if [ -z "$CODESPACES_IP" ]; then
+    echo "ERROR: Failed to retrieve public IP address."
+    exit 1
+fi
+
+echo "Codespaces Public IP: $CODESPACES_IP"
+
+# 2. Update the Security Group Rule
+# Note: Ensure DB_SG_ID and DB_SG_RULE_ID environment variables are set!
 aws ec2 modify-security-group-rules \
-    --group-id $DB_SG_ID \
-    --security-group-rules "SecurityGroupRuleId=$DB_SG_RULE_ID,SecurityGroupRule={Description=GITPOD,IpProtocol=tcp,FromPort=5432,ToPort=5432,CidrIpv4=$GITPOD_IP/32}"
+    --group-id "$DB_SG_ID" \
+    --security-group-rules "SecurityGroupRuleId=$DB_SG_RULE_ID,SecurityGroupRule={Description=CODESPACES,IpProtocol=tcp,FromPort=5432,ToPort=5432,CidrIpv4=$CODESPACES_IP/32}"
+
+echo "Successfully updated Security Group Rule ID: $DB_SG_RULE_ID"
+echo "New allowed IP address: $CODESPACES_IP/32"
