@@ -8,9 +8,6 @@ This is the starting codebase that will be used in the FREE AWS Cloud Project Bo
 ![Cruddur Graphic](_docs/assets/cruddur-banner.jpg)
 
 ![Cruddur Screenshot](_docs/assets/cruddur-screenshot.png)
-![Cruddur Graphic](https://github.com/Cfenton07/aws-bootcamp-cruddur-2023/raw/main/_docs/assets/cruddur-banner.jpg)
-
-![Cruddur Screenshot](https://github.com/Cfenton07/aws-bootcamp-cruddur-2023/raw/main/_docs/assets/cruddur-screenshot.png)
 
 ## Instructions
 
