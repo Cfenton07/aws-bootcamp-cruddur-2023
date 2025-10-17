@@ -71,10 +71,30 @@
   // ========================================
   // These variables are available in your terminal and code
   
-  "remoteEnv": {
-    // Enables interactive AWS CLI prompts (helps with autocomplete)
-    // Equivalent to the env section in your .gitpod.yml
-    "AWS_CLI_AUTO_PROMPT": "on-partial"
+ "remoteEnv": {
+    // AWS CLI configuration
+    "AWS_CLI_AUTO_PROMPT": "on-partial",
+    
+    // ========================================
+    // OPTIONAL MONITORING SERVICES
+    // ========================================
+    // Set these to empty strings to suppress warnings
+    // If you sign up for these services later, update with real tokens
+    
+    // Rollbar - Error tracking (optional)
+    "ROLLBAR_ACCESS_TOKEN": "",
+    
+    // Honeycomb - Observability/tracing (optional)
+    "HONEYCOMB_API_KEY": "",
+    
+    // ========================================
+    // GITPOD COMPATIBILITY VARIABLES
+    // ========================================
+    // These suppress warnings when docker-compose.yml references Gitpod variables
+    // They're not actually used in Codespaces - just prevent warning messages
+    
+    "GITPOD_WORKSPACE_ID": "",
+    "GITPOD_WORKSPACE_CLUSTER_HOST": ""
   },
   
   // ========================================
