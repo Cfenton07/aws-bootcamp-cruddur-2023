@@ -34,28 +34,9 @@
   "forwardPorts": [3000, 4567, 2000, 5432],
   
   "portsAttributes": {
-<<<<<<< HEAD
     "3000": {"label": "frontend", "onAutoForward": "openBrowser"},
     "4567": {"label": "backend", "onAutoForward": "openBrowser"},
     "2000": {"label": "xray-daemon", "onAutoForward": "ignore"},
     "5432": {"label": "postgres", "onAutoForward": "ignore"}
-=======
-    "3000": {
-      "label": "frontend",
-      "onAutoForward": "openBrowser"
-    },
-    "4567": {
-      "label": "backend",
-      "onAutoForward": "openBrowser"
-    },
-    "2000": {
-      "label": "xray-daemon",
-      "onAutoForward": "ignore"
-    },
-    "5432": {
-      "label": "postgres",
-      "onAutoForward": "ignore"
-    }
->>>>>>> c5cc4d9 (Updated devcontainer and docker compose files to account for envars for Codespaces not gitpod and removed envars for Rollbar and Honeycomb)
   }
 }
