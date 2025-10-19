@@ -1019,4 +1019,77 @@ After fixing everything, my Codespaces environment now:
 
 Key Takeaway
 The fundamental mistake was trying to use my application's backend-flask service as the dev container itself. The solution was to use a standalone Ubuntu dev container with Docker-in-Docker, which allows me to run my application containers inside it - just like Gitpod did automatically.
-This migration taught me the importance of understanding container architecture and the difference between development environments and application deployments.RetryClaude can make mistakes. Please double-check responses. Sonnet 4.5
+This migration taught me the importance of understanding container architecture and the difference between development environments and application deployments.
+
+# Troubleshooting Log Streaming and Crud Button Posting Issue
+Initial Problem
+I was unable to see logs streaming from my Flask backend container when interacting with my application. Additionally, the "Crud" button on my web page wasn't posting activities to the database. My goal was to debug user interactions in real-time by viewing container logs.
+Symptoms Observed
+
+No logs appeared in the terminal when running docker compose logs -f backend-flask
+Browser DevTools showed 401 and CORS errors for all API requests
+The "Crud" button appeared to do nothing when clicked
+Preflight OPTIONS requests were failing with 401 status codes
+
+Initial Troubleshooting Steps
+
+Added debug logging to Flask app using @app.before_request decorator to log all incoming requests
+Added print statements to the /api/activities endpoint and CreateActivity class to trace request flow
+Added @staticmethod decorators to fix Python class method issues in create_activity.py
+Verified database connectivity by checking if the PostgreSQL container was running
+
+Root Cause #1: Codespaces Port Privacy
+Despite adding extensive logging, no logs appeared when making requests. This was the critical clue - requests weren't reaching Flask at all. The 401 errors in the browser had zero response headers, indicating they were being blocked before reaching my application.
+Issue: Port 4567 (backend) was set to "Private" by default in Codespaces, requiring GitHub authentication. My frontend on port 3000 couldn't authenticate to access the backend, causing all requests to fail with 401 errors before Flask ever saw them.
+Solution: Changed port 4567 visibility from "Private" to "Public" in the Codespaces PORTS panel.
+Result:
+✅ Logs immediately began streaming in the terminal
+✅ All incoming requests now visible with debug information
+✅ Crud button successfully posts activities
+Root Cause #2: Missing User in Database
+After fixing the port issue, I received a new error:
+null value in column "user_uuid" of relation "activities" violates not-null constraint
+Issue: The create.sql INSERT statement queried for a user with handle 'chrisfenton', but this user didn't exist in the RDS database, causing the subquery to return NULL and violating the NOT NULL constraint on user_uuid.
+Solution: Verified the user existed in the RDS database by connecting via ./backend-flask/bin/db-connect prod and running:
+sqlSELECT uuid, handle, display_name FROM users WHERE handle = 'chrisfenton';
+Confirmed the user was present with proper UUID.
+Root Cause #3: Activities Disappearing on Refresh
+After successfully posting activities, they would appear temporarily but disappear when refreshing the page.
+Issue: I discovered that activities were being saved to the RDS database (verified by manual SQL query), but Flask was connected to the local PostgreSQL container instead of RDS due to docker-compose.yml configuration.
+Solution: Updated docker-compose.yml to use RDS:
+yamlCONNECTION_URL: "${PROD_CONNECTION_URL}"  # Use RDS
+#CONNECTION_URL: "postgresql://postgres:POSTGRES_PASSWORD@db:5432/cruddur"  # Commented out local
+```
+
+## Root Cause #4: TypeError with Missing 'self' Parameter
+After switching to RDS, the application crashed with a 500 Internal Server Error when loading the home page.
+
+**Error:**
+```
+TypeError: HomeActivities.run() got multiple values for argument 'cognito_user_id'
+Issue: The HomeActivities.run() method in home_activities.py was missing self as the first parameter:
+pythondef run(cognito_user_id=None):  # ❌ Missing 'self'!
+When calling HomeActivities().run(cognito_user_id=claims['username']), Python passed the instance as the first positional argument, but the method expected cognito_user_id as the first argument, causing a conflict.
+Solution: Added self as the first parameter:
+pythondef run(self, cognito_user_id=None):  # ✅ Correct!
+Result:
+✅ Home page loads successfully
+✅ Activities persist after refresh
+✅ Full end-to-end functionality working
+Key Learnings
+
+Codespaces port privacy can block requests before they reach your application - always check port visibility first when encountering 401 errors
+Zero response headers on failed requests indicates blocking at the infrastructure level, not application level
+Debug logging at multiple levels (before_request, endpoints, service classes) provides visibility into request flow
+Browser DevTools Network tab is essential for diagnosing frontend-to-backend communication issues
+Understanding the difference between frontend (browser console) logs and backend (container) logs is crucial for debugging
+Database connectivity issues can be subtle - verify which database (local vs RDS) your application is actually connected to
+Python class methods must include self as the first parameter when called as instance methods
+Systematic debugging - work through errors one at a time, verify each fix before moving to the next issue
+
+Final Status
+✅ Log streaming fully functional
+✅ Crud button posts activities successfully
+✅ Activities persist in RDS database
+✅ Activities display correctly on home page after refresh
+✅ Full application functionality restored
