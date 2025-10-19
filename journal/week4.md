@@ -1061,7 +1061,7 @@ After successfully posting activities, they would appear temporarily but disappe
 Issue: I discovered that activities were being saved to the RDS database (verified by manual SQL query), but Flask was connected to the local PostgreSQL container instead of RDS due to docker-compose.yml configuration.
 Solution: Updated docker-compose.yml to use RDS:
 yamlCONNECTION_URL: "${PROD_CONNECTION_URL}"  # Use RDS
-#CONNECTION_URL: "postgresql://postgres:POSTGRES_PASSWORD@db:5432/cruddur"  # Commented out local
+"#CONNECTION_URL: "postgresql://postgres:POSTGRES_PASSWORD@db:5432/cruddur"  # Commented out local"
 ```
 
 ## Root Cause #4: TypeError with Missing 'self' Parameter
