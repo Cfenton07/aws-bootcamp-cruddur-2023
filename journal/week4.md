@@ -1031,7 +1031,7 @@ Browser DevTools showed 401 and CORS errors for all API requests
 The "Crud" button appeared to do nothing when clicked
 Preflight OPTIONS requests were failing with 401 status codes
 
-Initial Troubleshooting Steps
+## Initial Troubleshooting Steps
 
 Added debug logging to Flask app using @app.before_request decorator to log all incoming requests
 Added print statements to the /api/activities endpoint and CreateActivity class to trace request flow
@@ -1042,10 +1042,12 @@ Root Cause #1: Codespaces Port Privacy
 Despite adding extensive logging, no logs appeared when making requests. This was the critical clue - requests weren't reaching Flask at all. The 401 errors in the browser had zero response headers, indicating they were being blocked before reaching my application.
 Issue: Port 4567 (backend) was set to "Private" by default in Codespaces, requiring GitHub authentication. My frontend on port 3000 couldn't authenticate to access the backend, causing all requests to fail with 401 errors before Flask ever saw them.
 Solution: Changed port 4567 visibility from "Private" to "Public" in the Codespaces PORTS panel.
+
 Result:
 ✅ Logs immediately began streaming in the terminal
 ✅ All incoming requests now visible with debug information
 ✅ Crud button successfully posts activities
+
 Root Cause #2: Missing User in Database
 After fixing the port issue, I received a new error:
 null value in column "user_uuid" of relation "activities" violates not-null constraint
@@ -1053,6 +1055,7 @@ Issue: The create.sql INSERT statement queried for a user with handle 'chrisfent
 Solution: Verified the user existed in the RDS database by connecting via ./backend-flask/bin/db-connect prod and running:
 sqlSELECT uuid, handle, display_name FROM users WHERE handle = 'chrisfenton';
 Confirmed the user was present with proper UUID.
+
 Root Cause #3: Activities Disappearing on Refresh
 After successfully posting activities, they would appear temporarily but disappear when refreshing the page.
 Issue: I discovered that activities were being saved to the RDS database (verified by manual SQL query), but Flask was connected to the local PostgreSQL container instead of RDS due to docker-compose.yml configuration.
@@ -1072,6 +1075,7 @@ pythondef run(cognito_user_id=None):  # ❌ Missing 'self'!
 When calling HomeActivities().run(cognito_user_id=claims['username']), Python passed the instance as the first positional argument, but the method expected cognito_user_id as the first argument, causing a conflict.
 Solution: Added self as the first parameter:
 pythondef run(self, cognito_user_id=None):  # ✅ Correct!
+
 Result:
 ✅ Home page loads successfully
 ✅ Activities persist after refresh
