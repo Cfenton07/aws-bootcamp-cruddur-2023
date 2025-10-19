@@ -1110,6 +1110,6 @@ Final Status
 ✅ Activities display correctly on home page after refresh
 ✅ Full application functionality restored
 
-![Screenshot of Successful Crud Posts!!!](_docs/assets/Crud_Successful Post.png)
+![Screenshot of Successful Crud Posts!!!]([_docs/assets/Crud_Successful Post.png](https://github.com/Cfenton07/aws-bootcamp-cruddur-2023/blob/main/_docs/assets/Crud_Successful%20Post.png)
 
 ![Screenshot of Successful Log Streams showing in terminal for backend container running services](https://github.com/Cfenton07/aws-bootcamp-cruddur-2023/blob/main/_docs/assets/log_streaming%20In%20…)
