@@ -1022,17 +1022,17 @@ The fundamental mistake was trying to use my application's backend-flask service
 This migration taught me the importance of understanding container architecture and the difference between development environments and application deployments.
 
 # Troubleshooting Log Streaming and Crud Button Posting Issue
-Initial Problem
-I was unable to see logs streaming from my Flask backend container when interacting with my application. Additionally, the "Crud" button on my web page wasn't posting activities to the database. My goal was to debug user interactions in real-time by viewing container logs.
-Symptoms Observed
 
+## Initial Problem
+I was unable to see logs streaming from my Flask backend container when interacting with my application. Additionally, the "Crud" button on my web page wasn't posting activities to the database. My goal was to debug user interactions in real-time by viewing container logs.
+
+## Symptoms Observed
 No logs appeared in the terminal when running docker compose logs -f backend-flask
 Browser DevTools showed 401 and CORS errors for all API requests
 The "Crud" button appeared to do nothing when clicked
 Preflight OPTIONS requests were failing with 401 status codes
 
 ## Initial Troubleshooting Steps
-
 Added debug logging to Flask app using @app.before_request decorator to log all incoming requests
 Added print statements to the /api/activities endpoint and CreateActivity class to trace request flow
 Added @staticmethod decorators to fix Python class method issues in create_activity.py
@@ -1050,18 +1050,26 @@ Result:
 
 Root Cause #2: Missing User in Database
 After fixing the port issue, I received a new error:
+```
 null value in column "user_uuid" of relation "activities" violates not-null constraint
+```
 Issue: The create.sql INSERT statement queried for a user with handle 'chrisfenton', but this user didn't exist in the RDS database, causing the subquery to return NULL and violating the NOT NULL constraint on user_uuid.
+
 Solution: Verified the user existed in the RDS database by connecting via ./backend-flask/bin/db-connect prod and running:
-sqlSELECT uuid, handle, display_name FROM users WHERE handle = 'chrisfenton';
+```sql
+SELECT uuid, handle, display_name FROM users WHERE handle = 'chrisfenton';
+```
 Confirmed the user was present with proper UUID.
 
 Root Cause #3: Activities Disappearing on Refresh
 After successfully posting activities, they would appear temporarily but disappear when refreshing the page.
 Issue: I discovered that activities were being saved to the RDS database (verified by manual SQL query), but Flask was connected to the local PostgreSQL container instead of RDS due to docker-compose.yml configuration.
+
 Solution: Updated docker-compose.yml to use RDS:
-yamlCONNECTION_URL: "${PROD_CONNECTION_URL}"  # Use RDS
+```yaml
+CONNECTION_URL: "${PROD_CONNECTION_URL}"  # Use RDS
 "#CONNECTION_URL: "postgresql://postgres:POSTGRES_PASSWORD@db:5432/cruddur"  # Commented out local"
+```
 ```
 
 ## Root Cause #4: TypeError with Missing 'self' Parameter
@@ -1071,10 +1079,14 @@ After switching to RDS, the application crashed with a 500 Internal Server Error
 ```
 TypeError: HomeActivities.run() got multiple values for argument 'cognito_user_id'
 Issue: The HomeActivities.run() method in home_activities.py was missing self as the first parameter:
-pythondef run(cognito_user_id=None):  # ❌ Missing 'self'!
+```python
+def run(cognito_user_id=None):  # ❌ Missing 'self'!
+```
 When calling HomeActivities().run(cognito_user_id=claims['username']), Python passed the instance as the first positional argument, but the method expected cognito_user_id as the first argument, causing a conflict.
 Solution: Added self as the first parameter:
-pythondef run(self, cognito_user_id=None):  # ✅ Correct!
+```python
+def run(self, cognito_user_id=None):  # ✅ Correct!
+```
 
 Result:
 ✅ Home page loads successfully
