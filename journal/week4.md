@@ -1112,4 +1112,4 @@ Final Status
 
 ![Screenshot of Successful Crud Posts!!!](https://github.com/Cfenton07/aws-bootcamp-cruddur-2023/blob/main/journal/assets/Crud_Successful%20Post.png)
 
-![Screenshot of Successful Log Streams showing in terminal for backend container running services](https://github.com/Cfenton07/aws-bootcamp-cruddur-2023/blob/main/_docs/assets/log_streaming%20In%20…)
+![Screenshot of Successful Log Streams showing in terminal for backend container running services](https://github.com/Cfenton07/aws-bootcamp-cruddur-2023/blob/main/journal/assets/log_streaming%20In%20Terminal_Successful.png)
