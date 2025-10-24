@@ -1115,3 +1115,333 @@ Final Status
 
 ## Log Streams showing in terminal!!!
 ![Screenshot of Successful Log Streams showing in terminal for backend container running services](https://github.com/Cfenton07/aws-bootcamp-cruddur-2023/blob/main/journal/assets/log_streaming%20In%20Terminal_Successful.png)
+
+
+# Week 4 - Creating Activities API Endpoint Summary
+Video Summary: Implementing Database Continued-Connected CRUD Operations
+
+## Overview
+This session focused on implementing the "Create Activity" endpoint to allow users to post new activities (cruds) that persist in the PostgreSQL database. The work involved significant refactoring of the database connection library, implementing SQL template loading, and debugging connection issues.
+
+### Key Topics Covered
+1. Initial Environment Setup & Troubleshooting (0:00 - 2:30)
+Context: After restarting the development environment, the application was hanging on load.
+Problem Identified:
+
+RDS connection timeout due to incorrect GitPod IP address in security group
+The automated script to update security groups wasn't working as expected
+
+Resolution:
+
+Manually verified connection with bin/db-connect prod
+Confirmed issue was network-related, not application code
+Realized working in wrong git branch (week-4 instead of week-4-again)
+
+### Key Learning:
+
+Hanging connections typically indicate network/firewall issues
+Always verify you're in the correct branch/environment before debugging
+
+
+2. Database Library Refactoring (16:00 - 30:00)
+Objective: Create reusable database functions to reduce code duplication and improve maintainability.
+Major Changes:
+Created a DB class in backend-flask/lib/db.py:
+
+Converted from loose functions to a class-based structure
+Implemented initialization method (__init__) with connection pool
+Made connection pool accessible via self.pool
+
+New methods created:
+pythonclass DB:
+    def __init__(self):
+        self.pool = psycopg_pool.ConnectionPool(...)
+    
+    def query_commit(self, sql, params={})  # For INSERT/UPDATE/DELETE
+    def query_array_json(self, sql, params={})  # Returns array of JSON objects
+    def query_object_json(self, sql, params={})  # Returns single JSON object
+### Why this matters:
+
+Centralized database logic in one place
+Easier to maintain and debug
+Consistent error handling across all queries
+
+
+3. SQL Parameterization & Injection Prevention (32:00 - 42:00)
+Critical Security Issue Discovered:
+
+Initial code used f-strings to insert values directly into SQL
+This creates SQL injection vulnerability
+
+Solution Implemented:
+
+Used parameterized queries with %s placeholders
+Passed parameters as dictionary using named parameters
+Example syntax: %(handle)s instead of {handle}
+
+Updated Lambda function:
+```python
+# Before (VULNERABLE):
+sql = f"INSERT INTO users VALUES ('{name}', '{email}')"
+```
+After (SECURE):
+```py
+sql = "INSERT INTO users VALUES (%(name)s, %(email)s)"
+params = {'name': name, 'email': email}
+cur.execute(sql, params)
+
+**Key Takeaway:**
+- NEVER use f-strings or string concatenation for SQL queries
+- Always use parameterized queries to prevent SQL injection attacks
+
+---
+
+### **4. SQL Template System Implementation (1:02:00 - 1:20:00)**
+
+**Problem**: SQL queries embedded in Python code are hard to read and maintain.
+
+**Solution**: Created SQL template file system
+
+**Directory Structure Created:**
+
+backend-flask/
+└── db/
+    └── sql/
+        └── activities/
+            ├── create.sql
+            ├── object.sql
+            └── home.sql
+```            
+Implementation:
+```python
+def load_template(self, *args):
+    # Get absolute path using Flask's app.root_path
+    pathing = list(args)
+    pathing[0] = os.path.join(app.root_path, 'db', 'sql', pathing[0])
+    pathing[-1] = pathing[-1] + ".sql"
+    template_path = os.path.join(*pathing)
+    # Read and return file contents
+```
+Benefits:
+
+SQL gets proper syntax highlighting in IDE
+Easier to read and maintain complex queries
+Separation of concerns (SQL separate from Python logic)
+
+
+5. Enhanced Debugging with Colored Output (1:17:00 - 1:47:00)
+Implemented color-coded console output:
+```python
+CYAN = '\033[1;36m'
+GREEN = '\033[1;32m'
+BLUE = '\033[1;34m'
+NO_COLOR = '\033[0m'
+
+def print_sql(self, title, sql):
+    print(f"{CYAN}== {title} =={NO_COLOR}")
+    print(f"{CYAN}{sql}{NO_COLOR}")
+
+def print_params(self, params):
+    print(f"{BLUE}== SQL PARAMS =={NO_COLOR}")
+    for key, value in params.items():
+        print(f"{BLUE}  {key}: {value}{NO_COLOR}")
+```
+Output shown:
+
+SQL template file being loaded (green)
+SQL statement being executed (cyan)
+Parameters being passed (blue)
+
+Why this helps:
+
+Quickly identify which queries are running
+Easy to spot in logs during debugging
+Can copy SQL directly to test in psql
+
+
+6. Context Manager Error Handling (1:14:00 - 1:17:00)
+Issue: Connection object had no cursor attribute error
+Root Cause: Not using proper context manager syntax for psycopg3
+Solution:
+```python
+# Before (FAILED):
+conn = self.pool.connection()
+cur = conn.cursor()
+
+# After (WORKS):
+with self.pool.connection() as conn:
+    with conn.cursor() as cur:
+        cur.execute(sql, params)
+        conn.commit()
+```
+Why this matters:
+
+Context managers ensure resources are properly cleaned up
+Automatic connection/cursor closing even on errors
+Required syntax for psycopg3 connection pools
+
+
+7. Implementing RETURNING Clause (31:00 - 35:00)
+Problem: After INSERT, need to get the UUID of the created record
+PostgreSQL Solution: Use RETURNING clause
+SQL Template (activities/create.sql):
+```sql
+INSERT INTO public.activities (
+    user_uuid,
+    message,
+    expires_at
+) VALUES (
+    (SELECT uuid FROM public.users WHERE users.handle = %(handle)s LIMIT 1),
+    %(message)s,
+    %(expires_at)s
+)
+RETURNING uuid;
+```
+Python handling:
+```python
+# Detect if query has RETURNING clause
+pattern = r"\bRETURNING\b"
+is_returning = re.search(pattern, sql)
+
+if is_returning:
+    return cur.fetchone()[0]  # Return the UUID
+```
+Benefits:
+
+Avoid extra SELECT query after INSERT
+More efficient database operations
+Get generated values (UUIDs, timestamps) immediately
+
+
+8. Creating Activity Object Retrieval (1:24:00 - 1:28:00)
+Created activities/object.sql:
+```sql
+SELECT
+    activities.uuid,
+    users.display_name,
+    users.handle,
+    activities.message,
+    activities.created_at,
+    activities.expires_at
+FROM public.activities
+INNER JOIN public.users ON users.uuid = activities.user_uuid
+WHERE activities.uuid = %(uuid)s
+```
+#### Flow:
+
+1) Insert activity → get UUID
+2) Query full activity object with user data
+3) Return complete object to frontend
+
+
+9. Error Handling & Debugging Challenges (Throughout)
+Print Statement Delay Issue:
+
+Noticed print statements not appearing immediately in logs
+Had to refresh or wait for next request to see output
+Considered switching to Flask's app.logger instead of print()
+
+NoneType Errors:
+
+Added conditional checks: if json is None: return None
+Prevented "object not subscriptable" errors
+Improved graceful handling of empty results
+
+Missing Return Statements:
+
+Python doesn't auto-return like Ruby
+Had to explicitly add return statements
+Caused UUID to be None when creating activities
+
+
+10. Final Implementation of Create Activity
+File: backend-flask/services/create_activity.py
+Key validations:
+
+Message length check (maximum characters)
+TTL (Time To Live) validation for expiration
+User authentication check
+
+Database operations:
+```python
+uuid = DB.query_commit(
+    DB.load_template('activities', 'create'),
+    {
+        'handle': user_handle,
+        'message': message,
+        'expires_at': expires_at
+    }
+)
+
+# Fetch the complete activity object
+object_json = DB.query_object_json(
+    DB.load_template('activities', 'object'),
+    {'uuid': uuid}
+)
+
+return object_json
+```
+
+Files Created/Modified
+Created:
+
+backend-flask/db/sql/activities/create.sql - Insert activity SQL
+backend-flask/db/sql/activities/object.sql - Fetch single activity
+backend-flask/db/sql/activities/home.sql - Fetch activity feed
+
+Modified:
+
+backend-flask/lib/db.py - Complete refactor to class-based structure
+backend-flask/services/create_activity.py - Implemented database persistence
+backend-flask/services/home_activities.py - Used SQL templates
+backend-flask/lambdas/cruddur-post-confirmation.py - Fixed SQL injection vulnerability
+
+
+Key Takeaways
+Security:
+
+Always use parameterized queries (%(param)s syntax)
+Never use f-strings or concatenation for SQL
+Sanitization happens automatically with parameterized queries
+
+Code Organization:
+
+SQL templates separate from Python code
+Centralized database operations in single class
+Consistent error handling and logging
+
+PostgreSQL Features:
+
+RETURNING clause for getting inserted IDs
+JSON functions for data transformation
+Named parameters for clarity
+
+Debugging:
+
+Color-coded output significantly improves log readability
+Print SQL and parameters before execution
+Context managers ensure proper resource cleanup
+
+
+Outstanding Issues
+To Fix:
+
+Print statements not appearing immediately in logs
+Timestamp format not displaying correctly (shows "240 minutes ago")
+Need to implement remaining endpoints (notifications, profile, etc.)
+
+Future Work:
+
+Consider migrating from print() to app.logger
+Implement additional API endpoints
+Handle timezone conversions properly
+Add more comprehensive error messages
+
+
+Next Steps Mentioned
+
+Implement notifications endpoint
+Implement user profile endpoint
+Fix timestamp display issues
+Distribute remaining endpoint implementations over coming weeks
+Focus will shift more to cloud infrastructure rather than just API endpoints
