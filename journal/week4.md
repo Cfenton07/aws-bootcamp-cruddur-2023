@@ -1385,63 +1385,63 @@ return object_json
 Files Created/Modified
 Created:
 
-backend-flask/db/sql/activities/create.sql - Insert activity SQL
-backend-flask/db/sql/activities/object.sql - Fetch single activity
-backend-flask/db/sql/activities/home.sql - Fetch activity feed
+-backend-flask/db/sql/activities/create.sql - Insert activity SQL
+-backend-flask/db/sql/activities/object.sql - Fetch single activity
+-backend-flask/db/sql/activities/home.sql - Fetch activity feed
 
 Modified:
 
-backend-flask/lib/db.py - Complete refactor to class-based structure
-backend-flask/services/create_activity.py - Implemented database persistence
-backend-flask/services/home_activities.py - Used SQL templates
-backend-flask/lambdas/cruddur-post-confirmation.py - Fixed SQL injection vulnerability
+-backend-flask/lib/db.py - Complete refactor to class-based structure
+-backend-flask/services/create_activity.py - Implemented database persistence
+-backend-flask/services/home_activities.py - Used SQL templates
+-backend-flask/lambdas/cruddur-post-confirmation.py - Fixed SQL injection vulnerability
 
 
 Key Takeaways
 Security:
 
-Always use parameterized queries (%(param)s syntax)
-Never use f-strings or concatenation for SQL
-Sanitization happens automatically with parameterized queries
+-Always use parameterized queries (%(param)s syntax)
+-Never use f-strings or concatenation for SQL
+-Sanitization happens automatically with parameterized queries
 
 Code Organization:
 
-SQL templates separate from Python code
-Centralized database operations in single class
-Consistent error handling and logging
+-SQL templates separate from Python code
+-Centralized database operations in single class
+-Consistent error handling and logging
 
 PostgreSQL Features:
 
-RETURNING clause for getting inserted IDs
-JSON functions for data transformation
-Named parameters for clarity
+-RETURNING clause for getting inserted IDs
+-JSON functions for data transformation
+-Named parameters for clarity
 
 Debugging:
 
-Color-coded output significantly improves log readability
-Print SQL and parameters before execution
-Context managers ensure proper resource cleanup
+-Color-coded output significantly improves log readability
+-Print SQL and parameters before execution
+-Context managers ensure proper resource cleanup
 
 
 Outstanding Issues
 To Fix:
 
-Print statements not appearing immediately in logs
-Timestamp format not displaying correctly (shows "240 minutes ago")
-Need to implement remaining endpoints (notifications, profile, etc.)
+-Print statements not appearing immediately in logs
+-Timestamp format not displaying correctly (shows "240 minutes ago")
+-Need to implement remaining endpoints (notifications, profile, etc.)
 
 Future Work:
 
-Consider migrating from print() to app.logger
-Implement additional API endpoints
-Handle timezone conversions properly
-Add more comprehensive error messages
+-Consider migrating from print() to app.logger
+-Implement additional API endpoints
+-Handle timezone conversions properly
+-Add more comprehensive error messages
 
 
 Next Steps Mentioned
 
-Implement notifications endpoint
-Implement user profile endpoint
-Fix timestamp display issues
-Distribute remaining endpoint implementations over coming weeks
-Focus will shift more to cloud infrastructure rather than just API endpoints
+-Implement notifications endpoint
+-Implement user profile endpoint
+-Fix timestamp display issues
+-Distribute remaining endpoint implementations over coming weeks
+-Focus will shift more to cloud infrastructure rather than just API endpoints
