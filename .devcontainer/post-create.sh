@@ -67,8 +67,15 @@ echo "📦 Installing backend dependencies..."
 # Navigate to backend directory
 cd backend-flask
 
+# Create virtual environment
+python3 -m venv venv
+
+# Activate it for subsequent commands
+source venv/bin/activate
+
 # Install all Python packages listed in requirements.txt
 # Includes: Flask, psycopg2, boto3, and other dependencies
+pip install --upgrade pip
 pip install -r requirements.txt
 
 # Return to root directory
