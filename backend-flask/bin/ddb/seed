@@ -263,3 +263,31 @@ for i in range(len(lines)):
         my_user_display_name=users[key]['display_name'],
         my_user_handle=users[key]['handle']
     )
+  
+# Update message groups with the latest timestamp from the conversation
+last_message_at = (now + timedelta(minutes=len(lines) - 1)).isoformat()
+last_message_text = lines[-1].replace('Person 2: ', '')  # Get the actual last message
+
+# Update the message group for my_user
+create_message_group(
+  client=dynamodb,
+  message_group_uuid=message_group_uuid,
+  my_user_uuid=users['my_user']['uuid'],
+  other_user_uuid=users['other_user']['uuid'],
+  other_user_handle=users['other_user']['handle'],
+  other_user_display_name=users['other_user']['display_name'],
+  last_message_at=last_message_at,
+  message=last_message_text
+)
+
+# Update the message group for other_user
+create_message_group(
+  client=dynamodb,
+  message_group_uuid=message_group_uuid,
+  my_user_uuid=users['other_user']['uuid'],
+  other_user_uuid=users['my_user']['uuid'],
+  other_user_handle=users['my_user']['handle'],
+  other_user_display_name=users['my_user']['display_name'],
+  last_message_at=last_message_at,
+  message=last_message_text
+)

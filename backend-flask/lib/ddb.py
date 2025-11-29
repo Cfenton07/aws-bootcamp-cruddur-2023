@@ -12,6 +12,8 @@ class Ddb:
       attrs = { 'endpoint_url': endpoint_url }
     else:
       attrs = {}
+      # Add region configuration
+    attrs['region_name'] = os.getenv('AWS_DEFAULT_REGION', 'us-east-1')
     dynamodb = boto3.client('dynamodb',**attrs)
     return dynamodb
 
