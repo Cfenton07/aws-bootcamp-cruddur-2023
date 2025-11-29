@@ -6,23 +6,43 @@ import DesktopNavigation  from '../components/DesktopNavigation';
 import MessageGroupFeed from '../components/MessageGroupFeed';
 import MessagesFeed from '../components/MessageFeed';
 import MessagesForm from '../components/MessageForm';
+import checkAuth from '../components/lib/CheckAuth';
 
-// [TODO] Authenication
-import Cookies from 'js-cookie'
+import { signOut, fetchAuthSession } from 'aws-amplify/auth';
 
 export default function MessageGroupPage() {
   const [messageGroups, setMessageGroups] = React.useState([]);
   const [messages, setMessages] = React.useState([]);
-  const [popped, setPopped] = React.useState([]);
+  const [popped, setPopped] = React.useState(false);
   const [user, setUser] = React.useState(null);
   const dataFetchedRef = React.useRef(false);
   const params = useParams();
 
   const loadMessageGroupsData = async () => {
+    console.log('loadMessageGroupsData called');
+    // Initialize a header object
+    const headers = {};
+
+    try {
+      // Attempt to get the user session to get the access token
+      const session = await fetchAuthSession();
+      const accessToken = session?.tokens?.accessToken;
+
+      // If an access token exists, add it to the headers
+      if (accessToken) {
+        headers['Authorization'] = `Bearer ${accessToken}`;
+      }
+
+    } catch (err) {
+      console.log('Error fetching session:', err);
+      // Continue with the request even if there's no session
+    }
+
     try {
       const backend_url = `${process.env.REACT_APP_BACKEND_URL}/api/message_groups`
       const res = await fetch(backend_url, {
-        method: "GET"
+        method: "GET",
+        headers: headers,
       });
       let resJson = await res.json();
       if (res.status === 200) {
@@ -36,11 +56,31 @@ export default function MessageGroupPage() {
   };  
 
   const loadMessageGroupData = async () => {
+    console.log('loadMessageGroupData called');
+    // Initialize a header object
+    const headers = {};
+
+    try {
+      // Attempt to get the user session to get the access token
+      const session = await fetchAuthSession();
+      const accessToken = session?.tokens?.accessToken;
+
+      // If an access token exists, add it to the headers
+      if (accessToken) {
+        headers['Authorization'] = `Bearer ${accessToken}`;
+      }
+
+    } catch (err) {
+      console.log('Error fetching session:', err);
+      // Continue with the request even if there's no session
+    }
+
     try {
       const handle = `@${params.handle}`;
       const backend_url = `${process.env.REACT_APP_BACKEND_URL}/api/messages/${handle}`
       const res = await fetch(backend_url, {
-        method: "GET"
+        method: "GET",
+        headers: headers,
       });
       let resJson = await res.json();
       if (res.status === 200) {
@@ -53,14 +93,12 @@ export default function MessageGroupPage() {
     }
   };  
 
-  const checkAuth = async () => {
-    console.log('checkAuth')
-    // [TODO] Authenication
-    if (Cookies.get('user.logged_in')) {
-      setUser({
-        display_name: Cookies.get('user.name'),
-        handle: Cookies.get('user.username')
-      })
+  const handleSignOut = async () => {
+    try {
+      await signOut();
+      window.location.href = "/";
+    } catch (error) {
+      console.log('Error signing out: ', error);
     }
   };
 
@@ -69,13 +107,14 @@ export default function MessageGroupPage() {
     if (dataFetchedRef.current) return;
     dataFetchedRef.current = true;
 
+    checkAuth(setUser);
     loadMessageGroupsData();
     loadMessageGroupData();
-    checkAuth();
   }, [])
+
   return (
     <article>
-      <DesktopNavigation user={user} active={'home'} setPopped={setPopped} />
+      <DesktopNavigation user={user} active={'home'} setPopped={setPopped} handleSignOut={handleSignOut} />
       <section className='message_groups'>
         <MessageGroupFeed message_groups={messageGroups} />
       </section>
