@@ -92,27 +92,27 @@ users = get_user_uuids()
 
 now = datetime.now(timezone.utc).astimezone(ZoneInfo('America/New_York'))
 
-create_message_group(
-  client=dynamodb,
-  message_group_uuid=message_group_uuid,
-  my_user_uuid=users['my_user']['uuid'],
-  other_user_uuid=users['other_user']['uuid'],
-  other_user_handle=users['other_user']['handle'],
-  other_user_display_name=users['other_user']['display_name'],
-  last_message_at=now.isoformat(),
-  message="this is a filler message"
-)
+# create_message_group(
+#   client=dynamodb,
+#   message_group_uuid=message_group_uuid,
+#   my_user_uuid=users['my_user']['uuid'],
+#   other_user_uuid=users['other_user']['uuid'],
+#   other_user_handle=users['other_user']['handle'],
+#   other_user_display_name=users['other_user']['display_name'],
+#   last_message_at=now.isoformat(),
+#   message="this is a filler message"
+# )
 
-create_message_group(
-  client=dynamodb,
-  message_group_uuid=message_group_uuid,
-  my_user_uuid=users['other_user']['uuid'],
-  other_user_uuid=users['my_user']['uuid'],
-  other_user_handle=users['my_user']['handle'],
-  other_user_display_name=users['my_user']['display_name'],
-  last_message_at=now.isoformat(),
-  message="this is a filler message"
-)
+# create_message_group(
+#   client=dynamodb,
+#   message_group_uuid=message_group_uuid,
+#   my_user_uuid=users['other_user']['uuid'],
+#   other_user_uuid=users['my_user']['uuid'],
+#   other_user_handle=users['my_user']['handle'],
+#   other_user_display_name=users['my_user']['display_name'],
+#   last_message_at=now.isoformat(),
+#   message="this is a filler message"
+# )
 
 
 

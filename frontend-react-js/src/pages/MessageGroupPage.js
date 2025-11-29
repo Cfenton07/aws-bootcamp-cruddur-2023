@@ -47,6 +47,7 @@ export default function MessageGroupPage() {
       let resJson = await res.json();
       if (res.status === 200) {
         setMessageGroups(resJson)
+
       } else {
         console.log(res)
       }
@@ -54,6 +55,7 @@ export default function MessageGroupPage() {
       console.log(err);
     }
   };  
+
 
   const loadMessageGroupData = async () => {
     console.log('loadMessageGroupData called');
@@ -77,7 +79,7 @@ export default function MessageGroupPage() {
 
     try {
       const handle = `@${params.handle}`;
-      const backend_url = `${process.env.REACT_APP_BACKEND_URL}/api/messages/${handle}`
+      const backend_url = `${process.env.REACT_APP_BACKEND_URL}/api/messages/${params.message_group_uuid}`
       const res = await fetch(backend_url, {
         method: "GET",
         headers: headers,
