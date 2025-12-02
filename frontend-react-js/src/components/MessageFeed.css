@@ -1,0 +1,15 @@
+.message_feed {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.message_feed_heading {
+  flex-shrink: 0; /* Prevent the heading from shrinking */
+}
+
+.message_feed_collection {
+  flex: 1; /* Takes up remaining space */
+  overflow-y: auto;
+  overflow-x: hidden;
+}

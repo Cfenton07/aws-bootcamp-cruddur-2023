@@ -1,7 +1,14 @@
-.messages.content {
+body {
+  overflow: hidden;
+}
+
+
+.content.messages {
+  height: calc(100vh - 80px);
   display: flex;
   flex-direction: column;
 }
+
 
 .message_feed {
   flex-grow: 1;
