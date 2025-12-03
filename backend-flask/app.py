@@ -20,6 +20,7 @@ from services.message_groups import *
 from services.messages import *
 from services.create_message import *
 from services.show_activity import *
+from services.users_short import *
 
 # ============================================================
 # AUTHENTICATION - AWS COGNITO
@@ -477,6 +478,15 @@ def data_activities_reply(activity_uuid):
         return model['errors'], 422
     else:
         return model['data'], 200
+    
+# ============================================================
+# API ENDPOINTS - USERS SHORT INFO
+# ============================================================    
+    
+@app.route("/api/users/@<string:handle>/short", methods=['GET'])
+def data_users_short(handle):
+  data = UsersShort.run(handle)
+  return data, 200    
 
 # ============================================================
 # APPLICATION ENTRY POINT

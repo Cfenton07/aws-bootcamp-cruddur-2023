@@ -46,7 +46,7 @@ export default function MessageForm(props) {
       // Build the request body
       let json = { 'message': message }
       if (params.handle) {
-        json.user_receiver_handle = params.handle
+        json.handle = params.handle  // ✅ Match backend
       } else {
         json.message_group_uuid = params.message_group_uuid
       }

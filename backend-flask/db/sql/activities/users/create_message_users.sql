@@ -14,5 +14,5 @@ FROM public.users
 WHERE
   users.cognito_user_id = %(cognito_user_id)s
   OR 
-  users.handle = %(user_receiver_handle)s;
+  users.handle = %(user_receiver_handle)s
   
