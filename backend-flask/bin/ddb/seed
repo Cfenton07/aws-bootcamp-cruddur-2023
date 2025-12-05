@@ -100,7 +100,7 @@ now = datetime.now(timezone.utc).astimezone(ZoneInfo('America/New_York'))
 #   other_user_handle=users['other_user']['handle'],
 #   other_user_display_name=users['other_user']['display_name'],
 #   last_message_at=now.isoformat(),
-#   message="this is a filler message"
+#   message="this is a filler message 1"
 # )
 
 # create_message_group(
@@ -111,7 +111,7 @@ now = datetime.now(timezone.utc).astimezone(ZoneInfo('America/New_York'))
 #   other_user_handle=users['my_user']['handle'],
 #   other_user_display_name=users['my_user']['display_name'],
 #   last_message_at=now.isoformat(),
-#   message="this is a filler message"
+#   message="this is a filler message 2"
 # )
 
 
