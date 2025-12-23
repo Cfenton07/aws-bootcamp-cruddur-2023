@@ -27,6 +27,17 @@ def lambda_handler(event, context):
     print(json.dumps(event))
     
     # =========================================================================
+    # FILTER: ONLY PROCESS INSERT EVENTS
+    # Skip REMOVE events (deletions) and MODIFY events
+    # =========================================================================
+    event_name = event['Records'][0]['eventName']
+    print(f"EVENT TYPE ===> {event_name}")
+    
+    if event_name == 'REMOVE':
+        print("SKIPPING - This is a REMOVE event (deletion)")
+        return {'statusCode': 200, 'body': 'REMOVE event, skipping'}
+    
+    # =========================================================================
     # EXTRACT EVENT DATA
     # =========================================================================
     print("=== EXTRACTING KEYS ===")
@@ -34,6 +45,7 @@ def lambda_handler(event, context):
     sk = event['Records'][0]['dynamodb']['Keys']['sk']['S']
     print(f"PK ===> {pk}")
     print(f"SK ===> {sk}")
+    
     
     # =========================================================================
     # FILTER: ONLY PROCESS MESSAGE RECORDS
