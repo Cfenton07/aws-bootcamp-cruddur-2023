@@ -14,9 +14,9 @@ This was the most technically challenging week of the bootcamp, requiring approx
 
 [1. Development Environment Setup](#1-development-environment-setup)
 
-2 - Authentication Migration to AWS Amplify
+[2. Authentication Migration to AWS Amplify](#2-authentication-migration-to-aws-amplify)
 
-3 - Database Architecture Design
+[3. Database Architecture Design](#3-database-architecture-design)
 
 4 - DynamoDB Schema and Setup
 
@@ -78,7 +78,7 @@ Exposes port 8000 for local development access
 Uses shared database mode for simplified development
 
 
-### 2. Authentication Migration to AWS Amplify
+## 2. Authentication Migration to AWS Amplify
 2.1 The Problem with localStorage
 The bootcamp initially used cookie-based authentication with localStorage:
 ```javascript
