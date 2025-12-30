@@ -531,11 +531,14 @@ for message_data in conversation:
 What this seed data does:
 
 Retrieves users from PostgreSQL: Gets me (Chris Fenton) and Antwuan Jacobs from the users table
+
 Creates bilateral message groups: Both users get a message group entry pointing to the same conversation
+
 Seeds conversation: Creates a Babylon 5-themed discussion with timestamped messages
+
 Maintains consistency: Uses same message_group_uuid for all related data
 
-Seed commands workflow:
+Python script workflows for bash execution:
 ```bash
 ./backend-flask/bin/ddb/drop              # Delete existing table
 ./backend-flask/bin/ddb/schema-load       # Create fresh table
