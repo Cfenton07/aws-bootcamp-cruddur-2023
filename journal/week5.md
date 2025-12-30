@@ -205,7 +205,7 @@ MessageGroupNewPage.js - New conversation interface
 
 Key improvement over bootcamp: The bootcamp used localStorage throughout. I migrated everything to AWS Amplify for enterprise-grade security.
 
-3. Database Architecture Design
+## 3. Database Architecture Design
 3.1 Dual Database Strategy
 I implemented a dual-database architecture leveraging the strengths of both PostgreSQL and DynamoDB:
 PostgreSQL (Relational Data):
