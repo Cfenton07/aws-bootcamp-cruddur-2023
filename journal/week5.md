@@ -7,7 +7,7 @@
 # Week 5 Complete Development Journal - DynamoDB Messaging System Implementation
 ## Executive Summary
 
-### During Week 5 of the AWS Cloud Project Bootcamp, I successfully implemented a complete real-time messaging system for my Cruddur social media application. This involved integrating AWS DynamoDB for message storage, migrating to AWS Amplify authentication, creating a dual-database architecture (PostgreSQL + DynamoDB), and building a React-based messaging interface with real-time updates and auto-scroll functionality.
+### During Week 5 of the AWS Cloud Project Bootcamp, I successfully implemented a complete real-time messaging system for my Cruddur social media application. This involved integrating AWS DynamoDB for scalable message storage, migrating to AWS Amplify authentication for secure JWT token management, creating a dual-database architecture (PostgreSQL for user data + DynamoDB for messages), implementing serverless event-driven updates with DynamoDB Streams and Lambda triggers, and building a React-based messaging interface with real-time updates and auto-scroll functionality.
 This was the most technically challenging week of the bootcamp, requiring approximately 20+ hours of focused development and extensive debugging across multiple layers of the application stack.
 
 ## Table of Contents
