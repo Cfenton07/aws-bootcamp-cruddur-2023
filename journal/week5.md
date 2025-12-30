@@ -1793,6 +1793,8 @@ Click "Message" button
 Backend creates conversation
 Redirect to /messages/{new_message_group_uuid}
 
+====================================================
+[Jump back to Table of Contents](#table-of-contents)
 
 ## 10. UI/UX Improvements
 10.1 Scroll Container Fix
@@ -2620,7 +2622,7 @@ Production-ready logging hooks
 Clear execution flow visibility
 
 
-## 15. Key Learnings and Takeaways
+## 15. Key Learnings and Takeaways 
 15.1 Technical Skills Acquired
 AWS Services:
 
@@ -3257,4 +3259,8 @@ SQL Templates: ~100 lines
 CSS: ~150 lines
 Configuration: ~50 lines
 Total: ~1,700 lines of code
+```
+====================================================
+[Jump back to Table of Contents](#table-of-contents)
+
 
