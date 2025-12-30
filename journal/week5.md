@@ -12,7 +12,7 @@ This was the most technically challenging week of the bootcamp, requiring approx
 
 ## Table of Contents
 
-1 - [Development Environment Setup](##development-environment-setup)
+[1. Development Environment Setup](##development-environment-setup)
 
 2 - Authentication Migration to AWS Amplify
 
@@ -44,7 +44,7 @@ This was the most technically challenging week of the bootcamp, requiring approx
 
 
 
-### 1. Development Environment Setup
+## 1. Development Environment Setup
 1.1 GitHub Codespaces Migration
 I migrated my entire development environment from Gitpod Classic to GitHub Codespaces after Gitpod Classic announced its deprecation. This required:
 Docker Compose Configuration Updates:
