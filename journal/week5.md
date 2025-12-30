@@ -1585,6 +1585,7 @@ Checks auth status: Updates user state for nav display
 Renders feed: Passes message groups to MessageGroupFeed component
 
 Layout: Two-column design with MessageGroupFeed on left, empty content area on right.
+
 9.3 MessageGroupPage
 File: frontend-react-js/src/pages/MessageGroupPage.js
 ```javascript
