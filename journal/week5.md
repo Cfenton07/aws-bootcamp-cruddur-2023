@@ -18,29 +18,47 @@ This was the most technically challenging week of the bootcamp, requiring approx
 
 [3. Database Architecture Design](#3-database-architecture-design)
 
-4 - DynamoDB Schema and Setup
+[4. DynamoDB Schema and Setup](#4-dynamoDB-schema-and-setup)
 
-5 - Backend API Development
+[5. Backend API Development](#5-backend-api-development)
 
-6 - DynamoDB Client Library Implementation
+[6. DynamoDB Client Library Implementation](#6-dynamoDB-client-library-implementation)
 
-7 - Service Layer Development
+[7. Service Layer Development](#7-service-layer-development)
 
-8 - Frontend Component Architecture
+[8. Frontend Component Architecture](#8-frontend-component-architecture)
 
-9 - Routing and Navigation
+[9. Routing and Navigation](#9-routing-and-navigation)
 
-10 - UI/UX Improvements
+[10. UI/UX Improvements](#10-uiux-improvements)
 
-11 - Debugging and Problem Solving
+[11. Debugging and Problem Solving](#11-debugging-and-problem-solving)
 
-12 - Security Considerations
+[12. Security Considerations](#12-security-considerations)
 
-13 - Testing and Validation
+[13. Testing and Validation](#13-testing-and-validation)
 
-14 - Code Quality Improvements Over Bootcamp
+[14. Code Quality Improvements Over Bootcamp](#14-code-quality-improvements-over-bootcamp)
 
-15 - Key Learnings and Takeaways
+[15. Key Learnings and Takeaways](#15-key-learnings-and-takeaways)
+
+7. Service Layer Development
+
+8. Frontend Component Architecture
+
+9. Routing and Navigation
+
+10. UI/UX Improvements
+
+11. Debugging and Problem Solving
+
+12. Security Considerations
+
+13. Testing and Validation
+
+14. Code Quality Improvements Over Bootcamp
+
+15. Key Learnings and Takeaways
 
 
 
@@ -233,7 +251,12 @@ CREATE TABLE public.users (
 );
 ```
 DynamoDB Single Table Design:
-EntityPartition Key (pk)Sort Key (sk)Additional AttributesMessage Group (User A)GRP#{user_a_uuid}2025-11-26T...message_group_uuid, user_uuid (User B), user_display_name, user_handle, messageMessage Group (User B)GRP#{user_b_uuid}2025-11-26T...message_group_uuid, user_uuid (User A), user_display_name, user_handle, messageMessageMSG#{message_group_uuid}2025-11-26T...message_uuid, user_uuid, user_display_name, user_handle, message
+Entity Partition Key (pk) 
+Sort Key (sk) 
+Additional Attributes 
+-Message Group (User A)
+-GRP#{user_a_uuid}2025-11-26T...message_group_uuid, user_uuid (User B), user_display_name, user_handle, messageMessage Group (User B)GRP#{user_b_uuid}2025-11-26T...message_group_uuid, user_uuid (User A), user_display_name, user_handle, messageMessageMSG#{message_group_uuid}2025-11-26T...message_uuid, user_uuid, user_display_name, user_handle, message
+
 Why this design:
 
 Efficient queries: Can retrieve all conversations for a user with single query on GRP#{user_uuid}
@@ -242,7 +265,7 @@ Denormalization: User info duplicated in messages for read optimization
 Bilateral visibility: Both users have message group entries for their perspective
 
 
-4. DynamoDB Schema and Setup
+## 4. DynamoDB Schema and Setup
 4.1 Schema Definition
 File: backend-flask/bin/ddb/schema-load
 ```python
@@ -537,7 +560,7 @@ Seed commands workflow:
 ./backend-flask/bin/ddb/seed              # Load seed data
 ./backend-flask/bin/ddb/patterns/list-conversations  # Verify data
 ```
-5. Backend API Development
+## 5. Backend API Development
 5.1 Messages API Endpoint
 File: backend-flask/app.py
 ```python
@@ -671,7 +694,7 @@ Used for: Starting new conversations, displaying user info
 
 Security note: This endpoint is intentionally public to allow users to look up others for messaging. Only non-sensitive profile data is returned.
 
-6. DynamoDB Client Library Implementation
+## 6. DynamoDB Client Library Implementation
 6.1 Core DynamoDB Client
 File: backend-flask/lib/ddb.py
 ```python
@@ -923,7 +946,7 @@ Debug prints: Step-by-step logging for troubleshooting
 Critical design: Each user gets their own message group entry (GRP#{their_uuid}) pointing to the other user. This enables efficient "list my conversations" queries.
 Improvement over bootcamp: Added comprehensive debug logging at each step, making troubleshooting much easier.
 
-7. Service Layer Development
+## 7. Service Layer Development
 7.1 Messages Service
 File: backend-flask/services/messages.py
 ```python
@@ -1160,7 +1183,7 @@ WHERE users.handle = %(handle)s
 ```
 Security consideration: This endpoint is intentionally public to allow users to look up others for messaging. Only non-sensitive fields are returned.
 
-8. Frontend Component Architecture
+## 8. Frontend Component Architecture
 8.1 MessageFeed Component with Auto-Scroll
 File: frontend-react-js/src/components/MessageFeed.js
 ```javascript
@@ -1468,7 +1491,7 @@ Time formatting logic:
 
 
 
-### 9. Routing and Navigation
+## 9. Routing and Navigation
 9.1 App.js Route Configuration
 File: frontend-react-js/src/App.js
 ```javascript
@@ -1789,7 +1812,7 @@ Backend creates conversation
 Redirect to /messages/{new_message_group_uuid}
 
 
-### 10. UI/UX Improvements
+## 10. UI/UX Improvements
 10.1 Scroll Container Fix
 Problem: Entire page was scrolling instead of just the message container, causing navigation to disappear.
 Root cause: No explicit scroll boundaries defined in CSS.
@@ -1912,7 +1935,7 @@ CSS (MessageForm.css):
 
 
 
-### 11. Debugging and Problem Solving
+## 11. Debugging and Problem Solving
 
 11.1 SQL Syntax Error - Trailing Semicolon
 
@@ -2208,7 +2231,7 @@ React.useEffect(() => {
 ```
 Lesson learned: scrollIntoView() can scroll unintended containers. Direct scrollTop manipulation with refs is more reliable for specific container scrolling.
 
-12. Security Considerations
+## 12. Security Considerations
 12.1 Environment Variable Management
 Current approach:
 ```yaml
@@ -2320,7 +2343,7 @@ Specific allowed methods
 Preflight request handling with OPTIONS
 
 
-### 13. Testing and Validation
+## 13. Testing and Validation
 13.1 Manual Testing Performed
 Message Groups:
 
@@ -2453,7 +2476,7 @@ New user with no history → Works correctly ✅
 Conversation with single message → Displays properly ✅
 
 
-14. Code Quality Improvements Over Bootcamp
+## 14. Code Quality Improvements Over Bootcamp
 14.1 AWS Amplify Migration
 Bootcamp approach (outdated):
 ```javascript
@@ -2615,7 +2638,7 @@ Production-ready logging hooks
 Clear execution flow visibility
 
 
-15. Key Learnings and Takeaways
+## 15. Key Learnings and Takeaways
 15.1 Technical Skills Acquired
 AWS Services:
 
