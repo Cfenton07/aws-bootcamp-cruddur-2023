@@ -13,20 +13,35 @@ This was the most technically challenging week of the bootcamp, requiring approx
 ## Table of Contents
 
 1 - Development Environment Setup
+
 2 - Authentication Migration to AWS Amplify
+
 3 - Database Architecture Design
+
 4 - DynamoDB Schema and Setup
+
 5 - Backend API Development
+
 6 - DynamoDB Client Library Implementation
+
 7 - Service Layer Development
+
 8 - Frontend Component Architecture
+
 9 - Routing and Navigation
+
 10 - UI/UX Improvements
+
 11 - Debugging and Problem Solving
+
 12 - Security Considerations
+
 13 - Testing and Validation
+
 14 - Code Quality Improvements Over Bootcamp
+
 15 - Key Learnings and Takeaways
+
 
 
 ### 1. Development Environment Setup
