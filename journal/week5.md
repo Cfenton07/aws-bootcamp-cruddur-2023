@@ -42,25 +42,7 @@ This was the most technically challenging week of the bootcamp, requiring approx
 
 [15. Key Learnings and Takeaways](#15-key-learnings-and-takeaways)
 
-7. Service Layer Development
-
-8. Frontend Component Architecture
-
-9. Routing and Navigation
-
-10. UI/UX Improvements
-
-11. Debugging and Problem Solving
-
-12. Security Considerations
-
-13. Testing and Validation
-
-14. Code Quality Improvements Over Bootcamp
-
-15. Key Learnings and Takeaways
-
-
+# 
 
 ## 1. Development Environment Setup
 1.1 GitHub Codespaces Migration
