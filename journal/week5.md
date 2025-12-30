@@ -12,7 +12,7 @@ This was the most technically challenging week of the bootcamp, requiring approx
 
 ## Table of Contents
 
-[1. Development Environment Setup](##development-environment-setup)
+[1. Development Environment Setup](##1.-development-environment-setup)
 
 2 - Authentication Migration to AWS Amplify
 
