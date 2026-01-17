@@ -81,9 +81,9 @@ fi
 # Your bootcamp includes a script at backend-flask/bin/rds-update-sg-rule
 # This script uses AWS CLI to update the security group
 
-if [ ! -f "backend-flask/bin/rds-update-sg-rule" ]; then
+if [ ! -f "backend-flask/bin/rds/update-sg-rule" ]; then
   # -f checks if file exists
-  echo "⚠️  RDS update script not found at backend-flask/bin/rds-update-sg-rule"
+  echo "⚠️  RDS update script not found at backend-flask/bin/rds/update-sg-rule"
   echo "Skipping security group update"
   exit 0
 fi
@@ -99,7 +99,7 @@ echo "Running RDS security group update script..."
 # Create a temporary version of the script with modifications:
 # 1. Replace GITPOD_IP with CODESPACE_IP (for compatibility)
 # 2. Replace $THEIA_WORKSPACE_ROOT with $(pwd) (Codespaces uses different workspace var)
-sed "s/GITPOD_IP/CODESPACE_IP/g" backend-flask/bin/rds-update-sg-rule > /tmp/rds-update-temp.sh
+sed "s/GITPOD_IP/CODESPACE_IP/g" backend-flask/bin/rds/update-sg-rule > /tmp/rds-update-temp.sh
 sed -i "s/\$THEIA_WORKSPACE_ROOT/\$(pwd)/g" /tmp/rds-update-temp.sh
 
 # Make the temporary script executable
@@ -130,7 +130,7 @@ echo "💡 Helpful Tips:"
 echo ""
 echo "To manually update security group:"
 echo "  export CODESPACE_IP=\$(curl ifconfig.me)"
-echo "  ./backend-flask/bin/rds-update-sg-rule"
+echo "  ./backend-flask/bin/rds/update-sg-rule"
 echo ""
 echo "To connect to production database:"
 echo "  ./backend-flask/bin/db-connect prod"

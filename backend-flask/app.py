@@ -61,9 +61,9 @@ from time import strftime
 # ERROR TRACKING - ROLLBAR
 # ============================================================
 # Third-party error monitoring and tracking service
-import rollbar
-import rollbar.contrib.flask
-from flask import got_request_exception
+# import rollbar
+# import rollbar.contrib.flask
+# from flask import got_request_exception
 
 # ============================================================
 # CLOUDWATCH CONFIGURATION
@@ -196,32 +196,41 @@ def log_request_info():
         print(f'   Auth header (first 50 chars): {auth_header[:50]}...')
     print('='*70)
 
+# =============================================================
+# API ENDPOINTS - HEALTH CHECK
+# =============================================================
+# Simple health check endpoint for load balancer and container health checks
+# Returns 200 OK if the Flask app is running
+@app.route('/api/health-check')
+def health_check():
+  return {'success': True}, 200
+
 # ============================================================
 # ROLLBAR INITIALIZATION
 # ============================================================
 # Initialize Rollbar error tracking only if access token is provided
-rollbar_access_token = os.getenv('ROLLBAR_ACCESS_TOKEN')
-if rollbar_access_token:
-    rollbar.init(
-        rollbar_access_token,
-        'production',  # Environment name for error grouping
-        root=os.path.dirname(os.path.realpath(__file__)),
-        allow_logging_basic_config=False
-    )
-    # Connect Rollbar to Flask's exception handler
-    with app.app_context():
-        got_request_exception.connect(rollbar.contrib.flask.report_exception, app)
-else:
-    print("ROLLBAR_ACCESS_TOKEN not found, Rollbar not initialized.")   
+# rollbar_access_token = os.getenv('ROLLBAR_ACCESS_TOKEN')
+# if rollbar_access_token:
+#     rollbar.init(
+#         rollbar_access_token,
+#         'production',  # Environment name for error grouping
+#         root=os.path.dirname(os.path.realpath(__file__)),
+#         allow_logging_basic_config=False
+#     )
+#     # Connect Rollbar to Flask's exception handler
+#     with app.app_context():
+#         got_request_exception.connect(rollbar.contrib.flask.report_exception, app)
+# else:
+#     print("ROLLBAR_ACCESS_TOKEN not found, Rollbar not initialized.")   
 
 # ============================================================
 # ROLLBAR TEST ENDPOINT
 # ============================================================
-@app.route('/rollbar/test')
-def rollbar_test():
-    """Send a test message to Rollbar to verify integration"""
-    rollbar.report_message('Hello World!', 'warning')
-    return "Hello World!"
+# @app.route('/rollbar/test')
+# def rollbar_test():
+#     """Send a test message to Rollbar to verify integration"""
+#     rollbar.report_message('Hello World!', 'warning')
+#     return "Hello World!"
 
 # ============================================================
 # RESPONSE LOGGING MIDDLEWARE
