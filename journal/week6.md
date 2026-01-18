@@ -252,7 +252,7 @@ Secrets are stored in Parameter Store and injected at runtime - they never appea
 
 ## Files Created This Session
 ```
-aws/json/
+aws:json/
 ├── policies/
 │   ├── service-execution-trust-policy.json
 │   ├── service-execution-policy.json
