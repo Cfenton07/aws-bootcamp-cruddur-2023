@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+set -e
+
+echo "🧹 Tearing down Backend infrastructure..."
+
+# Get ARNs
+ALB_ARN=$(aws elbv2 describe-load-balancers --names cruddur-alb --query "LoadBalancers[0].LoadBalancerArn" --output text 2>/dev/null || echo "")
+TG_ARN=$(aws elbv2 describe-target-groups --names cruddur-backend-flask-tg --query "TargetGroups[0].TargetGroupArn" --output text 2>/dev/null || echo "")
+
+# Step 1: Delete ECS Service
+echo "🐳 Deleting ECS Service..."
+aws ecs update-service --cluster cruddur --service backend-flask --desired-count 0 2>/dev/null || true
+aws ecs delete-service --cluster cruddur --service backend-flask --force 2>/dev/null || true
+
+# Step 2: Delete Listener
+if [ -n "$ALB_ARN" ]; then
+  echo "👂 Deleting Listeners..."
+  LISTENERS=$(aws elbv2 describe-listeners --load-balancer-arn $ALB_ARN --query "Listeners[*].ListenerArn" --output text 2>/dev/null || echo "")
+  for listener in $LISTENERS; do
+    aws elbv2 delete-listener --listener-arn $listener
+  done
+fi
+
+# Step 3: Delete ALB
+if [ -n "$ALB_ARN" ]; then
+  echo "⚖️ Deleting ALB..."
+  aws elbv2 delete-load-balancer --load-balancer-arn $ALB_ARN
+  echo "⏳ Waiting for ALB to be deleted..."
+  sleep 30
+fi
+
+# Step 4: Delete Target Group
+if [ -n "$TG_ARN" ]; then
+  echo "📎 Deleting Target Group..."
+  aws elbv2 delete-target-group --target-group-arn $TG_ARN
+fi
+
+echo "✅ Teardown complete!"
