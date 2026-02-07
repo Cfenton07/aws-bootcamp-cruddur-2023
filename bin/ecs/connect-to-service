@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+
+# ========================================
+# CONNECT TO ECS SERVICE
+# ========================================
+# Purpose: Shell into a running Fargate container for debugging
+# Requires: AWS Session Manager Plugin installed
+# Usage: ./bin/ecs/connect-to-service [service-name] [container-name]
+#        ./bin/ecs/connect-to-service                     (defaults to backend-flask)
+#        ./bin/ecs/connect-to-service frontend-react-js   (for frontend)
+# ========================================
+
+set -e
+
+# Configuration (with defaults)
+CLUSTER_NAME="cruddur"
+SERVICE_NAME="${1:-backend-flask}"
+CONTAINER_NAME="${2:-$SERVICE_NAME}"
+
+echo "🔍 Finding running task for service: $SERVICE_NAME..."
+
+# Get the task ARN for the running service
+TASK_ARN=$(aws ecs list-tasks \
+  --cluster $CLUSTER_NAME \
+  --service-name $SERVICE_NAME \
+  --query "taskArns[0]" \
+  --output text)
+
+if [ "$TASK_ARN" == "None" ] || [ -z "$TASK_ARN" ]; then
+  echo "❌ No running tasks found for service: $SERVICE_NAME"
+  echo ""
+  echo "Make sure the service is running:"
+  echo "  aws ecs describe-services --cluster $CLUSTER_NAME --services $SERVICE_NAME"
+  exit 1
+fi
+
+# Extract just the task ID from the ARN
+TASK_ID=$(echo $TASK_ARN | cut -d'/' -f3)
+
+echo "✅ Found task: $TASK_ID"
+echo "🔌 Connecting to container: $CONTAINER_NAME..."
+echo ""
+
+# Connect to the container
+aws ecs execute-command \
+  --region $AWS_DEFAULT_REGION \
+  --cluster $CLUSTER_NAME \
+  --task $TASK_ID \
+  --container $CONTAINER_NAME \
+  --command "/bin/bash" \
+  --interactive

@@ -39,6 +39,27 @@ sudo apt update
 sudo apt install -y postgresql-client-13 libpq-dev
 
 # ========================================
+# INSTALL AWS SESSION MANAGER PLUGIN
+# ========================================
+# Required for: ECS Exec - shell into running Fargate containers
+# This matches the "fargate" task in .gitpod.yml
+# Use case: Debug containers with `aws ecs execute-command`
+
+echo "📦 Installing AWS Session Manager Plugin..."
+
+# Download the Session Manager plugin for Ubuntu
+curl "https://s3.amazonaws.com/session-manager-downloads/plugin/latest/ubuntu_64bit/session-manager-plugin.deb" -o "session-manager-plugin.deb"
+
+# Install the plugin
+sudo dpkg -i session-manager-plugin.deb
+
+# Clean up the downloaded file
+rm session-manager-plugin.deb
+
+# Verify installation
+echo "Session Manager Plugin version: $(session-manager-plugin --version)"
+
+# ========================================
 # INSTALL FRONTEND DEPENDENCIES
 # ========================================
 # This matches the "react-js" task in your .gitpod.yml
@@ -94,6 +115,11 @@ echo "🔧 Setting up bash scripts..."
 # * = all files in the directory
 chmod +x backend-flask/bin/*
 
+# Also make ECS deployment scripts executable
+if [ -d "bin/ecs" ]; then
+  chmod +x bin/ecs/*
+fi
+
 # ========================================
 # COMPLETION MESSAGE
 # ========================================
@@ -103,6 +129,7 @@ echo "✅ Post-create setup complete!"
 echo ""
 echo "Installed:"
 echo "  - PostgreSQL client (psql)"
+echo "  - AWS Session Manager Plugin (for ECS Exec)"
 echo "  - Frontend dependencies (npm packages)"
 echo "  - Backend dependencies (pip packages)"
 echo "  - Database management scripts"
