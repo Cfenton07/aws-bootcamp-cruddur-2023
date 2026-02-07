@@ -419,3 +419,266 @@ aws ecs stop-task --cluster cruddur --task <task-id>
 - **Rollbar** can be added later without major refactoring—just uncomment the code in `app.py`, add the Parameter Store secret, and update the task definition
 - **FLASK_ENV is deprecated** - Always use `FLASK_DEBUG` instead
 - **VS Code in Codespaces quirk** - Ctrl+S may not work reliably; use Command Palette (Ctrl+Shift+P → "File: Save") as an alternative, and always verify saves with `head` or `cat` commands before building
+
+
+# Week 6-7 Journal: ECS Fargate with Application Load Balancer
+
+**Session Date:** February 5, 2026
+
+---
+
+## Overview
+
+This session focused on deploying my backend Flask application to ECS Fargate with an Application Load Balancer (ALB) for production-ready traffic routing. I successfully deployed the service, verified it was working, and then cleaned up resources to avoid charges.
+
+---
+
+## What I Accomplished
+
+### 1. Installed Session Manager Plugin
+
+Installed the AWS Session Manager plugin to enable ECS Exec functionality for debugging running containers:
+```bash
+curl "https://s3.amazonaws.com/session-manager-downloads/plugin/latest/ubuntu_64bit/session-manager-plugin.deb" -o "session-manager-plugin.deb"
+sudo dpkg -i session-manager-plugin.deb
+session-manager-plugin --version  # Verified: 1.2.764.0
+```
+
+**Why this matters:** ECS Exec allows you to shell into running Fargate containers using `aws ecs execute-command`, similar to `docker exec`. This is essential for debugging production issues.
+
+---
+
+### 2. Verified Subnet Configuration
+
+Confirmed my default VPC subnets are public by checking the route table has an Internet Gateway:
+```bash
+aws ec2 describe-route-tables \
+  --route-table-ids rtb-09001b89ca95260e4 \
+  --query "RouteTables[0].Routes[*].[DestinationCidrBlock,GatewayId]" \
+  --output table
+```
+
+**Result:** Route `0.0.0.0/0 → igw-0b57a3547c47c2ec9` confirms internet access.
+
+**Subnets selected for deployment:**
+| Subnet ID | Availability Zone |
+|-----------|-------------------|
+| subnet-0eec24f1dc6304365 | us-east-1a |
+| subnet-02a4b96627ce17386 | us-east-1b |
+| subnet-0ee09cd6302be019c | us-east-1c |
+
+---
+
+### 3. Created Target Group
+
+Created a target group that routes traffic to backend containers on port 4567:
+```bash
+aws elbv2 create-target-group \
+  --name cruddur-backend-flask-tg \
+  --protocol HTTP \
+  --port 4567 \
+  --vpc-id vpc-0a1dc40aa792a3571 \
+  --target-type ip \
+  --health-check-path "/api/health-check"
+```
+
+**Key insight:** Target type must be `ip` (not `instance`) for Fargate because Fargate tasks don't run on EC2 instances you manage.
+
+---
+
+### 4. Created Application Load Balancer
+
+Created an internet-facing ALB across multiple availability zones:
+```bash
+aws elbv2 create-load-balancer \
+  --name cruddur-alb \
+  --subnets subnet-0eec24f1dc6304365 subnet-02a4b96627ce17386 \
+  --security-groups sg-0e76f2452d3fbd76c \
+  --scheme internet-facing \
+  --type application
+```
+
+**Result:** ALB DNS: `cruddur-alb-65024116.us-east-1.elb.amazonaws.com`
+
+---
+
+### 5. Created Listener
+
+Connected port 80 to the target group:
+```bash
+aws elbv2 create-listener \
+  --load-balancer-arn $ALB_ARN \
+  --protocol HTTP \
+  --port 80 \
+  --default-actions Type=forward,TargetGroupArn=$TG_ARN
+```
+
+---
+
+### 6. Created ECS Service with ALB Integration
+
+Created a JSON service definition file (`aws/json/service-backend-flask.json`) and deployed:
+```bash
+aws ecs create-service --cli-input-json file://aws/json/service-backend-flask.json
+```
+
+**Key configurations:**
+- `enableExecuteCommand: true` - Allows ECS Exec for debugging
+- `loadBalancers` - Registers tasks with the target group automatically
+- `assignPublicIp: ENABLED` - Required for Fargate to pull images from ECR
+
+---
+
+### 7. Verified Deployment Success
+
+**Service reached steady state:**
+```
+(service backend-flask) has reached a steady state.
+(service backend-flask) registered 1 targets in target-group
+```
+
+**Health check passed:**
+```bash
+curl http://cruddur-alb-65024116.us-east-1.elb.amazonaws.com/api/health-check
+{"success":true}
+```
+
+**CLI command to check target health:**
+```bash
+aws elbv2 describe-target-health \
+  --target-group-arn $TG_ARN \
+  --query "TargetHealthDescriptions[*].{IP:Target.Id,Port:Target.Port,Health:TargetHealth.State}" \
+  --output table
+```
+
+---
+
+### 8. Cleaned Up Resources
+
+Deleted resources in the correct order to avoid dependency errors:
+
+1. **ECS Service** (first - it's using the target group)
+2. **Listener** (before deleting ALB)
+3. **ALB** (before target group)
+4. **Target Group** (last)
+```bash
+# Delete service
+aws ecs update-service --cluster cruddur --service backend-flask --desired-count 0
+aws ecs delete-service --cluster cruddur --service backend-flask --force
+
+# Delete listener
+aws elbv2 delete-listener --listener-arn $LISTENER_ARN
+
+# Delete ALB
+aws elbv2 delete-load-balancer --load-balancer-arn $ALB_ARN
+
+# Delete target group
+aws elbv2 delete-target-group --target-group-arn $TG_ARN
+```
+
+---
+
+### 9. Created Automation Scripts
+
+Created reusable scripts to streamline future deployments:
+
+| Script | Purpose |
+|--------|---------|
+| `bin/ecs/deploy-backend` | Creates TG, ALB, Listener, and ECS Service in one command |
+| `bin/ecs/teardown-backend` | Tears down all resources in correct order |
+
+**Usage:**
+```bash
+./bin/ecs/deploy-backend      # Deploy everything
+./bin/ecs/teardown-backend    # Clean up everything
+```
+
+---
+
+## Architecture Diagram
+```
+Internet
+    ↓
+Application Load Balancer (cruddur-alb)
+    ↓ port 80
+Listener
+    ↓
+Target Group (cruddur-backend-flask-tg)
+    ↓ port 4567
+ECS Fargate Service (backend-flask)
+    ↓
+Flask Container → /api/health-check
+```
+
+---
+
+## Key Learnings
+
+### Order of Creation vs Deletion
+
+**Create:** Target Group → ALB → Listener → ECS Service
+**Delete:** ECS Service → Listener → ALB → Target Group
+
+Dependencies flow downward, so you delete from the top.
+
+### Cost Awareness
+
+| Resource | Cost |
+|----------|------|
+| ALB | ~$0.0225/hour (~$16/month) |
+| Fargate Task | ~$0.01-0.02/hour |
+| Target Group | Free |
+| ECS Cluster | Free |
+| Task Definition | Free |
+
+**Lesson:** Always tear down ALB and Fargate tasks when not in use during development.
+
+### JSON Service Definition vs CLI
+
+Using a JSON file (`service-backend-flask.json`) is better than inline CLI because:
+- Version controlled in Git
+- Easier to review and modify
+- Reproducible deployments
+
+### Target Type for Fargate
+
+Must use `--target-type ip` because Fargate tasks get their own ENI (Elastic Network Interface) with a private IP, rather than running on EC2 instances.
+
+---
+
+## Files Created/Modified
+```
+aws/json/
+└── service-backend-flask.json    # ECS service definition with ALB
+
+bin/ecs/
+├── deploy-backend                 # One-command deployment script
+└── teardown-backend               # One-command teardown script
+```
+
+---
+
+## What's Next
+
+- [ ] Deploy frontend to ECS Fargate
+- [ ] Add HTTPS listener with SSL certificate
+- [ ] Configure custom domain with Route 53
+- [ ] Set up CI/CD pipeline for automated deployments
+
+---
+
+## Environment Variables Reference
+```bash
+# VPC & Networking
+VPC_ID=vpc-0a1dc40aa792a3571
+SUBNET_1=subnet-0eec24f1dc6304365  # us-east-1a
+SUBNET_2=subnet-02a4b96627ce17386  # us-east-1b
+SUBNET_3=subnet-0ee09cd6302be019c  # us-east-1c
+
+# Security Groups
+ALB_SG_ID=sg-0e76f2452d3fbd76c
+ECS_SG_ID=sg-0d67270f3a5014e4b
+
+# ECS
+CLUSTER_NAME=cruddur
+```
