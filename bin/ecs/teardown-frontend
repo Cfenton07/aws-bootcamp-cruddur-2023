@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+set -e
+
+echo "🧹 Tearing down Frontend infrastructure..."
+
+# ========================================
+# GET ARNS
+# ========================================
+FRONTEND_TG_ARN=$(aws elbv2 describe-target-groups \
+  --names cruddur-frontend-react-js-tg \
+  --query "TargetGroups[0].TargetGroupArn" \
+  --output text 2>/dev/null || echo "")
+
+BACKEND_TG_ARN=$(aws elbv2 describe-target-groups \
+  --names cruddur-backend-flask-tg \
+  --query "TargetGroups[0].TargetGroupArn" \
+  --output text 2>/dev/null || echo "")
+
+ALB_ARN=$(aws elbv2 describe-load-balancers \
+  --names cruddur-alb \
+  --query "LoadBalancers[0].LoadBalancerArn" \
+  --output text 2>/dev/null || echo "")
+
+# ========================================
+# DELETE FRONTEND ECS SERVICE
+# ========================================
+echo "🐳 Deleting Frontend ECS Service..."
+aws ecs update-service --cluster cruddur --service frontend-react-js --desired-count 0 2>/dev/null || true
+aws ecs delete-service --cluster cruddur --service frontend-react-js --force 2>/dev/null || true
+
+# ========================================
+# DELETE LISTENER RULES (except default)
+# ========================================
+if [ -n "$ALB_ARN" ] && [ "$ALB_ARN" != "None" ]; then
+  echo "📝 Removing listener rules..."
+  
+  LISTENER_ARN=$(aws elbv2 describe-listeners \
+    --load-balancer-arn $ALB_ARN \
+    --query "Listeners[0].ListenerArn" \
+    --output text 2>/dev/null || echo "")
+  
+  if [ -n "$LISTENER_ARN" ] && [ "$LISTENER_ARN" != "None" ]; then
+    # Get all non-default rules and delete them
+    RULES=$(aws elbv2 describe-rules \
+      --listener-arn $LISTENER_ARN \
+      --query "Rules[?!IsDefault].RuleArn" \
+      --output text 2>/dev/null || echo "")
+    
+    for rule in $RULES; do
+      echo "  Deleting rule: $rule"
+      aws elbv2 delete-rule --rule-arn $rule 2>/dev/null || true
+    done
+    
+    # Reset default action to backend (if backend TG exists)
+    if [ -n "$BACKEND_TG_ARN" ] && [ "$BACKEND_TG_ARN" != "None" ]; then
+      echo "📝 Resetting default action to backend..."
+      aws elbv2 modify-listener \
+        --listener-arn $LISTENER_ARN \
+        --default-actions Type=forward,TargetGroupArn=$BACKEND_TG_ARN \
+        2>/dev/null || true
+    fi
+  fi
+fi
+
+# ========================================
+# DELETE FRONTEND TARGET GROUP
+# ========================================
+if [ -n "$FRONTEND_TG_ARN" ] && [ "$FRONTEND_TG_ARN" != "None" ]; then
+  echo "📎 Deleting Frontend Target Group..."
+  sleep 10  # Wait for service to deregister
+  aws elbv2 delete-target-group --target-group-arn $FRONTEND_TG_ARN 2>/dev/null || true
+fi
+
+echo ""
+echo "✅ Frontend teardown complete!"
+echo ""
+echo "Note: Backend infrastructure (ALB, backend TG, backend service) remains intact."
+echo "To tear down everything, run: ./bin/ecs/teardown-backend"

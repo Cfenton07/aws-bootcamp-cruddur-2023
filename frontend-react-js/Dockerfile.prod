@@ -5,6 +5,20 @@ FROM node:16.18 AS build
 
 WORKDIR /frontend-react-js
 
+# Build arguments for React environment variables
+ARG REACT_APP_BACKEND_URL
+ARG REACT_APP_AWS_PROJECT_REGION
+ARG REACT_APP_AWS_COGNITO_REGION
+ARG REACT_APP_AWS_USER_POOLS_ID
+ARG REACT_APP_CLIENT_ID
+
+# Set environment variables (baked into the build)
+ENV REACT_APP_BACKEND_URL=$REACT_APP_BACKEND_URL
+ENV REACT_APP_AWS_PROJECT_REGION=$REACT_APP_AWS_PROJECT_REGION
+ENV REACT_APP_AWS_COGNITO_REGION=$REACT_APP_AWS_COGNITO_REGION
+ENV REACT_APP_AWS_USER_POOLS_ID=$REACT_APP_AWS_USER_POOLS_ID
+ENV REACT_APP_CLIENT_ID=$REACT_APP_CLIENT_ID
+
 # Copy package files first (better caching)
 COPY package.json package-lock.json ./
 
@@ -13,10 +27,6 @@ RUN npm ci
 
 # Copy source code
 COPY . .
-
-# Set build-time environment variables
-ARG REACT_APP_BACKEND_URL
-ENV REACT_APP_BACKEND_URL=$REACT_APP_BACKEND_URL
 
 # Build the production bundle
 RUN npm run build
