@@ -1,0 +1,145 @@
+#!/usr/bin/env bash
+set -e
+
+echo "🚀 Deploying Frontend to ECS Fargate..."
+
+# ========================================
+# VARIABLES
+# ========================================
+VPC_ID="vpc-0a1dc40aa792a3571"
+ECS_SG_ID="sg-0d67270f3a5014e4b"
+SUBNET_1="subnet-0eec24f1dc6304365"
+SUBNET_2="subnet-02a4b96627ce17386"
+SUBNET_3="subnet-0ee09cd6302be019c"
+CLUSTER_NAME="cruddur"
+
+# ========================================
+# CHECK IF ALB EXISTS (Backend must be deployed first)
+# ========================================
+echo "🔍 Checking for existing ALB..."
+
+ALB_ARN=$(aws elbv2 describe-load-balancers \
+  --names cruddur-alb \
+  --query "LoadBalancers[0].LoadBalancerArn" \
+  --output text 2>/dev/null || echo "")
+
+if [ -z "$ALB_ARN" ] || [ "$ALB_ARN" == "None" ]; then
+  echo "❌ ALB 'cruddur-alb' not found!"
+  echo ""
+  echo "Please deploy the backend first:"
+  echo "  ./bin/ecs/deploy-backend"
+  exit 1
+fi
+
+echo "✅ Found ALB: $ALB_ARN"
+
+# Get ALB DNS
+ALB_DNS=$(aws elbv2 describe-load-balancers \
+  --load-balancer-arns $ALB_ARN \
+  --query "LoadBalancers[0].DNSName" \
+  --output text)
+echo "🌐 ALB DNS: $ALB_DNS"
+
+# ========================================
+# GET EXISTING LISTENER
+# ========================================
+echo "🔍 Finding existing listener..."
+
+LISTENER_ARN=$(aws elbv2 describe-listeners \
+  --load-balancer-arn $ALB_ARN \
+  --query "Listeners[0].ListenerArn" \
+  --output text)
+
+echo "✅ Found Listener: $LISTENER_ARN"
+
+# ========================================
+# GET BACKEND TARGET GROUP ARN
+# ========================================
+echo "🔍 Finding backend target group..."
+
+BACKEND_TG_ARN=$(aws elbv2 describe-target-groups \
+  --names cruddur-backend-flask-tg \
+  --query "TargetGroups[0].TargetGroupArn" \
+  --output text 2>/dev/null || echo "")
+
+if [ -z "$BACKEND_TG_ARN" ] || [ "$BACKEND_TG_ARN" == "None" ]; then
+  echo "❌ Backend target group not found!"
+  echo "Please deploy the backend first."
+  exit 1
+fi
+
+echo "✅ Found Backend TG: $BACKEND_TG_ARN"
+
+# ========================================
+# CREATE FRONTEND TARGET GROUP
+# ========================================
+echo "📎 Creating Frontend Target Group..."
+
+FRONTEND_TG_ARN=$(aws elbv2 create-target-group \
+  --name cruddur-frontend-react-js-tg \
+  --protocol HTTP \
+  --port 3000 \
+  --vpc-id $VPC_ID \
+  --target-type ip \
+  --health-check-protocol HTTP \
+  --health-check-path "/health" \
+  --health-check-interval-seconds 30 \
+  --health-check-timeout-seconds 5 \
+  --healthy-threshold-count 2 \
+  --unhealthy-threshold-count 2 \
+  --query "TargetGroups[0].TargetGroupArn" \
+  --output text)
+
+echo "✅ Frontend Target Group ARN: $FRONTEND_TG_ARN"
+
+# ========================================
+# ADD LISTENER RULE FOR /api/* → BACKEND
+# ========================================
+echo "📝 Adding listener rule for /api/* → backend..."
+
+aws elbv2 create-rule \
+  --listener-arn $LISTENER_ARN \
+  --priority 1 \
+  --conditions Field=path-pattern,Values='/api/*' \
+  --actions Type=forward,TargetGroupArn=$BACKEND_TG_ARN \
+  > /dev/null
+
+echo "✅ Rule added: /api/* → backend"
+
+# ========================================
+# MODIFY DEFAULT ACTION → FRONTEND
+# ========================================
+echo "📝 Setting default action → frontend..."
+
+aws elbv2 modify-listener \
+  --listener-arn $LISTENER_ARN \
+  --default-actions Type=forward,TargetGroupArn=$FRONTEND_TG_ARN \
+  > /dev/null
+
+echo "✅ Default action: /* → frontend"
+
+# ========================================
+# CREATE FRONTEND ECS SERVICE
+# ========================================
+echo "🐳 Creating Frontend ECS Service..."
+
+aws ecs create-service \
+  --cluster $CLUSTER_NAME \
+  --service-name frontend-react-js \
+  --task-definition frontend-react-js \
+  --desired-count 1 \
+  --launch-type FARGATE \
+  --network-configuration "awsvpcConfiguration={subnets=[$SUBNET_1,$SUBNET_2,$SUBNET_3],securityGroups=[$ECS_SG_ID],assignPublicIp=ENABLED}" \
+  --load-balancers "targetGroupArn=$FRONTEND_TG_ARN,containerName=frontend-react-js,containerPort=3000" \
+  --enable-execute-command \
+  --query "service.serviceName" \
+  --output text
+
+echo ""
+echo "🎉 Frontend deployment complete!"
+echo ""
+echo "🌐 Your app will be available at:"
+echo "   Frontend: http://$ALB_DNS"
+echo "   Backend:  http://$ALB_DNS/api/health-check"
+echo ""
+echo "⏳ Wait ~2 minutes for tasks to start and register with target groups"
