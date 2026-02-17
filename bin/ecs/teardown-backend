@@ -3,36 +3,116 @@ set -e
 
 echo "🧹 Tearing down Backend infrastructure..."
 
-# Get ARNs
-ALB_ARN=$(aws elbv2 describe-load-balancers --names cruddur-alb --query "LoadBalancers[0].LoadBalancerArn" --output text 2>/dev/null || echo "")
-TG_ARN=$(aws elbv2 describe-target-groups --names cruddur-backend-flask-tg --query "TargetGroups[0].TargetGroupArn" --output text 2>/dev/null || echo "")
+# ========================================
+# GET ARNS
+# ========================================
+ALB_ARN=$(aws elbv2 describe-load-balancers \
+  --names cruddur-alb \
+  --query "LoadBalancers[0].LoadBalancerArn" \
+  --output text 2>/dev/null || echo "")
 
-# Step 1: Delete ECS Service
-echo "🐳 Deleting ECS Service..."
-aws ecs update-service --cluster cruddur --service backend-flask --desired-count 0 2>/dev/null || true
-aws ecs delete-service --cluster cruddur --service backend-flask --force 2>/dev/null || true
+BACKEND_TG_ARN=$(aws elbv2 describe-target-groups \
+  --names cruddur-backend-flask-tg \
+  --query "TargetGroups[0].TargetGroupArn" \
+  --output text 2>/dev/null || echo "")
 
-# Step 2: Delete Listener
-if [ -n "$ALB_ARN" ]; then
-  echo "👂 Deleting Listeners..."
-  LISTENERS=$(aws elbv2 describe-listeners --load-balancer-arn $ALB_ARN --query "Listeners[*].ListenerArn" --output text 2>/dev/null || echo "")
-  for listener in $LISTENERS; do
-    aws elbv2 delete-listener --listener-arn $listener
-  done
+FRONTEND_TG_ARN=$(aws elbv2 describe-target-groups \
+  --names cruddur-frontend-react-js-tg \
+  --query "TargetGroups[0].TargetGroupArn" \
+  --output text 2>/dev/null || echo "")
+
+# ========================================
+# STEP 1: DELETE FRONTEND SERVICE (if exists)
+# ========================================
+echo "🐳 Checking Frontend ECS Service..."
+FRONTEND_STATUS=$(aws ecs describe-services \
+  --cluster cruddur \
+  --services frontend-react-js \
+  --query "services[0].status" \
+  --output text 2>/dev/null || echo "")
+
+if [ -n "$FRONTEND_STATUS" ] && [ "$FRONTEND_STATUS" != "None" ] && [ "$FRONTEND_STATUS" != "INACTIVE" ]; then
+  echo "   Deleting Frontend ECS Service..."
+  aws ecs update-service --cluster cruddur --service frontend-react-js --desired-count 0 2>/dev/null || true
+  aws ecs delete-service --cluster cruddur --service frontend-react-js --force 2>/dev/null || true
+  echo "✅ Frontend ECS Service deleted"
+else
+  echo "✅ Frontend ECS Service not running"
 fi
 
-# Step 3: Delete ALB
-if [ -n "$ALB_ARN" ]; then
-  echo "⚖️ Deleting ALB..."
-  aws elbv2 delete-load-balancer --load-balancer-arn $ALB_ARN
+# ========================================
+# STEP 2: DELETE BACKEND SERVICE
+# ========================================
+echo "🐳 Checking Backend ECS Service..."
+BACKEND_STATUS=$(aws ecs describe-services \
+  --cluster cruddur \
+  --services backend-flask \
+  --query "services[0].status" \
+  --output text 2>/dev/null || echo "")
+
+if [ -n "$BACKEND_STATUS" ] && [ "$BACKEND_STATUS" != "None" ] && [ "$BACKEND_STATUS" != "INACTIVE" ]; then
+  echo "   Deleting Backend ECS Service..."
+  aws ecs update-service --cluster cruddur --service backend-flask --desired-count 0 2>/dev/null || true
+  aws ecs delete-service --cluster cruddur --service backend-flask --force 2>/dev/null || true
+  echo "✅ Backend ECS Service deleted"
+else
+  echo "✅ Backend ECS Service not running"
+fi
+
+# ========================================
+# STEP 3: DELETE LISTENERS
+# ========================================
+if [ -n "$ALB_ARN" ] && [ "$ALB_ARN" != "None" ]; then
+  echo "👂 Deleting Listeners..."
+  LISTENERS=$(aws elbv2 describe-listeners \
+    --load-balancer-arn $ALB_ARN \
+    --query "Listeners[*].ListenerArn" \
+    --output text 2>/dev/null || echo "")
+  
+  for listener in $LISTENERS; do
+    if [ -n "$listener" ] && [ "$listener" != "None" ]; then
+      aws elbv2 delete-listener --listener-arn $listener 2>/dev/null || true
+      echo "   Deleted listener: $listener"
+    fi
+  done
+  echo "✅ Listeners deleted"
+fi
+
+# ========================================
+# STEP 4: DELETE ALB
+# ========================================
+if [ -n "$ALB_ARN" ] && [ "$ALB_ARN" != "None" ]; then
+  echo "⚖️  Deleting ALB..."
+  aws elbv2 delete-load-balancer --load-balancer-arn $ALB_ARN 2>/dev/null || true
   echo "⏳ Waiting for ALB to be deleted..."
   sleep 30
+  echo "✅ ALB deleted"
+else
+  echo "✅ ALB not found (already deleted)"
 fi
 
-# Step 4: Delete Target Group
-if [ -n "$TG_ARN" ]; then
-  echo "📎 Deleting Target Group..."
-  aws elbv2 delete-target-group --target-group-arn $TG_ARN
+# ========================================
+# STEP 5: DELETE TARGET GROUPS
+# ========================================
+if [ -n "$FRONTEND_TG_ARN" ] && [ "$FRONTEND_TG_ARN" != "None" ]; then
+  echo "📎 Deleting Frontend Target Group..."
+  aws elbv2 delete-target-group --target-group-arn $FRONTEND_TG_ARN 2>/dev/null || true
+  echo "✅ Frontend Target Group deleted"
 fi
 
-echo "✅ Teardown complete!"
+if [ -n "$BACKEND_TG_ARN" ] && [ "$BACKEND_TG_ARN" != "None" ]; then
+  echo "📎 Deleting Backend Target Group..."
+  aws elbv2 delete-target-group --target-group-arn $BACKEND_TG_ARN 2>/dev/null || true
+  echo "✅ Backend Target Group deleted"
+fi
+
+echo ""
+echo "✅ Full teardown complete!"
+echo ""
+echo "Resources deleted:"
+echo "  - Frontend ECS Service"
+echo "  - Backend ECS Service"
+echo "  - ALB Listeners"
+echo "  - Application Load Balancer"
+echo "  - Frontend Target Group"
+echo "  - Backend Target Group"

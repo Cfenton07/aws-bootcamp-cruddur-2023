@@ -3,84 +3,149 @@ set -e
 
 echo "🚀 Deploying Backend to ECS Fargate..."
 
-# Variables
+# ========================================
+# VARIABLES
+# ========================================
 VPC_ID="vpc-0a1dc40aa792a3571"
 ALB_SG_ID="sg-0e76f2452d3fbd76c"
 ECS_SG_ID="sg-0d67270f3a5014e4b"
-SUBNET_1="subnet-0eec24f1dc6304365"   # us-east-1a
-SUBNET_2="subnet-02a4b96627ce17386"   # us-east-1b
-SUBNET_3="subnet-0ee09cd6302be019c"   # us-east-1c
+SUBNET_1="subnet-0eec24f1dc6304365"
+SUBNET_2="subnet-02a4b96627ce17386"
+SUBNET_3="subnet-0ee09cd6302be019c"
 CLUSTER_NAME="cruddur"
 
-# Step 1: Create Target Group
-echo "📎 Creating Target Group..."
-TG_ARN=$(aws elbv2 create-target-group \
-  --name cruddur-backend-flask-tg \
-  --protocol HTTP \
-  --port 4567 \
-  --vpc-id $VPC_ID \
-  --target-type ip \
-  --health-check-protocol HTTP \
-  --health-check-path "/api/health-check" \
-  --health-check-interval-seconds 30 \
-  --health-check-timeout-seconds 5 \
-  --healthy-threshold-count 2 \
-  --unhealthy-threshold-count 2 \
+# ========================================
+# STEP 1: TARGET GROUP
+# ========================================
+echo "📎 Checking Target Group..."
+
+TG_ARN=$(aws elbv2 describe-target-groups \
+  --names cruddur-backend-flask-tg \
   --query "TargetGroups[0].TargetGroupArn" \
-  --output text)
-echo "✅ Target Group ARN: $TG_ARN"
+  --output text 2>/dev/null || echo "")
 
-# Step 2: Create ALB
-echo "⚖️ Creating Application Load Balancer..."
-ALB_ARN=$(aws elbv2 create-load-balancer \
-  --name cruddur-alb \
-  --subnets $SUBNET_1 $SUBNET_2 $SUBNET_3 \
-  --security-groups $ALB_SG_ID \
-  --scheme internet-facing \
-  --type application \
-  --ip-address-type ipv4 \
+if [ -z "$TG_ARN" ] || [ "$TG_ARN" == "None" ]; then
+  echo "   Creating Target Group..."
+  TG_ARN=$(aws elbv2 create-target-group \
+    --name cruddur-backend-flask-tg \
+    --protocol HTTP \
+    --port 4567 \
+    --vpc-id $VPC_ID \
+    --target-type ip \
+    --health-check-protocol HTTP \
+    --health-check-path "/api/health-check" \
+    --health-check-interval-seconds 30 \
+    --health-check-timeout-seconds 5 \
+    --healthy-threshold-count 2 \
+    --unhealthy-threshold-count 2 \
+    --query "TargetGroups[0].TargetGroupArn" \
+    --output text)
+  echo "✅ Created Target Group: $TG_ARN"
+else
+  echo "✅ Target Group exists: $TG_ARN"
+fi
+
+# ========================================
+# STEP 2: APPLICATION LOAD BALANCER
+# ========================================
+echo "⚖️  Checking ALB..."
+
+ALB_ARN=$(aws elbv2 describe-load-balancers \
+  --names cruddur-alb \
   --query "LoadBalancers[0].LoadBalancerArn" \
-  --output text)
-echo "✅ ALB ARN: $ALB_ARN"
+  --output text 2>/dev/null || echo "")
 
-# Get ALB DNS name
+if [ -z "$ALB_ARN" ] || [ "$ALB_ARN" == "None" ]; then
+  echo "   Creating ALB..."
+  ALB_ARN=$(aws elbv2 create-load-balancer \
+    --name cruddur-alb \
+    --subnets $SUBNET_1 $SUBNET_2 $SUBNET_3 \
+    --security-groups $ALB_SG_ID \
+    --scheme internet-facing \
+    --type application \
+    --ip-address-type ipv4 \
+    --query "LoadBalancers[0].LoadBalancerArn" \
+    --output text)
+  echo "✅ Created ALB: $ALB_ARN"
+  
+  echo "⏳ Waiting for ALB to become active..."
+  aws elbv2 wait load-balancer-available --load-balancer-arns $ALB_ARN
+  echo "✅ ALB is active"
+else
+  echo "✅ ALB exists: $ALB_ARN"
+fi
+
+# Get ALB DNS
 ALB_DNS=$(aws elbv2 describe-load-balancers \
   --load-balancer-arns $ALB_ARN \
   --query "LoadBalancers[0].DNSName" \
   --output text)
 echo "🌐 ALB DNS: $ALB_DNS"
 
-# Wait for ALB to be active
-echo "⏳ Waiting for ALB to become active..."
-aws elbv2 wait load-balancer-available --load-balancer-arns $ALB_ARN
-echo "✅ ALB is active"
+# ========================================
+# STEP 3: LISTENER
+# ========================================
+echo "👂 Checking Listener..."
 
-# Step 3: Create Listener
-echo "👂 Creating Listener..."
-LISTENER_ARN=$(aws elbv2 create-listener \
+LISTENER_ARN=$(aws elbv2 describe-listeners \
   --load-balancer-arn $ALB_ARN \
-  --protocol HTTP \
-  --port 80 \
-  --default-actions Type=forward,TargetGroupArn=$TG_ARN \
   --query "Listeners[0].ListenerArn" \
-  --output text)
-echo "✅ Listener ARN: $LISTENER_ARN"
+  --output text 2>/dev/null || echo "")
 
-# Step 4: Create ECS Service
-echo "🐳 Creating ECS Service..."
-aws ecs create-service \
+if [ -z "$LISTENER_ARN" ] || [ "$LISTENER_ARN" == "None" ]; then
+  echo "   Creating Listener..."
+  LISTENER_ARN=$(aws elbv2 create-listener \
+    --load-balancer-arn $ALB_ARN \
+    --protocol HTTP \
+    --port 80 \
+    --default-actions Type=forward,TargetGroupArn=$TG_ARN \
+    --query "Listeners[0].ListenerArn" \
+    --output text)
+  echo "✅ Created Listener: $LISTENER_ARN"
+else
+  echo "✅ Listener exists: $LISTENER_ARN"
+fi
+
+# ========================================
+# STEP 4: ECS SERVICE
+# ========================================
+echo "🐳 Checking ECS Service..."
+
+SERVICE_STATUS=$(aws ecs describe-services \
   --cluster $CLUSTER_NAME \
-  --service-name backend-flask \
-  --task-definition backend-flask \
-  --desired-count 1 \
-  --launch-type FARGATE \
-  --network-configuration "awsvpcConfiguration={subnets=[$SUBNET_1,$SUBNET_2,$SUBNET_3],securityGroups=[$ECS_SG_ID],assignPublicIp=ENABLED}" \
-  --load-balancers "targetGroupArn=$TG_ARN,containerName=backend-flask,containerPort=4567" \
-  --enable-execute-command \
-  --query "service.serviceName" \
-  --output text
+  --services backend-flask \
+  --query "services[0].status" \
+  --output text 2>/dev/null || echo "")
+
+if [ -z "$SERVICE_STATUS" ] || [ "$SERVICE_STATUS" == "None" ] || [ "$SERVICE_STATUS" == "INACTIVE" ]; then
+  echo "   Creating ECS Service..."
+  aws ecs create-service \
+    --cluster $CLUSTER_NAME \
+    --service-name backend-flask \
+    --task-definition backend-flask \
+    --desired-count 1 \
+    --launch-type FARGATE \
+    --network-configuration "awsvpcConfiguration={subnets=[$SUBNET_1,$SUBNET_2,$SUBNET_3],securityGroups=[$ECS_SG_ID],assignPublicIp=ENABLED}" \
+    --load-balancers "targetGroupArn=$TG_ARN,containerName=backend-flask,containerPort=4567" \
+    --enable-execute-command \
+    --query "service.serviceName" \
+    --output text
+  echo "✅ Created ECS Service"
+else
+  echo "✅ ECS Service exists (status: $SERVICE_STATUS)"
+  
+  # Ensure desired count is 1
+  aws ecs update-service \
+    --cluster $CLUSTER_NAME \
+    --service backend-flask \
+    --desired-count 1 \
+    --query "service.serviceName" \
+    --output text > /dev/null
+  echo "   Updated desired count to 1"
+fi
 
 echo ""
-echo "🎉 Deployment complete!"
+echo "🎉 Backend deployment complete!"
+echo ""
 echo "🌐 Your backend will be available at: http://$ALB_DNS/api/health-check"
 echo "⏳ Wait ~2 minutes for the task to start and register with the target group"

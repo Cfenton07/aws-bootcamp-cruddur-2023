@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+set -e
+
+echo "🔨 Building Frontend Docker Image..."
+
+# ========================================
+# GET ALB DNS DYNAMICALLY
+# ========================================
+ALB_DNS=$(aws elbv2 describe-load-balancers \
+  --names cruddur-alb \
+  --query "LoadBalancers[0].DNSName" \
+  --output text 2>/dev/null || echo "")
+
+if [ -z "$ALB_DNS" ] || [ "$ALB_DNS" == "None" ]; then
+  echo "⚠️  ALB not found. Using placeholder URL."
+  echo "   You'll need to rebuild after deploying backend."
+  BACKEND_URL="http://localhost:4567"
+else
+  BACKEND_URL="http://$ALB_DNS"
+  echo "✅ Found ALB: $BACKEND_URL"
+fi
+
+# ========================================
+# COGNITO CONFIGURATION
+# ========================================
+AWS_REGION="us-east-1"
+USER_POOL_ID="us-east-1_wAg3Cr3Px"
+CLIENT_ID="12va2n69rq2of98ivm60b9625v"
+
+# ========================================
+# BUILD THE IMAGE
+# ========================================
+echo "🐳 Building Docker image..."
+
+cd frontend-react-js
+
+docker build \
+  --build-arg REACT_APP_BACKEND_URL="$BACKEND_URL" \
+  --build-arg REACT_APP_AWS_PROJECT_REGION="$AWS_REGION" \
+  --build-arg REACT_APP_AWS_COGNITO_REGION="$AWS_REGION" \
+  --build-arg REACT_APP_AWS_USER_POOLS_ID="$USER_POOL_ID" \
+  --build-arg REACT_APP_CLIENT_ID="$CLIENT_ID" \
+  -t frontend-react-js \
+  -f Dockerfile.prod \
+  .
+
+cd ..
+
+# ========================================
+# TAG FOR ECR
+# ========================================
+ECR_URL="931637612335.dkr.ecr.us-east-1.amazonaws.com/frontend-react-js"
+DATE_TAG=$(date +%Y-%m-%d)
+
+echo "🏷️  Tagging image..."
+docker tag frontend-react-js:latest $ECR_URL:latest
+docker tag frontend-react-js:latest $ECR_URL:$DATE_TAG
+
+# ========================================
+# PUSH TO ECR
+# ========================================
+echo "📤 Pushing to ECR..."
+aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 931637612335.dkr.ecr.us-east-1.amazonaws.com
+
+docker push $ECR_URL:latest
+docker push $ECR_URL:$DATE_TAG
+
+echo ""
+echo "✅ Frontend build complete!"
+echo "   Image: $ECR_URL:latest"
+echo "   Image: $ECR_URL:$DATE_TAG"
+echo "   Backend URL: $BACKEND_URL"

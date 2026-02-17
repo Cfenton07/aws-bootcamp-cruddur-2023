@@ -24,9 +24,21 @@ ALB_ARN=$(aws elbv2 describe-load-balancers \
 # ========================================
 # DELETE FRONTEND ECS SERVICE
 # ========================================
-echo "🐳 Deleting Frontend ECS Service..."
-aws ecs update-service --cluster cruddur --service frontend-react-js --desired-count 0 2>/dev/null || true
-aws ecs delete-service --cluster cruddur --service frontend-react-js --force 2>/dev/null || true
+echo "🐳 Checking Frontend ECS Service..."
+SERVICE_STATUS=$(aws ecs describe-services \
+  --cluster cruddur \
+  --services frontend-react-js \
+  --query "services[0].status" \
+  --output text 2>/dev/null || echo "")
+
+if [ -n "$SERVICE_STATUS" ] && [ "$SERVICE_STATUS" != "None" ] && [ "$SERVICE_STATUS" != "INACTIVE" ]; then
+  echo "   Deleting Frontend ECS Service..."
+  aws ecs update-service --cluster cruddur --service frontend-react-js --desired-count 0 2>/dev/null || true
+  aws ecs delete-service --cluster cruddur --service frontend-react-js --force 2>/dev/null || true
+  echo "✅ Frontend ECS Service deleted"
+else
+  echo "✅ Frontend ECS Service not running"
+fi
 
 # ========================================
 # DELETE LISTENER RULES (except default)
@@ -46,10 +58,15 @@ if [ -n "$ALB_ARN" ] && [ "$ALB_ARN" != "None" ]; then
       --query "Rules[?!IsDefault].RuleArn" \
       --output text 2>/dev/null || echo "")
     
-    for rule in $RULES; do
-      echo "  Deleting rule: $rule"
-      aws elbv2 delete-rule --rule-arn $rule 2>/dev/null || true
-    done
+    if [ -n "$RULES" ] && [ "$RULES" != "None" ]; then
+      for rule in $RULES; do
+        echo "   Deleting rule: $rule"
+        aws elbv2 delete-rule --rule-arn $rule 2>/dev/null || true
+      done
+      echo "✅ Listener rules deleted"
+    else
+      echo "✅ No custom listener rules found"
+    fi
     
     # Reset default action to backend (if backend TG exists)
     if [ -n "$BACKEND_TG_ARN" ] && [ "$BACKEND_TG_ARN" != "None" ]; then
@@ -58,6 +75,7 @@ if [ -n "$ALB_ARN" ] && [ "$ALB_ARN" != "None" ]; then
         --listener-arn $LISTENER_ARN \
         --default-actions Type=forward,TargetGroupArn=$BACKEND_TG_ARN \
         2>/dev/null || true
+      echo "✅ Default action reset to backend"
     fi
   fi
 fi
@@ -67,8 +85,11 @@ fi
 # ========================================
 if [ -n "$FRONTEND_TG_ARN" ] && [ "$FRONTEND_TG_ARN" != "None" ]; then
   echo "📎 Deleting Frontend Target Group..."
-  sleep 10  # Wait for service to deregister
+  sleep 5  # Wait for service to deregister
   aws elbv2 delete-target-group --target-group-arn $FRONTEND_TG_ARN 2>/dev/null || true
+  echo "✅ Frontend Target Group deleted"
+else
+  echo "✅ Frontend Target Group not found (already deleted)"
 fi
 
 echo ""

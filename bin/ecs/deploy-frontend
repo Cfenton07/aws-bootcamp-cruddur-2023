@@ -71,40 +71,59 @@ fi
 echo "✅ Found Backend TG: $BACKEND_TG_ARN"
 
 # ========================================
-# CREATE FRONTEND TARGET GROUP
+# FRONTEND TARGET GROUP
 # ========================================
-echo "📎 Creating Frontend Target Group..."
+echo "📎 Checking Frontend Target Group..."
 
-FRONTEND_TG_ARN=$(aws elbv2 create-target-group \
-  --name cruddur-frontend-react-js-tg \
-  --protocol HTTP \
-  --port 3000 \
-  --vpc-id $VPC_ID \
-  --target-type ip \
-  --health-check-protocol HTTP \
-  --health-check-path "/health" \
-  --health-check-interval-seconds 30 \
-  --health-check-timeout-seconds 5 \
-  --healthy-threshold-count 2 \
-  --unhealthy-threshold-count 2 \
+FRONTEND_TG_ARN=$(aws elbv2 describe-target-groups \
+  --names cruddur-frontend-react-js-tg \
   --query "TargetGroups[0].TargetGroupArn" \
-  --output text)
+  --output text 2>/dev/null || echo "")
 
-echo "✅ Frontend Target Group ARN: $FRONTEND_TG_ARN"
+if [ -z "$FRONTEND_TG_ARN" ] || [ "$FRONTEND_TG_ARN" == "None" ]; then
+  echo "   Creating Frontend Target Group..."
+  FRONTEND_TG_ARN=$(aws elbv2 create-target-group \
+    --name cruddur-frontend-react-js-tg \
+    --protocol HTTP \
+    --port 3000 \
+    --vpc-id $VPC_ID \
+    --target-type ip \
+    --health-check-protocol HTTP \
+    --health-check-path "/health" \
+    --health-check-interval-seconds 30 \
+    --health-check-timeout-seconds 5 \
+    --healthy-threshold-count 2 \
+    --unhealthy-threshold-count 2 \
+    --query "TargetGroups[0].TargetGroupArn" \
+    --output text)
+  echo "✅ Created Frontend Target Group: $FRONTEND_TG_ARN"
+else
+  echo "✅ Frontend Target Group exists: $FRONTEND_TG_ARN"
+fi
 
 # ========================================
-# ADD LISTENER RULE FOR /api/* → BACKEND
+# LISTENER RULE FOR /api/* → BACKEND
 # ========================================
-echo "📝 Adding listener rule for /api/* → backend..."
+echo "📝 Checking listener rule for /api/*..."
 
-aws elbv2 create-rule \
+# Check if rule already exists
+EXISTING_RULE=$(aws elbv2 describe-rules \
   --listener-arn $LISTENER_ARN \
-  --priority 1 \
-  --conditions Field=path-pattern,Values='/api/*' \
-  --actions Type=forward,TargetGroupArn=$BACKEND_TG_ARN \
-  > /dev/null
+  --query "Rules[?Conditions[?Values[?contains(@, '/api/*')]]].RuleArn" \
+  --output text 2>/dev/null || echo "")
 
-echo "✅ Rule added: /api/* → backend"
+if [ -z "$EXISTING_RULE" ] || [ "$EXISTING_RULE" == "None" ]; then
+  echo "   Adding listener rule for /api/* → backend..."
+  aws elbv2 create-rule \
+    --listener-arn $LISTENER_ARN \
+    --priority 1 \
+    --conditions Field=path-pattern,Values='/api/*' \
+    --actions Type=forward,TargetGroupArn=$BACKEND_TG_ARN \
+    > /dev/null
+  echo "✅ Rule added: /api/* → backend"
+else
+  echo "✅ Rule exists: /api/* → backend"
+fi
 
 # ========================================
 # MODIFY DEFAULT ACTION → FRONTEND
@@ -119,21 +138,42 @@ aws elbv2 modify-listener \
 echo "✅ Default action: /* → frontend"
 
 # ========================================
-# CREATE FRONTEND ECS SERVICE
+# FRONTEND ECS SERVICE
 # ========================================
-echo "🐳 Creating Frontend ECS Service..."
+echo "🐳 Checking Frontend ECS Service..."
 
-aws ecs create-service \
+SERVICE_STATUS=$(aws ecs describe-services \
   --cluster $CLUSTER_NAME \
-  --service-name frontend-react-js \
-  --task-definition frontend-react-js \
-  --desired-count 1 \
-  --launch-type FARGATE \
-  --network-configuration "awsvpcConfiguration={subnets=[$SUBNET_1,$SUBNET_2,$SUBNET_3],securityGroups=[$ECS_SG_ID],assignPublicIp=ENABLED}" \
-  --load-balancers "targetGroupArn=$FRONTEND_TG_ARN,containerName=frontend-react-js,containerPort=3000" \
-  --enable-execute-command \
-  --query "service.serviceName" \
-  --output text
+  --services frontend-react-js \
+  --query "services[0].status" \
+  --output text 2>/dev/null || echo "")
+
+if [ -z "$SERVICE_STATUS" ] || [ "$SERVICE_STATUS" == "None" ] || [ "$SERVICE_STATUS" == "INACTIVE" ]; then
+  echo "   Creating Frontend ECS Service..."
+  aws ecs create-service \
+    --cluster $CLUSTER_NAME \
+    --service-name frontend-react-js \
+    --task-definition frontend-react-js \
+    --desired-count 1 \
+    --launch-type FARGATE \
+    --network-configuration "awsvpcConfiguration={subnets=[$SUBNET_1,$SUBNET_2,$SUBNET_3],securityGroups=[$ECS_SG_ID],assignPublicIp=ENABLED}" \
+    --load-balancers "targetGroupArn=$FRONTEND_TG_ARN,containerName=frontend-react-js,containerPort=3000" \
+    --enable-execute-command \
+    --query "service.serviceName" \
+    --output text
+  echo "✅ Created Frontend ECS Service"
+else
+  echo "✅ Frontend ECS Service exists (status: $SERVICE_STATUS)"
+  
+  # Ensure desired count is 1
+  aws ecs update-service \
+    --cluster $CLUSTER_NAME \
+    --service frontend-react-js \
+    --desired-count 1 \
+    --query "service.serviceName" \
+    --output text > /dev/null
+  echo "   Updated desired count to 1"
+fi
 
 echo ""
 echo "🎉 Frontend deployment complete!"
