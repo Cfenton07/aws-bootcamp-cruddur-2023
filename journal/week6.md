@@ -682,3 +682,414 @@ ECS_SG_ID=sg-0d67270f3a5014e4b
 # ECS
 CLUSTER_NAME=cruddur
 ```
+## Week 6-7 Journal: Frontend Deployment & Full Stack on ECS Fargate
+**Session Date:** February 16-17, 2026
+
+### Overview
+This session completed the ECS Fargate deployment by adding the frontend React application. I deployed a full-stack application with both frontend and backend services behind an Application Load Balancer with path-based routing. I also created idempotent scripts that can be safely run multiple times without errors.
+
+### What I Accomplished
+
+#### 1. Created Frontend ECR Repository
+Checked existing repositories and found frontend was missing:
+```bash
+# List repositories
+aws ecr describe-repositories \
+  --query "repositories[*].repositoryName" \
+  --output table
+
+# Result: Only cruddur-python and backend-flask existed
+
+# Create frontend repository
+aws ecr create-repository \
+  --repository-name frontend-react-js \
+  --image-tag-mutability MUTABLE
+```
+
+#### 2. Created Production Dockerfile for Frontend
+The existing `Dockerfile` used `npm start` (development server). I created `Dockerfile.prod` with a multi-stage build:
+
+**File:** `frontend-react-js/Dockerfile.prod`
+```dockerfile
+# ========================================
+# STAGE 1: Build the React application
+# ========================================
+FROM node:16.18 AS build
+
+WORKDIR /frontend-react-js
+
+# Build arguments for React environment variables
+ARG REACT_APP_BACKEND_URL
+ARG REACT_APP_AWS_PROJECT_REGION
+ARG REACT_APP_AWS_COGNITO_REGION
+ARG REACT_APP_AWS_USER_POOLS_ID
+ARG REACT_APP_CLIENT_ID
+
+# Set environment variables (baked into the build)
+ENV REACT_APP_BACKEND_URL=$REACT_APP_BACKEND_URL
+ENV REACT_APP_AWS_PROJECT_REGION=$REACT_APP_AWS_PROJECT_REGION
+ENV REACT_APP_AWS_COGNITO_REGION=$REACT_APP_AWS_COGNITO_REGION
+ENV REACT_APP_AWS_USER_POOLS_ID=$REACT_APP_AWS_USER_POOLS_ID
+ENV REACT_APP_CLIENT_ID=$REACT_APP_CLIENT_ID
+
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY . .
+RUN npm run build
+
+# ========================================
+# STAGE 2: Serve with nginx
+# ========================================
+FROM nginx:1.25-alpine
+
+COPY --from=build /frontend-react-js/build /usr/share/nginx/html
+COPY nginx.conf /etc/nginx/nginx.conf
+
+EXPOSE 3000
+CMD ["nginx", "-g", "daemon off;"]
+```
+
+**Key insight:** React environment variables are baked in at BUILD time, not runtime. This means if the ALB URL changes, I must rebuild the image.
+
+#### 3. Created nginx Configuration
+**File:** `frontend-react-js/nginx.conf`
+```nginx
+worker_processes 1;
+
+events {
+  worker_connections 1024;
+}
+
+http {
+  include /etc/nginx/mime.types;
+  default_type application/octet-stream;
+
+  log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
+                    '$status $body_bytes_sent "$http_referer" '
+                    '"$http_user_agent" "$http_x_forwarded_for"';
+
+  access_log  /var/log/nginx/access.log main;
+  error_log /var/log/nginx/error.log;
+
+  server {
+    listen 3000;
+    root /usr/share/nginx/html;
+    index index.html;
+
+    location / {
+        try_files $uri $uri/ $uri.html /index.html;
+    }
+
+    # Health check endpoint for ALB target group
+    location /health {
+        return 200 'ok';
+        add_header Content-Type text/plain;
+    }
+
+    error_page  404 /404.html;
+    location = /404.html {
+      internal;
+    }
+
+    error_page  500 502 503 504  /50x.html;
+    location = /50x.html {
+      internal;
+    }
+  }
+}
+```
+
+#### 4. Built and Pushed Frontend Image to ECR
+```bash
+cd frontend-react-js
+
+# Build with environment variables
+docker build \
+  -t frontend-react-js \
+  -f Dockerfile.prod \
+  --build-arg REACT_APP_BACKEND_URL="http://cruddur-alb-1823249408.us-east-1.elb.amazonaws.com" \
+  --build-arg REACT_APP_AWS_PROJECT_REGION="us-east-1" \
+  --build-arg REACT_APP_AWS_COGNITO_REGION="us-east-1" \
+  --build-arg REACT_APP_AWS_USER_POOLS_ID="us-east-1_wAg3Cr3Px" \
+  --build-arg REACT_APP_CLIENT_ID="12va2n69rq2of98ivm60b9625v" \
+  .
+
+# Tag for ECR (both latest and date-based)
+docker tag frontend-react-js:latest 931637612335.dkr.ecr.us-east-1.amazonaws.com/frontend-react-js:latest
+docker tag frontend-react-js:latest 931637612335.dkr.ecr.us-east-1.amazonaws.com/frontend-react-js:2026-02-17
+
+# Push both tags
+docker push 931637612335.dkr.ecr.us-east-1.amazonaws.com/frontend-react-js --all-tags
+```
+
+**Tagging strategy:** Using both `latest` and date-based tags allows for easy rollbacks if something breaks.
+
+#### 5. Created Frontend Task Definition
+**File:** `aws:json/task-definitions/frontend-react-js.json`
+```json
+{
+  "family": "frontend-react-js",
+  "executionRoleArn": "arn:aws:iam::931637612335:role/CruddurServiceExecutionRole",
+  "taskRoleArn": "arn:aws:iam::931637612335:role/CruddurTaskRole",
+  "networkMode": "awsvpc",
+  "cpu": "256",
+  "memory": "512",
+  "requiresCompatibilities": ["FARGATE"],
+  "containerDefinitions": [
+    {
+      "name": "frontend-react-js",
+      "image": "931637612335.dkr.ecr.us-east-1.amazonaws.com/frontend-react-js:latest",
+      "essential": true,
+      "healthCheck": {
+        "command": ["CMD-SHELL", "curl -f http://localhost:3000/health || exit 1"],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 60
+      },
+      "portMappings": [
+        {
+          "name": "frontend-react-js",
+          "containerPort": 3000,
+          "protocol": "tcp",
+          "appProtocol": "http"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "cruddur",
+          "awslogs-region": "us-east-1",
+          "awslogs-stream-prefix": "frontend-react-js"
+        }
+      }
+    }
+  ]
+}
+```
+
+Registered the task definition:
+```bash
+aws ecs register-task-definition \
+  --cli-input-json file://aws:json/task-definitions/frontend-react-js.json
+```
+
+#### 6. Created Automated Frontend Build Script
+**File:** `bin/frontend/build`
+
+This script automatically:
+- Detects the current ALB DNS name
+- Builds the Docker image with all environment variables
+- Tags with both `latest` and date-based tags
+- Pushes to ECR
+```bash
+#!/usr/bin/env bash
+set -e
+
+# Auto-detect ALB DNS
+ALB_DNS=$(aws elbv2 describe-load-balancers \
+  --names cruddur-alb \
+  --query "LoadBalancers[0].DNSName" \
+  --output text 2>/dev/null || echo "")
+
+BACKEND_URL="http://$ALB_DNS"
+
+# Build with all required args
+docker build \
+  --build-arg REACT_APP_BACKEND_URL="$BACKEND_URL" \
+  --build-arg REACT_APP_AWS_PROJECT_REGION="us-east-1" \
+  --build-arg REACT_APP_AWS_COGNITO_REGION="us-east-1" \
+  --build-arg REACT_APP_AWS_USER_POOLS_ID="us-east-1_wAg3Cr3Px" \
+  --build-arg REACT_APP_CLIENT_ID="12va2n69rq2of98ivm60b9625v" \
+  -t frontend-react-js \
+  -f Dockerfile.prod \
+  .
+
+# Tag and push to ECR
+# ... (tags with latest and date, pushes both)
+```
+
+**Why this is important:** Each time I teardown and redeploy, AWS assigns a NEW ALB DNS name. This script auto-detects it, eliminating manual errors.
+
+#### 7. Updated Scripts to be Idempotent
+Made all deploy/teardown scripts safe to run multiple times:
+
+| Script | Key Improvement |
+|--------|-----------------|
+| `deploy-backend` | Checks if resources exist before creating |
+| `deploy-frontend` | Checks if TG, listener rules, service exist |
+| `teardown-backend` | Removes both frontend AND backend (full cleanup) |
+| `teardown-frontend` | Only removes frontend, keeps backend running |
+
+**Idempotent pattern used:**
+```bash
+# Check if resource exists
+TG_ARN=$(aws elbv2 describe-target-groups --names my-tg ... || echo "")
+
+if [ -z "$TG_ARN" ] || [ "$TG_ARN" == "None" ]; then
+  echo "Creating Target Group..."
+  # Create it
+else
+  echo "Target Group exists"
+fi
+```
+
+#### 8. Tested Full Deployment
+```bash
+# Step 1: Deploy backend (creates ALB)
+./bin/ecs/deploy-backend
+
+# Step 2: Build frontend with correct ALB URL
+./bin/frontend/build
+
+# Step 3: Deploy frontend
+./bin/ecs/deploy-frontend
+```
+
+**Results:**
+
+| Test | Result |
+|------|--------|
+| Backend health check | ✅ `{"success":true}` |
+| Frontend loads | ✅ Cruddur homepage displayed |
+| Cognito sign-in | ✅ Successfully authenticated |
+| View cruds (posts) | ✅ Working (after starting RDS) |
+| Post new crud | ✅ Working |
+| Messages | ⚠️ Empty (data issue, not infrastructure) |
+
+#### 9. Architecture Achieved
+```
+                         Internet
+                             ↓
+                    ┌────────────────┐
+                    │   cruddur-alb  │
+                    │   (Port 80)    │
+                    └────────────────┘
+                             ↓
+                    ┌────────────────┐
+                    │    Listener    │
+                    │   (Port 80)    │
+                    └────────────────┘
+                       ↓         ↓
+              ┌────────┴───┐ ┌───┴────────┐
+              │  /api/*    │ │    /*      │
+              │  Rule      │ │  Default   │
+              └─────┬──────┘ └─────┬──────┘
+                    ↓              ↓
+    ┌───────────────────────┐ ┌───────────────────────┐
+    │ backend-flask-tg      │ │ frontend-react-js-tg  │
+    │ (port 4567)           │ │ (port 3000)           │
+    └───────────┬───────────┘ └───────────┬───────────┘
+                ↓                         ↓
+    ┌───────────────────────┐ ┌───────────────────────┐
+    │ backend-flask         │ │ frontend-react-js     │
+    │ (Flask API)           │ │ (nginx + React)       │
+    └───────────────────────┘ └───────────────────────┘
+```
+
+#### 10. Cleaned Up Resources
+```bash
+# Full teardown (removes everything)
+./bin/ecs/teardown-backend
+
+# Stop RDS to save costs
+aws rds stop-db-instance --db-instance-identifier cruddur-db-instance
+```
+
+### Files Created This Session
+```
+frontend-react-js/
+├── Dockerfile.prod              # Multi-stage production build
+└── nginx.conf                   # nginx configuration with health check
+
+aws:json/
+├── task-definitions/
+│   └── frontend-react-js.json   # Frontend task definition
+└── service-frontend-react-js.json  # Frontend service definition (reference)
+
+bin/
+├── ecs/
+│   ├── connect-to-service       # Debug running containers
+│   ├── deploy-backend           # Idempotent backend deployment
+│   ├── deploy-frontend          # Idempotent frontend deployment
+│   ├── teardown-backend         # Full cleanup (both services)
+│   └── teardown-frontend        # Frontend-only cleanup
+└── frontend/
+    └── build                    # Automated frontend build + push
+```
+
+### Key Learnings
+
+#### Development vs Production Dockerfile
+| Dockerfile | CMD | Use Case |
+|------------|-----|----------|
+| `Dockerfile` | `npm start` | Local development (hot reload) |
+| `Dockerfile.prod` | `nginx` | Production (optimized static files) |
+
+#### React Environment Variables
+React env vars are baked in at BUILD time, not injected at runtime like backend services. This means:
+- New ALB = New URL = Must rebuild frontend image
+- The `bin/frontend/build` script solves this by auto-detecting ALB DNS
+
+#### Idempotent Scripts
+Scripts that check before creating are much safer:
+- Can be run multiple times without errors
+- Self-documenting (shows what exists vs what's created)
+- Essential for debugging failed deployments
+
+#### ALB Path-Based Routing
+Using one ALB for both services saves ~$16/month:
+- `/api/*` → backend target group (port 4567)
+- `/*` → frontend target group (port 3000)
+
+#### Authentication vs Database
+Cognito authentication works independently of RDS:
+- Sign-in works even with RDS stopped
+- But user data (cruds, profiles) requires RDS running
+
+### Quick Reference: Deployment Commands
+```bash
+# Full deployment workflow
+./bin/ecs/deploy-backend     # 1. Creates ALB + backend service
+./bin/frontend/build         # 2. Builds frontend with ALB URL
+./bin/ecs/deploy-frontend    # 3. Deploys frontend service
+
+# Teardown options
+./bin/ecs/teardown-frontend  # Remove frontend only
+./bin/ecs/teardown-backend   # Remove EVERYTHING
+
+# Debug running containers
+./bin/ecs/connect-to-service              # Backend (default)
+./bin/ecs/connect-to-service frontend-react-js  # Frontend
+
+# Stop RDS when not in use
+aws rds stop-db-instance --db-instance-identifier cruddur-db-instance
+```
+
+### Progress Checklist (Updated)
+- [x] Backend deployed to ECS Fargate
+- [x] Frontend ECR repository created
+- [x] Frontend production Dockerfile created
+- [x] Frontend nginx configuration created
+- [x] Frontend image built and pushed to ECR
+- [x] Frontend task definition registered
+- [x] Idempotent deploy/teardown scripts created
+- [x] Automated frontend build script created
+- [x] Full stack deployed and tested
+- [x] Path-based routing configured (ALB)
+- [ ] Add HTTPS listener with SSL certificate
+- [ ] Configure custom domain with Route 53
+- [ ] Set up CI/CD pipeline
+
+### Cost Summary
+
+| Resource | Hourly Cost | Monthly Cost | Status |
+|----------|-------------|--------------|--------|
+| ALB | $0.0225 | ~$16 | Torn down |
+| Fargate (2 tasks) | ~$0.02 | ~$15 | Torn down |
+| RDS | ~$0.02 | ~$15 | Stopped |
+| ECR Storage | - | ~$0.10/GB | 3 images stored |
+| Target Groups | Free | Free | Torn down |
+| Task Definitions | Free | Free | Retained |
+
+**Lesson:** Always teardown ALB and Fargate when not actively testing. Use scripts to make this quick and error-free.
