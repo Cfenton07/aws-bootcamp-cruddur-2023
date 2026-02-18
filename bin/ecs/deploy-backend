@@ -83,27 +83,55 @@ ALB_DNS=$(aws elbv2 describe-load-balancers \
 echo "🌐 ALB DNS: $ALB_DNS"
 
 # ========================================
-# STEP 3: LISTENER
+# STEP 3: LISTENERS
 # ========================================
-echo "👂 Checking Listener..."
+echo "👂 Checking Listeners..."
 
-LISTENER_ARN=$(aws elbv2 describe-listeners \
+CERT_ARN="arn:aws:acm:us-east-1:931637612335:certificate/fe029e37-b6c8-409f-b6b2-bf37aea9dcfb"
+
+# First: Get or create HTTP listener on port 80
+HTTP_LISTENER_ARN=$(aws elbv2 describe-listeners \
   --load-balancer-arn $ALB_ARN \
-  --query "Listeners[0].ListenerArn" \
+  --query "Listeners[?Port==\`80\`].ListenerArn" \
   --output text 2>/dev/null || echo "")
 
-if [ -z "$LISTENER_ARN" ] || [ "$LISTENER_ARN" == "None" ]; then
-  echo "   Creating Listener..."
-  LISTENER_ARN=$(aws elbv2 create-listener \
+if [ -z "$HTTP_LISTENER_ARN" ] || [ "$HTTP_LISTENER_ARN" == "None" ]; then
+  echo "   Creating HTTP Listener..."
+  HTTP_LISTENER_ARN=$(aws elbv2 create-listener \
     --load-balancer-arn $ALB_ARN \
     --protocol HTTP \
     --port 80 \
+    --default-actions Type=redirect,RedirectConfig="{Protocol=HTTPS,Port=443,StatusCode=HTTP_301}" \
+    --query "Listeners[0].ListenerArn" \
+    --output text)
+  echo "✅ Created HTTP Listener: $HTTP_LISTENER_ARN"
+else
+  echo "   Updating HTTP Listener to redirect to HTTPS..."
+  aws elbv2 modify-listener \
+    --listener-arn $HTTP_LISTENER_ARN \
+    --default-actions Type=redirect,RedirectConfig="{Protocol=HTTPS,Port=443,StatusCode=HTTP_301}" > /dev/null
+  echo "✅ HTTP Listener updated"
+fi
+
+# Second: Get or create HTTPS listener on port 443
+HTTPS_LISTENER_ARN=$(aws elbv2 describe-listeners \
+  --load-balancer-arn $ALB_ARN \
+  --query "Listeners[?Port==\`443\`].ListenerArn" \
+  --output text 2>/dev/null || echo "")
+
+if [ -z "$HTTPS_LISTENER_ARN" ] || [ "$HTTPS_LISTENER_ARN" == "None" ]; then
+  echo "   Creating HTTPS Listener..."
+  HTTPS_LISTENER_ARN=$(aws elbv2 create-listener \
+    --load-balancer-arn $ALB_ARN \
+    --protocol HTTPS \
+    --port 443 \
+    --certificates CertificateArn=$CERT_ARN \
     --default-actions Type=forward,TargetGroupArn=$TG_ARN \
     --query "Listeners[0].ListenerArn" \
     --output text)
-  echo "✅ Created Listener: $LISTENER_ARN"
+  echo "✅ Created HTTPS Listener: $HTTPS_LISTENER_ARN"
 else
-  echo "✅ Listener exists: $LISTENER_ARN"
+  echo "✅ HTTPS Listener exists: $HTTPS_LISTENER_ARN"
 fi
 
 # ========================================
