@@ -171,7 +171,31 @@ else
     --output text > /dev/null
   echo "   Updated desired count to 1"
 fi
+# ========================================
+# UPDATE ROUTE 53 A RECORDS
+# ========================================
+echo "🌐 Updating Route 53 A records..."
 
+HOSTED_ZONE_ID=$(aws route53 list-hosted-zones-by-name \
+  --dns-name fentoncruddur.com \
+  --query "HostedZones[0].Id" \
+  --output text | sed 's/\/hostedzone\///')
+
+ALB_HOSTED_ZONE_ID=$(aws elbv2 describe-load-balancers \
+  --load-balancer-arns $ALB_ARN \
+  --query "LoadBalancers[0].CanonicalHostedZoneId" \
+  --output text)
+
+aws route53 change-resource-record-sets \
+  --hosted-zone-id $HOSTED_ZONE_ID \
+  --change-batch "{
+    \"Changes\": [
+      {\"Action\": \"UPSERT\", \"ResourceRecordSet\": {\"Name\": \"fentoncruddur.com\", \"Type\": \"A\", \"AliasTarget\": {\"HostedZoneId\": \"$ALB_HOSTED_ZONE_ID\", \"DNSName\": \"dualstack.$ALB_DNS\", \"EvaluateTargetHealth\": true}}},
+      {\"Action\": \"UPSERT\", \"ResourceRecordSet\": {\"Name\": \"api.fentoncruddur.com\", \"Type\": \"A\", \"AliasTarget\": {\"HostedZoneId\": \"$ALB_HOSTED_ZONE_ID\", \"DNSName\": \"dualstack.$ALB_DNS\", \"EvaluateTargetHealth\": true}}}
+    ]
+  }" > /dev/null
+
+echo "✅ Route 53 records updated"
 echo ""
 echo "🎉 Backend deployment complete!"
 echo ""
