@@ -4,21 +4,10 @@ set -e
 echo "🔨 Building Frontend Docker Image..."
 
 # ========================================
-# GET ALB DNS DYNAMICALLY
+# BACKEND URL
 # ========================================
-ALB_DNS=$(aws elbv2 describe-load-balancers \
-  --names cruddur-alb \
-  --query "LoadBalancers[0].DNSName" \
-  --output text 2>/dev/null || echo "")
-
-if [ -z "$ALB_DNS" ] || [ "$ALB_DNS" == "None" ]; then
-  echo "⚠️  ALB not found. Using placeholder URL."
-  echo "   You'll need to rebuild after deploying backend."
-  BACKEND_URL="http://localhost:4567"
-else
-  BACKEND_URL="http://$ALB_DNS"
-  echo "✅ Found ALB: $BACKEND_URL"
-fi
+BACKEND_URL="https://api.fentoncruddur.com"
+echo "✅ Using backend URL: $BACKEND_URL"
 
 # ========================================
 # COGNITO CONFIGURATION
