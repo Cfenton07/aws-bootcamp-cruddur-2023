@@ -38,6 +38,18 @@ fi
 TASK_ID=$(echo $TASK_ARN | cut -d'/' -f3)
 
 echo "✅ Found task: $TASK_ID"
+
+# Determine which shell to use based on container
+# Alpine-based images (nginx) only have /bin/sh
+# Debian-based images (Python) have /bin/bash
+if [ "$CONTAINER_NAME" == "frontend-react-js" ]; then
+  SHELL_CMD="/bin/sh"
+  echo "🐚 Using /bin/sh (Alpine-based container)"
+else
+  SHELL_CMD="/bin/bash"
+  echo "🐚 Using /bin/bash"
+fi
+
 echo "🔌 Connecting to container: $CONTAINER_NAME..."
 echo ""
 
@@ -47,5 +59,5 @@ aws ecs execute-command \
   --cluster $CLUSTER_NAME \
   --task $TASK_ID \
   --container $CONTAINER_NAME \
-  --command "/bin/bash" \
+  --command "$SHELL_CMD" \
   --interactive

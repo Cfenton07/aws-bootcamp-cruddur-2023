@@ -126,7 +126,7 @@ else
 fi
 
 # ========================================
-# MODIFY DEFAULT ACTION → FRONTEND
+# MODIFY DEFAULT ACTION → FRONTEND (HTTP)
 # ========================================
 echo "📝 Setting default action → frontend..."
 
@@ -136,6 +136,25 @@ aws elbv2 modify-listener \
   > /dev/null
 
 echo "✅ Default action: /* → frontend"
+
+# ========================================
+# UPDATE HTTPS LISTENER DEFAULT ACTION → FRONTEND
+# ========================================
+echo "🔒 Updating HTTPS listener default action to frontend..."
+
+HTTPS_LISTENER_ARN=$(aws elbv2 describe-listeners \
+  --load-balancer-arn $ALB_ARN \
+  --query "Listeners[?Port==\`443\`].ListenerArn" \
+  --output text)
+
+if [ -n "$HTTPS_LISTENER_ARN" ] && [ "$HTTPS_LISTENER_ARN" != "None" ]; then
+  aws elbv2 modify-listener \
+    --listener-arn $HTTPS_LISTENER_ARN \
+    --default-actions Type=forward,TargetGroupArn=$FRONTEND_TG_ARN > /dev/null
+  echo "✅ HTTPS listener now routes to frontend by default"
+else
+  echo "⚠️  HTTPS listener not found - skipping"
+fi
 
 # ========================================
 # FRONTEND ECS SERVICE
