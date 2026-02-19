@@ -332,8 +332,9 @@ def data_create_message():
 # ============================================================
 # API ENDPOINTS - HOME FEED
 # ============================================================
-@app.route("/api/activities/home", methods=['GET'])
-@xray_recorder.capture('activities_home')  # Track this endpoint in X-Ray
+@app.route("/api/activities/home", methods=['GET', 'OPTIONS'])
+@cross_origin()
+@xray_recorder.capture('activities_home')
 def data_home():
     """
     Get home activities feed - supports both authenticated and unauthenticated users
