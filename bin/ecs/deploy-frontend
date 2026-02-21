@@ -41,16 +41,21 @@ ALB_DNS=$(aws elbv2 describe-load-balancers \
 echo "🌐 ALB DNS: $ALB_DNS"
 
 # ========================================
-# GET EXISTING LISTENER
+# GET HTTPS LISTENER (port 443)
 # ========================================
-echo "🔍 Finding existing listener..."
+echo "🔍 Finding HTTPS listener (port 443)..."
 
 LISTENER_ARN=$(aws elbv2 describe-listeners \
   --load-balancer-arn $ALB_ARN \
-  --query "Listeners[0].ListenerArn" \
+  --query "Listeners[?Port==\`443\`].ListenerArn" \
   --output text)
 
-echo "✅ Found Listener: $LISTENER_ARN"
+if [ -z "$LISTENER_ARN" ] || [ "$LISTENER_ARN" == "None" ]; then
+  echo "❌ HTTPS listener not found! Make sure deploy-backend ran successfully."
+  exit 1
+fi
+
+echo "✅ Found HTTPS Listener: $LISTENER_ARN"
 
 # ========================================
 # GET BACKEND TARGET GROUP ARN
@@ -126,35 +131,16 @@ else
 fi
 
 # ========================================
-# MODIFY DEFAULT ACTION → FRONTEND (HTTP)
+# SET DEFAULT ACTION → FRONTEND (HTTPS port 443)
 # ========================================
-echo "📝 Setting default action → frontend..."
+echo "📝 Setting HTTPS listener default action → frontend..."
 
 aws elbv2 modify-listener \
   --listener-arn $LISTENER_ARN \
   --default-actions Type=forward,TargetGroupArn=$FRONTEND_TG_ARN \
   > /dev/null
 
-echo "✅ Default action: /* → frontend"
-
-# ========================================
-# UPDATE HTTPS LISTENER DEFAULT ACTION → FRONTEND
-# ========================================
-echo "🔒 Updating HTTPS listener default action to frontend..."
-
-HTTPS_LISTENER_ARN=$(aws elbv2 describe-listeners \
-  --load-balancer-arn $ALB_ARN \
-  --query "Listeners[?Port==\`443\`].ListenerArn" \
-  --output text)
-
-if [ -n "$HTTPS_LISTENER_ARN" ] && [ "$HTTPS_LISTENER_ARN" != "None" ]; then
-  aws elbv2 modify-listener \
-    --listener-arn $HTTPS_LISTENER_ARN \
-    --default-actions Type=forward,TargetGroupArn=$FRONTEND_TG_ARN > /dev/null
-  echo "✅ HTTPS listener now routes to frontend by default"
-else
-  echo "⚠️  HTTPS listener not found - skipping"
-fi
+echo "✅ HTTPS default action: /* → frontend"
 
 # ========================================
 # FRONTEND ECS SERVICE
@@ -202,3 +188,4 @@ echo "   Frontend: http://$ALB_DNS"
 echo "   Backend:  http://$ALB_DNS/api/health-check"
 echo ""
 echo "⏳ Wait ~2 minutes for tasks to start and register with target groups"
+

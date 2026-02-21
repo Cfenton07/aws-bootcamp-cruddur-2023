@@ -48,7 +48,7 @@ if [ -n "$ALB_ARN" ] && [ "$ALB_ARN" != "None" ]; then
   
   LISTENER_ARN=$(aws elbv2 describe-listeners \
     --load-balancer-arn $ALB_ARN \
-    --query "Listeners[0].ListenerArn" \
+    --query "Listeners[?Port==\`443\`].ListenerArn" \
     --output text 2>/dev/null || echo "")
   
   if [ -n "$LISTENER_ARN" ] && [ "$LISTENER_ARN" != "None" ]; then
