@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+set -e
+
+ABS_PATH=$(readlink -f "$0")
+BACKEND_PATH=$(dirname $ABS_PATH)
+BIN_PATH=$(dirname $BACKEND_PATH)
+PROJECT_PATH=$(dirname $BIN_PATH)
+BACKEND_FLASK_PATH="$PROJECT_PATH/backend-flask"
+
+echo "🔨 Building Backend Docker Image..."
+
+AWS_ACCOUNT_ID="931637612335"
+AWS_REGION="us-east-1"
+ECR_URL="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/backend-flask"
+DATE_TAG=$(date +%Y-%m-%d)
+
+echo "🐳 Building Docker image..."
+docker build \
+  -f "$BACKEND_FLASK_PATH/Dockerfile.prod" \
+  -t backend-flask \
+  "$BACKEND_FLASK_PATH/."
+
+echo "🏷️  Tagging image..."
+docker tag backend-flask:latest $ECR_URL:latest
+docker tag backend-flask:latest $ECR_URL:$DATE_TAG
+
+echo "🔐 Logging in to ECR..."
+aws ecr get-login-password --region $AWS_REGION | \
+  docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
+
+echo "📤 Pushing to ECR..."
+docker push $ECR_URL:latest
+docker push $ECR_URL:$DATE_TAG
+
+echo ""
+echo "✅ Backend build complete!"
+echo "   Image: $ECR_URL:latest"
+echo "   Image: $ECR_URL:$DATE_TAG"
+echo ""
+echo "⚡ To deploy: ./bin/ecs/deploy-backend"
