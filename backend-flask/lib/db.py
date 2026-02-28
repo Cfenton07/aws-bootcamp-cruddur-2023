@@ -90,7 +90,7 @@ class Db:
         cur.execute(wrapped_sql,params)
         json = cur.fetchone()
         if json == None:
-          "{}"
+          return "{}"  # ← added return
         else:
           return json[0]
   def query_wrap_object(self,template):
