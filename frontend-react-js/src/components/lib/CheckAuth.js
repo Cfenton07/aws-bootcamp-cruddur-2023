@@ -1,6 +1,17 @@
 import { getCurrentUser, fetchAuthSession, fetchUserAttributes } from 'aws-amplify/auth';
 
-const checkAuth = async (setUser) => {
+export async function getAccessToken() {
+  try {
+    const session = await fetchAuthSession();
+    const accessToken = session?.tokens?.accessToken?.toString();
+    return accessToken;
+  } catch (err) {
+    console.log('Error getting access token:', err);
+    return null;
+  }
+}
+
+export async function checkAuth(setUser) {
   console.log('checkAuth');
   try {
     await fetchAuthSession({ forceRefresh: true });
@@ -18,7 +29,5 @@ const checkAuth = async (setUser) => {
     setUser(null);
     return null;
   }
-};
-
-export default checkAuth;
+}
 

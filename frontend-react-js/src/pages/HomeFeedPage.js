@@ -7,8 +7,8 @@ import ActivityFeed from '../components/ActivityFeed';
 import ActivityForm from '../components/ActivityForm';
 import ReplyForm from '../components/ReplyForm';        
 
-import { signOut, fetchAuthSession } from 'aws-amplify/auth';
-import checkAuth from '../components/lib/CheckAuth';
+import { signOut } from 'aws-amplify/auth';
+import { checkAuth, getAccessToken } from '../components/lib/CheckAuth';
 
 export default function HomeFeedPage() {
   const [activities, setActivities] = React.useState([]);
@@ -17,24 +17,14 @@ export default function HomeFeedPage() {
   const [replyActivity, setReplyActivity] = React.useState({});
   const [user, setUser] = React.useState(null);
 
-  const loadData = async () => {
+const loadData = async () => {
     console.log('loadData called');
-    // Initialize a header object
     const headers = {};
 
-    try {
-      // Attempt to get the user session to get the access token
-      const session = await fetchAuthSession();
-      const accessToken = session?.tokens?.accessToken?.toString();
-
-      // If an access token exists, add it to the headers
-      if (accessToken) {
-        headers['Authorization'] = `Bearer ${accessToken}`;
-      }
-
-    } catch (err) {
-      console.log('Error fetching session:', err);
-      // Continue with the request even if there's no session
+    // Get a fresh access token (auto-refreshes if expired)
+    const accessToken = await getAccessToken();
+    if (accessToken) {
+      headers['Authorization'] = `Bearer ${accessToken}`;
     }
 
     const backend_url = `${process.env.REACT_APP_BACKEND_URL}/api/activities/home`;

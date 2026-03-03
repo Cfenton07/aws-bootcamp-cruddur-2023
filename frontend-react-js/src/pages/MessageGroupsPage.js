@@ -3,9 +3,10 @@ import React from "react";
 
 import DesktopNavigation  from '../components/DesktopNavigation';
 import MessageGroupFeed from '../components/MessageGroupFeed';
-import checkAuth from '../components/lib/CheckAuth';
 
-import { signOut, fetchAuthSession } from 'aws-amplify/auth';
+import { checkAuth, getAccessToken } from '../components/lib/CheckAuth';
+import { signOut } from 'aws-amplify/auth';
+
 
 export default function MessageGroupsPage() {
   const [messageGroups, setMessageGroups] = React.useState([]);
@@ -13,24 +14,13 @@ export default function MessageGroupsPage() {
   const [user, setUser] = React.useState(null);
   const dataFetchedRef = React.useRef(false);
 
-  const loadData = async () => {
+ const loadData = async () => {
     console.log('loadData called');
-    // Initialize a header object
     const headers = {};
 
-    try {
-      // Attempt to get the user session to get the access token
-      const session = await fetchAuthSession();
-      const accessToken = session?.tokens?.accessToken;
-
-      // If an access token exists, add it to the headers
-      if (accessToken) {
-        headers['Authorization'] = `Bearer ${accessToken}`;
-      }
-
-    } catch (err) {
-      console.log('Error fetching session:', err);
-      // Continue with the request even if there's no session
+    const accessToken = await getAccessToken();
+    if (accessToken) {
+      headers['Authorization'] = `Bearer ${accessToken}`;
     }
 
     try {
@@ -48,7 +38,7 @@ export default function MessageGroupsPage() {
     } catch (err) {
       console.log(err);
     }
-  };  
+  };
 
   const handleSignOut = async () => {
     try {

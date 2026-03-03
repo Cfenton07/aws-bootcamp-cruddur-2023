@@ -7,8 +7,8 @@ import DesktopSidebar     from '../components/DesktopSidebar';
 import ActivityFeed from '../components/ActivityFeed';
 import ActivityForm from '../components/ActivityForm';
 
-// [TODO] Authenication
-import Cookies from 'js-cookie'
+import { signOut } from 'aws-amplify/auth';
+import { checkAuth, getAccessToken } from '../components/lib/CheckAuth';
 
 export default function UserFeedPage() {
   const [activities, setActivities] = React.useState([]);
@@ -20,10 +20,18 @@ export default function UserFeedPage() {
   const title = `@${params.handle}`;
 
   const loadData = async () => {
+    const headers = {};
+
+    const accessToken = await getAccessToken();
+    if (accessToken) {
+      headers['Authorization'] = `Bearer ${accessToken}`;
+    }
+
     try {
       const backend_url = `${process.env.REACT_APP_BACKEND_URL}/api/activities/${title}`
       const res = await fetch(backend_url, {
-        method: "GET"
+        method: "GET",
+        headers: headers,
       });
       let resJson = await res.json();
       if (res.status === 200) {
@@ -36,14 +44,12 @@ export default function UserFeedPage() {
     }
   };
 
-  const checkAuth = async () => {
-    console.log('checkAuth')
-    // [TODO] Authenication
-    if (Cookies.get('user.logged_in')) {
-      setUser({
-        display_name: Cookies.get('user.name'),
-        handle: Cookies.get('user.username')
-      })
+  const handleSignOut = async () => {
+    try {
+      await signOut();
+      window.location.href = "/";
+    } catch (error) {
+      console.log('Error signing out: ', error);
     }
   };
 
@@ -52,13 +58,13 @@ export default function UserFeedPage() {
     if (dataFetchedRef.current) return;
     dataFetchedRef.current = true;
 
+    checkAuth(setUser);
     loadData();
-    checkAuth();
   }, [])
 
   return (
     <article>
-      <DesktopNavigation user={user} active={'profile'} setPopped={setPopped} />
+      <DesktopNavigation user={user} active={'profile'} setPopped={setPopped} handleSignOut={handleSignOut} />
       <div className='content'>
         <ActivityForm popped={popped} setActivities={setActivities} />
         <ActivityFeed title={title} activities={activities} />
