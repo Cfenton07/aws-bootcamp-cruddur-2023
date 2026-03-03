@@ -1,13 +1,13 @@
 import './MessageGroupPage.css';
 import React from "react";
 import { useParams } from 'react-router-dom';
-import { fetchAuthSession } from 'aws-amplify/auth';
+
 
 import DesktopNavigation  from '../components/DesktopNavigation';
 import MessageGroupFeed from '../components/MessageGroupFeed';
 import MessagesFeed from '../components/MessageFeed';
 import MessagesForm from '../components/MessageForm';
-import checkAuth from '../components/lib/CheckAuth';
+import { checkAuth, getAccessToken } from '../components/lib/CheckAuth';
 
 export default function MessageGroupPage() {
   const [otherUser, setOtherUser] = React.useState([]);
@@ -39,11 +39,9 @@ export default function MessageGroupPage() {
   const loadMessageGroupsData = async () => {
     try {
       const backend_url = `${process.env.REACT_APP_BACKEND_URL}/api/message_groups`
-      
-      // Get auth session from AWS Amplify
-      const session = await fetchAuthSession();
-      const accessToken = session?.tokens?.accessToken;
-      
+
+      const accessToken = await getAccessToken();
+
       const res = await fetch(backend_url, {
         headers: {
           Authorization: `Bearer ${accessToken}`
@@ -59,7 +57,7 @@ export default function MessageGroupPage() {
     } catch (err) {
       console.log(err);
     }
-  };  
+  };
 
   React.useEffect(()=>{
     //prevents double call
