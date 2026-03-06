@@ -14,7 +14,7 @@ export async function getAccessToken() {
 export async function checkAuth(setUser) {
   console.log('checkAuth');
   try {
-    await fetchAuthSession({ forceRefresh: true });
+    await fetchAuthSession({ forceRefresh: false });
     const cognitoUser = await getCurrentUser();
     const userAttributes = await fetchUserAttributes();
     setUser({
