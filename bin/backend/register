@@ -1,0 +1,22 @@
+#! /usr/bin/bash
+
+# ============================================================
+# REGISTER BACKEND TASK DEFINITION
+# ============================================================
+# Pushes the backend-flask task definition JSON to ECS
+# Creates a new revision each time it's run
+# This does NOT deploy — use deploy-backend to update the running service
+
+ABS_PATH=$(readlink -f "$0")
+BIN_PATH=$(dirname $ABS_PATH)
+PROJECT_PATH=$(dirname $(dirname $BIN_PATH))
+TASK_DEF_PATH="$PROJECT_PATH/aws:json/task-definitions/backend-flask.json"
+
+echo "== Register Backend Task Definition =="
+echo "Task Definition File: $TASK_DEF_PATH"
+
+aws ecs register-task-definition \
+  --cli-input-json "file://$TASK_DEF_PATH"
+
+echo ""
+echo "== Registration Complete =="
