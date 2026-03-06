@@ -59,7 +59,8 @@
         {"name": "AWS_COGNITO_USER_POOL_CLIENT_ID", "value": "12va2n69rq2of98ivm60b9625v"},
         {"name": "FRONTEND_URL", "value": "https://fentoncruddur.com"},
         {"name": "BACKEND_URL", "value": "https://api.fentoncruddur.com"},
-        {"name": "AWS_DEFAULT_REGION", "value": "us-east-1"}
+        {"name": "AWS_DEFAULT_REGION", "value": "us-east-1"},
+        {"name": "AWS_XRAY_URL", "value": "*fentoncruddur.com*"}
       ],
       "secrets": [
         {"name": "AWS_ACCESS_KEY_ID"    , "valueFrom": "arn:aws:ssm:us-east-1:931637612335:parameter/cruddur/backend-flask/AWS_ACCESS_KEY_ID"},
