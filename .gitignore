@@ -1,2 +1,5 @@
 docker/dynamodb/*.db
 *.zip
+
+backend-flask.env
+frontend-react-js.env

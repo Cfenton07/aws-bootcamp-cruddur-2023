@@ -1,37 +1,18 @@
 version: "3.8"
 services:
   backend-flask:
-    environment:
-      FLASK_DEBUG: "1"  # Only add this line
-      #CONNECTION_URL: "${PROD_CONNECTION_URL}"
-      CONNECTION_URL: "postgresql://postgres:POSTGRES_PASSWORD@db:5432/cruddur"
-      FRONTEND_URL: "https://${CODESPACE_NAME}-3000.${GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN}"
-      BACKEND_URL: "https://${CODESPACE_NAME}-4567.${GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN}"
-      #FRONTEND_URL: "https://3000-${GITPOD_WORKSPACE_ID}.${GITPOD_WORKSPACE_CLUSTER_HOST}"
-      #BACKEND_URL: "https://4567-${GITPOD_WORKSPACE_ID}.${GITPOD_WORKSPACE_CLUSTER_HOST}"
-      
-      OTEL_SERVICE_NAME: 'backend-flask'
-      #OTEP_EXPORTER_OTLP_ENDPOINT: "https://api.honeycomb.io"
-      #OTEP_EXPORTER_OTLP_HEADERS: "x-honeycomb-team=${HONEYCOMB_API_KEY}"
-      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318"
-      #AWS_XRAY_URL: "*4567-${GITPOD_WORKSPACE_ID}.${GITPOD_WORKSPACE_CLUSTER_HOST}*"
-      AWS_XRAY_URL: "*${CODESPACE_NAME}-4567.${GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN}*"
-      AWS_XRAY_DAEMON_ADDRESS: "xray-daemon:2000"
-      AWS_REGION: "${AWS_DEFAULT_REGION}"
-      AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID}"
-      AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY}"
-      ROLLBAR_ACCESS_TOKEN: "${ROLLBAR_ACCESS_TOKEN}"
-      AWS_COGNITO_USER_POOL_ID: "us-east-1_wAg3Cr3Px"
-      AWS_COGNITO_USER_POOL_CLIENT_ID: "12va2n69rq2of98ivm60b9625v"
-      AWS_ENDPOINT_URL: "http://dynamodb-local:8000" # DynamoDB Local URL
+    env_file:
+      - backend-flask.env
     build: ./backend-flask
     ports:
       - "4567:4567"
-      - "5678:5678"  # Add debug port
+      - "5678:5678"
     volumes:
       - ./backend-flask:/backendflasktype
     depends_on:
       - otel-collector
+    networks:
+      - cruddur-net
 
   dynamodb-local:
     user: root
@@ -43,6 +24,8 @@ services:
     volumes:
       - "./docker/dynamodb:/home/dynamodblocal/data"
     working_dir: /home/dynamodblocal
+    networks:
+      - cruddur-net
 
   otel-collector:
     image: otel/opentelemetry-collector-contrib:latest
@@ -55,19 +38,19 @@ services:
     environment:
       HONEYCOMB_API_KEY: "${HONEYCOMB_API_KEY}"
     restart: unless-stopped
+    networks:
+      - cruddur-net
 
   frontend-react-js:
-    environment:
-      REACT_APP_BACKEND_URL: "https://${CODESPACE_NAME}-4567.${GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN}"
-      REACT_APP_AWS_PROJECT_REGION: "us-east-1"
-      REACT_APP_AWS_COGNITO_REGION: "us-east-1"
-      REACT_APP_AWS_USER_POOLS_ID: "us-east-1_wAg3Cr3Px"
-      REACT_APP_CLIENT_ID: "12va2n69rq2of98ivm60b9625v"
+    env_file:
+      - frontend-react-js.env
     build: ./frontend-react-js
     ports:
       - "3000:3000"
     volumes:
       - ./frontend-react-js:/frontend-react-js
+    networks:
+      - cruddur-net
 
   db:
     image: postgres:13-alpine
@@ -79,6 +62,8 @@ services:
       - "5432:5432"
     volumes: 
       - db:/var/lib/postgresql/data
+    networks:
+      - cruddur-net
 
   xray-daemon:
     image: "amazon/aws-xray-daemon"
@@ -88,11 +73,13 @@ services:
       AWS_REGION: "us-east-1"
     ports:
       - 2000:2000/udp
+    networks:
+      - cruddur-net
 
 networks:
-  internal-network:
+  cruddur-net:
     driver: bridge
-    name: crudder
+    name: cruddur-net
 
 volumes:
   db:

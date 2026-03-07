@@ -36,6 +36,21 @@ cd ..
 echo "✅ Frontend dependencies ready"
 
 # ========================================
+# GENERATE ENVIRONMENT FILES
+# ========================================
+# Templates contain ${CODESPACE_NAME} and other variables that change
+# each session. envsubst resolves them into .env files used by
+# docker-compose and docker run.
+
+echo ""
+echo "🔧 Generating environment files..."
+
+./bin/backend/generate-env
+./bin/frontend/generate-env
+
+echo "✅ Environment files generated"
+
+# ========================================
 # GET CURRENT CODESPACE IP ADDRESS
 # ========================================
 # Each Codespace has a unique public IP address

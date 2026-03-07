@@ -1,0 +1,32 @@
+#! /usr/bin/bash
+
+# ============================================================
+# RUN PRODUCTION BACKEND CONTAINER LOCALLY
+# ============================================================
+# Runs the production Docker image (not the dev docker-compose one)
+# on the cruddur-net network so it can talk to docker-compose
+# services like DynamoDB Local, X-Ray daemon, and PostgreSQL.
+#
+# Prerequisites:
+#   1. Run bin/backend/generate-env to create the .env file
+#   2. Start docker-compose services (db, dynamodb-local, xray-daemon)
+#   3. Build the production image: bin/backend/build
+
+ABS_PATH=$(readlink -f "$0")
+BIN_PATH=$(dirname $ABS_PATH)
+PROJECT_PATH=$(dirname $(dirname $BIN_PATH))
+
+ENVFILE_PATH="$PROJECT_PATH/backend-flask.env"
+
+if [ ! -f "$ENVFILE_PATH" ]; then
+  echo "ERROR: Environment file not found at $ENVFILE_PATH"
+  echo "Run bin/backend/generate-env first."
+  exit 1
+fi
+
+docker run --rm \
+  --env-file "$ENVFILE_PATH" \
+  --network cruddur-net \
+  --publish 4567:4567 \
+  -it \
+  backend-flask

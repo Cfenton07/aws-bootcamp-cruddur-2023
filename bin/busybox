@@ -1,0 +1,20 @@
+#! /usr/bin/bash
+
+# ============================================================
+# BUSYBOX NETWORK DEBUG UTILITY
+# ============================================================
+# Launches a BusyBox container on the cruddur-net network
+# for debugging connectivity between containers.
+#
+# Useful commands once inside:
+#   ping xray-daemon          - check if X-Ray is reachable
+#   ping db                   - check if PostgreSQL is reachable
+#   ping dynamodb-local       - check if DynamoDB Local is reachable
+#   telnet xray-daemon 2000   - test X-Ray port connectivity
+#   telnet db 5432            - test PostgreSQL port connectivity
+#   nslookup backend-flask    - check DNS resolution
+
+docker run --rm \
+  --network cruddur-net \
+  -it \
+  busybox
