@@ -1,0 +1,29 @@
+#! /usr/bin/bash
+
+# ============================================================
+# GENERATE BACKEND ENVIRONMENT FILE
+# ============================================================
+# Reads backend-flask.env.template and substitutes all ${VAR}
+# references with their actual values from the current shell.
+# Output: backend-flask.env (used by docker-compose and docker run)
+#
+# This replaces Ruby/ERB with a single envsubst call.
+# envsubst is built into most Linux systems — no extra installs needed.
+
+ABS_PATH=$(readlink -f "$0")
+BIN_PATH=$(dirname $ABS_PATH)
+PROJECT_PATH=$(dirname $(dirname $BIN_PATH))
+
+TEMPLATE_PATH="$PROJECT_PATH/backend-flask.env.template"
+OUTPUT_PATH="$PROJECT_PATH/backend-flask.env"
+
+echo "== Generate Backend Environment File =="
+
+if [ ! -f "$TEMPLATE_PATH" ]; then
+  echo "ERROR: Template not found at $TEMPLATE_PATH"
+  exit 1
+fi
+
+envsubst < "$TEMPLATE_PATH" > "$OUTPUT_PATH"
+
+echo "Generated: $OUTPUT_PATH"
