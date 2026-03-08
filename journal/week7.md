@@ -102,7 +102,13 @@ Enabled Container Insights: ECS Console → Clusters → cruddur → Update → 
 The `AWS_XRAY_URL` dynamic naming is confirmed working — the Trace Map labels the service as `api.fentoncruddur.com`.
 
 ## Prod Running -- Domain is Registering when I hit the site!
-![Fentoncruddur Running](Fentoncruddur_domain%20Running%20.jpg)
+![Fentoncruddur Running](https://github.com/Cfenton07/aws-bootcamp-cruddur-2023/blob/main/_docs/assets/Fentoncruddur_domain%20Running%20.jpg)
+
+## Successful Traces Hitting X-Ray / Trace data displayed in Cloud Watch!
+
+![Cloud Watch Trace Maps!](https://github.com/Cfenton07/aws-bootcamp-cruddur-2023/blob/main/_docs/assets/AWS_Cruddur%20Trace%20Map.jpg)
+[](https://github.com/Cfenton07/aws-bootcamp-cruddur-2023/blob/main/_docs/assets/AWS_Cruddur%20Traces.jpg)
+
 
 ### Domain Suspension Fix
 
