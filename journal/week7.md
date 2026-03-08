@@ -101,6 +101,9 @@ Enabled Container Insights: ECS Console → Clusters → cruddur → Update → 
 
 The `AWS_XRAY_URL` dynamic naming is confirmed working — the Trace Map labels the service as `api.fentoncruddur.com`.
 
+## Prod Running -- Domain is Registering when I hit the site!
+![Fentoncruddur Running](Fentoncruddur_domain%20Running%20.jpg)
+
 ### Domain Suspension Fix
 
 Discovered `fentoncruddur.com` was suspended (`clientHold` status) because I hadn't verified my registrant email within 15 days of registration. Fixed by:
