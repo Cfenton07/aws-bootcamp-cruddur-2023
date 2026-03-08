@@ -107,7 +107,7 @@ The `AWS_XRAY_URL` dynamic naming is confirmed working — the Trace Map labels 
 ## Successful Traces Hitting X-Ray / Trace data displayed in Cloud Watch!
 
 ![Cloud Watch Trace Maps!](https://github.com/Cfenton07/aws-bootcamp-cruddur-2023/blob/main/_docs/assets/AWS_Cruddur%20Trace%20Map.jpg)
-[](https://github.com/Cfenton07/aws-bootcamp-cruddur-2023/blob/main/_docs/assets/AWS_Cruddur%20Traces.jpg)
+![](https://github.com/Cfenton07/aws-bootcamp-cruddur-2023/blob/main/_docs/assets/AWS_Cruddur%20Traces.jpg)
 
 
 ### Domain Suspension Fix
