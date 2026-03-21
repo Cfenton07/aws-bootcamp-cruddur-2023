@@ -17,7 +17,7 @@ My implementation diverges from the instructor's approach in a key area: I used 
 
 ### Analyzing the Transcript
 
-I started by reading through the full Week 7 video transcript and breaking it into discrete work items. Andrew spends most of the video wrestling with Docker networking, `.env` file quoting issues, and health check failures — a lot of trial and error. I identified 10 distinct tasks, prioritized them, and tackled the core deliverables first.
+I started by watching the Week 7 video and breaking it into discrete work items. The instructor Andrew spends most of the video wrestling with Docker networking, `.env` file quoting issues, and health check failures — a lot of trial and error. I identified 10 distinct tasks, prioritized them, and tackled the core deliverables first.
 
 ### X-Ray Sidecar Container
 
@@ -41,7 +41,7 @@ Added the AWS X-Ray daemon as a sidecar container in both task definitions (`bac
 ```
 
 Key details:
-- Image pulls from the **public ECR registry** — no need to build or push our own
+- Image pulls from the **public ECR registry** — no need to build or push my own
 - `user: "1337"` is required by AWS (must be a string, not an integer — Andrew hit this exact error)
 - Port 2000 UDP is the X-Ray daemon's listening port
 - `essential: true` means the task stops if the daemon crashes
@@ -100,6 +100,15 @@ Enabled Container Insights: ECS Console → Clusters → cruddur → Update → 
 - Container Insights: Active on the cruddur cluster
 
 The `AWS_XRAY_URL` dynamic naming is confirmed working — the Trace Map labels the service as `api.fentoncruddur.com`.
+
+## Prod Running -- Domain is Registering when I hit the site!
+![Fentoncruddur Running](https://github.com/Cfenton07/aws-bootcamp-cruddur-2023/blob/main/_docs/assets/Fentoncruddur_domain%20Running%20.jpg)
+
+## Successful Traces Hitting X-Ray / Trace data displayed in Cloud Watch!
+
+![Cloud Watch Trace Maps!](https://github.com/Cfenton07/aws-bootcamp-cruddur-2023/blob/main/_docs/assets/AWS_Cruddur%20Trace%20Map.jpg)
+![](https://github.com/Cfenton07/aws-bootcamp-cruddur-2023/blob/main/_docs/assets/AWS_Cruddur%20Traces.jpg)
+
 
 ### Domain Suspension Fix
 
