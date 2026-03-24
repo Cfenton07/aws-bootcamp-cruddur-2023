@@ -1,0 +1,9 @@
+#! /usr/bin/bash
+
+ABS_PATH=$(readlink -f "$0")
+CDK_PATH=$(dirname $ABS_PATH)/../../thumbnail-serverless-cdk
+
+echo ">>> CDK Synth: Generating CloudFormation template..."
+cd $CDK_PATH
+cdk synth
+echo ">>> CDK Synth complete."
