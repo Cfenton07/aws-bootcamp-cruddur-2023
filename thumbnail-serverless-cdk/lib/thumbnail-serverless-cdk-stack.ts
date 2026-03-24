@@ -36,7 +36,8 @@ export class ThumbnailServerlessCdkStack extends cdk.Stack {
 
     // Create SNS topic and subscription
     const snsTopic = this.createSnsTopic(topicName);
-    this.createSnsSubscription(snsTopic, webhookUrl);
+    // TODO: Enable when webhook endpoint is deployed
+    // this.createSnsSubscription(snsTopic, webhookUrl);
 
     // Wire S3 event notification to Lambda
     this.createS3NotifyToLambda(folderInput, lambdaFunction, bucket);
