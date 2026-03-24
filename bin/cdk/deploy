@@ -1,0 +1,10 @@
+#! /usr/bin/bash
+
+ABS_PATH=$(readlink -f "$0")
+CDK_PATH=$(dirname $ABS_PATH)/../../thumbnail-serverless-cdk
+
+echo ">>> CDK Deploy: Synthesizing and deploying stack..."
+cd $CDK_PATH
+npm install
+cdk deploy --require-approval never
+echo ">>> CDK Deploy complete."
