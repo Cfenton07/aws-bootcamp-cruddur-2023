@@ -23,8 +23,8 @@ export class ThumbnailServerlessCdkStack extends cdk.Stack {
     const webhookUrl: string = process.env.THUMBING_WEBHOOK_URL as string;
     const topicName: string = process.env.THUMBING_TOPIC_NAME as string;
 
-    // Create S3 bucket for avatar images
-    const bucket = this.createBucket(bucketName);
+    // Import existing S3 bucket (managed outside this stack to prevent accidental deletion)
+    const bucket = this.importBucket(bucketName);
 
     // Create Lambda function for image processing
     const lambdaFunction = this.createLambda(
@@ -49,11 +49,8 @@ export class ThumbnailServerlessCdkStack extends cdk.Stack {
     this.createPolicyBucketAccess(bucket, lambdaFunction);
   }
 
-  createBucket(bucketName: string): s3.IBucket {
-    const bucket = new s3.Bucket(this, 'ThumbingBucket', {
-      bucketName: bucketName,
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
-    });
+  importBucket(bucketName: string): s3.IBucket {
+    const bucket = s3.Bucket.fromBucketName(this, 'AssetsBucket', bucketName);
     return bucket;
   }
 
