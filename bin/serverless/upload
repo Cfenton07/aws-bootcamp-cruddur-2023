@@ -1,6 +1,6 @@
 #! /usr/bin/bash
 
-# Upload a test image to the S3 avatars/original folder to trigger the Lambda pipeline
+# Upload a test image to the uploads bucket to trigger the Lambda pipeline
 
 ABS_PATH=$(readlink -f "$0")
 SERVERLESS_PATH=$(dirname "$ABS_PATH")
@@ -8,4 +8,4 @@ BIN_PATH=$(dirname "$SERVERLESS_PATH")
 PROJECT_PATH=$(dirname "$BIN_PATH")
 DATA_FILE_PATH="$PROJECT_PATH/journal/assets/vh40t.jpg"
 
-aws s3 cp "$DATA_FILE_PATH" "s3://assets.fentoncruddur.com/avatars/original/data.jpg"
+aws s3 cp "$DATA_FILE_PATH" "s3://fentoncruddur-uploaded-avatars/avatars/original/data.jpg"

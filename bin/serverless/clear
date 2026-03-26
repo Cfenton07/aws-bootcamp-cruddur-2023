@@ -1,6 +1,6 @@
 #! /usr/bin/bash
 
-# Clear test images from the S3 avatars folder
+# Clear test images from both buckets
 
-aws s3 rm s3://assets.fentoncruddur.com/avatars/original/data.jpg
+aws s3 rm s3://fentoncruddur-uploaded-avatars/avatars/original/data.jpg
 aws s3 rm s3://assets.fentoncruddur.com/avatars/processed/data.jpg
