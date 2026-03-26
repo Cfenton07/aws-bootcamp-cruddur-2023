@@ -1,0 +1,6 @@
+#! /usr/bin/bash
+
+# Clear test images from the S3 avatars folder
+
+aws s3 rm s3://assets.fentoncruddur.com/avatars/original/data.jpg
+aws s3 rm s3://assets.fentoncruddur.com/avatars/processed/data.jpg
