@@ -16,20 +16,24 @@ export class ThumbnailServerlessCdkStack extends cdk.Stack {
     super(scope, id, props);
 
     // Environment variables
-    const bucketName: string = process.env.THUMBING_BUCKET_NAME as string;
+    const assetsBucketName: string = process.env.THUMBING_BUCKET_NAME as string;
+    const uploadsBucketName: string = process.env.THUMBING_UPLOADS_BUCKET_NAME as string;
     const functionPath: string = process.env.THUMBING_FUNCTION_PATH as string;
     const folderInput: string = process.env.THUMBING_S3_FOLDER_INPUT as string;
     const folderOutput: string = process.env.THUMBING_S3_FOLDER_OUTPUT as string;
     const webhookUrl: string = process.env.THUMBING_WEBHOOK_URL as string;
     const topicName: string = process.env.THUMBING_TOPIC_NAME as string;
 
-    // Import existing S3 bucket (managed outside this stack to prevent accidental deletion)
-    const bucket = this.importBucket(bucketName);
+    // Import existing assets bucket (served via CloudFront, managed outside this stack)
+    const assetsBucket = this.importBucket(assetsBucketName);
+
+    // Create uploads bucket (private, CDK-managed — safe to destroy)
+    const uploadsBucket = this.createBucket(uploadsBucketName);
 
     // Create Lambda function for image processing
     const lambdaFunction = this.createLambda(
       functionPath,
-      bucketName,
+      assetsBucketName,
       folderInput,
       folderOutput
     );
@@ -39,18 +43,28 @@ export class ThumbnailServerlessCdkStack extends cdk.Stack {
     // TODO: Enable when webhook endpoint is deployed
     // this.createSnsSubscription(snsTopic, webhookUrl);
 
-    // Wire S3 event notification to Lambda
-    this.createS3NotifyToLambda(folderInput, lambdaFunction, bucket);
+    // Lambda triggers on uploads to the uploads bucket
+    this.createS3NotifyToLambda(folderInput, lambdaFunction, uploadsBucket);
 
-    // Wire S3 event notification to SNS
-    this.createS3NotifyToSns(folderOutput, snsTopic, bucket);
+    // SNS triggers when processed images land in the assets bucket
+    this.createS3NotifyToSns(folderOutput, snsTopic, assetsBucket);
 
-    // Grant Lambda read/write access to the S3 bucket
-    this.createPolicyBucketAccess(bucket, lambdaFunction);
+    // Lambda needs to READ from uploads bucket and WRITE to assets bucket
+    this.createPolicyBucketAccess(uploadsBucket, lambdaFunction, ['s3:GetObject']);
+    this.createPolicyBucketAccess(assetsBucket, lambdaFunction, ['s3:PutObject']);
   }
 
   importBucket(bucketName: string): s3.IBucket {
     const bucket = s3.Bucket.fromBucketName(this, 'AssetsBucket', bucketName);
+    return bucket;
+  }
+
+  createBucket(bucketName: string): s3.IBucket {
+    const bucket = new s3.Bucket(this, 'UploadsBucket', {
+      bucketName: bucketName,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      autoDeleteObjects: true,
+    });
     return bucket;
   }
 
@@ -116,12 +130,13 @@ export class ThumbnailServerlessCdkStack extends cdk.Stack {
 
   createPolicyBucketAccess(
     bucket: s3.IBucket,
-    lambdaFunction: lambda.IFunction
+    lambdaFunction: lambda.IFunction,
+    actions: string[]
   ): void {
-    const s3ReadWritePolicy = new iam.PolicyStatement({
-      actions: ['s3:GetObject', 's3:PutObject'],
+    const policy = new iam.PolicyStatement({
+      actions: actions,
       resources: [`${bucket.bucketArn}/*`],
     });
-    lambdaFunction.addToRolePolicy(s3ReadWritePolicy);
+    lambdaFunction.addToRolePolicy(policy);
   }
 }
