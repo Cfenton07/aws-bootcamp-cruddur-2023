@@ -1,0 +1,72 @@
+#!/usr/bin/env python3
+
+import os
+import sys
+import glob
+import re
+import time
+import importlib
+
+# Add backend-flask to Python path so we can import lib.db
+# Script lives at backend-flask/bin/db/migrate
+script_dir = os.path.dirname(os.path.abspath(__file__))
+backend_dir = os.path.abspath(os.path.join(script_dir, '..', '..'))
+sys.path.insert(0, backend_dir)
+
+from lib.db import db
+
+def get_last_successful_run():
+  sql = """
+    SELECT last_successful_run
+    FROM public.schema_information
+    WHERE id = 1
+  """
+  return int(db.query_value(sql, {}, verbose=False))
+
+def set_last_successful_run(value):
+  sql = """
+    UPDATE public.schema_information
+    SET last_successful_run = %(last_successful_run)s
+    WHERE id = 1
+  """
+  db.query_commit(sql, {'last_successful_run': value}, verbose=False)
+
+last_successful_run = get_last_successful_run()
+
+# Add migrations directory to Python path for dynamic imports
+migrations_path = os.path.join(backend_dir, 'db', 'migrations')
+sys.path.insert(0, migrations_path)
+
+# Find all migration files
+migration_files = glob.glob(os.path.join(migrations_path, '*.py'))
+migration_files.sort()
+
+for migration_file in migration_files:
+  filename = os.path.basename(migration_file)
+  module_name = os.path.splitext(filename)[0]
+
+  # Extract the timestamp from the filename
+  match = re.match(r'^(\d+)_', filename)
+  if match:
+    file_time = int(match.group(1))
+  else:
+    continue
+
+  # Run migrations that are newer than our last successful run
+  if file_time > last_successful_run:
+    print(f"=== Running migration: {module_name} ===")
+
+    mod = importlib.import_module(module_name)
+
+    # Find the Migration class
+    for attr_name in dir(mod):
+      if attr_name.endswith('Migration') and attr_name != 'Migration':
+        migration_class = getattr(mod, attr_name)
+        print(migration_class.migrate_sql())
+        migration_class.migrate()
+        break
+
+    # Update the last successful run timestamp
+    timestamp = str(time.time()).replace(".", "")
+    set_last_successful_run(timestamp)
+    print(f"--- Migration complete: {module_name} ---\n")

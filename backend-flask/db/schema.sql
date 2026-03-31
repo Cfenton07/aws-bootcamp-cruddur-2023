@@ -25,3 +25,15 @@ CREATE TABLE public.activities (
   expires_at TIMESTAMP,
   created_at TIMESTAMP default current_timestamp NOT NULL
 );
+
+-- Migration tracking table — DO NOT DROP this table
+-- It persists across schema reloads to track which migrations have run
+CREATE TABLE IF NOT EXISTS public.schema_information (
+  id integer UNIQUE,
+  last_successful_run varchar(256)
+);
+
+-- Seed the tracking row only if it doesn't already exist
+INSERT INTO public.schema_information (id, last_successful_run)
+VALUES (1, '0')
+ON CONFLICT (id) DO NOTHING;
