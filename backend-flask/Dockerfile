@@ -22,6 +22,7 @@ COPY . .
 # This is set inside of the container and remains set when the container is running
 #ENV FLASK_ENV=development --- change it to the line below for production
 ENV FLASK_DEBUG=1
+ENV PYTHONUNBUFFERED=1
 
 EXPOSE ${PORT}
 
