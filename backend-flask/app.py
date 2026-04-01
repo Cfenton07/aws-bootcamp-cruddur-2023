@@ -21,6 +21,7 @@ from services.messages import *
 from services.create_message import *
 from services.show_activity import *
 from services.users_short import *
+from services.update_profile import *
 
 # ============================================================
 # AUTHENTICATION - AWS COGNITO
@@ -496,7 +497,34 @@ def data_activities_reply(activity_uuid):
 @app.route("/api/users/@<string:handle>/short", methods=['GET'])
 def data_users_short(handle):
   data = UsersShort.run(handle)
-  return data, 200    
+  return data, 200 
+
+# ============================================================
+# API ENDPOINTS - UPDATE PROFILE
+# ============================================================
+@app.route("/api/profile/update", methods=['POST','OPTIONS'])
+@cross_origin()
+def data_update_profile():
+    """Update user profile bio and display name"""
+    bio = request.json.get('bio', None)
+    display_name = request.json.get('display_name', None)
+    
+    access_token = extract_access_token(request.headers)
+    try:
+        claims = cognito_jwt_token.verify(access_token)
+        cognito_user_id = claims['sub']
+        model = UpdateProfile.run(
+            cognito_user_id=cognito_user_id,
+            bio=bio,
+            display_name=display_name
+        )
+        if model['errors'] is not None:
+            return model['errors'], 422
+        else:
+            return model['data'], 200
+    except TokenVerifyError as e:
+        app.logger.debug(e)
+        return {}, 401   
 
 # ============================================================
 # APPLICATION ENTRY POINT
