@@ -1,0 +1,9 @@
+{
+  "name": "lambda-authorizer",
+  "version": "1.0.0",
+  "description": "JWT authorizer for Cruddur API Gateway",
+  "main": "index.js",
+  "dependencies": {
+    "aws-jwt-verify": "^4.0.0"
+  }
+}
