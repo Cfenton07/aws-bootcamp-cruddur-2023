@@ -36,7 +36,9 @@ export default function ProfileInfo(props) {
         <button onClick={handleSignOut}>Sign Out</button> 
       </div>
       <div className="profile-info" onClick={click_pop}>
-        <div className="profile-avatar"></div>
+        <div className="profile-avatar">
+  <img src="https://assets.fentoncruddur.com/avatars/processed/data.jpg" alt="profile" />
+</div>
         <div className="profile-desc">
           <div className="profile-display-name">{props.user.display_name || "My Name" }</div>
           <div className="profile-username">@{props.user.handle || "handle"}</div>
