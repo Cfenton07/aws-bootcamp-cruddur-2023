@@ -3,3 +3,4 @@ docker/dynamodb/*.db
 
 backend-flask.env
 frontend-react-js.env
+node_modules/
