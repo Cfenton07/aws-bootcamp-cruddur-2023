@@ -4,12 +4,13 @@ SELECT
       users.uuid,
       users.handle,
       users.display_name,
+      users.cognito_user_id,
       users.bio,
       (SELECT COALESCE(array_to_json(array_agg(row_to_json(array_row))),'[]'::json) FROM (
         SELECT
           activities.uuid,
           users.display_name,
-          users.handle,
+          users.cognito_user_id,
           activities.message,
           activities.replies_count,
           activities.reposts_count,

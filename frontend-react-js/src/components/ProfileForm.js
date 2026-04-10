@@ -43,6 +43,52 @@ export default function ProfileForm(props) {
     }
   };
 
+  const s3_upload_key = async (extension) => {
+    const gateway_url = `${process.env.REACT_APP_API_GATEWAY_ENDPOINT_URL}/avatars/key_upload`;
+    const accessToken = await getAccessToken();
+    try {
+      const res = await fetch(gateway_url, {
+        method: "POST",
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ extension: extension })
+      });
+      let data = await res.json();
+      return data.url;
+    } catch (err) {
+      console.log(err);
+    }
+  };
+
+  const s3_upload = async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const filename = file.name;
+    const extension = filename.split('.').pop();
+    const presignedUrl = await s3_upload_key(extension);
+
+    try {
+      const res = await fetch(presignedUrl, {
+        method: "PUT",
+        body: file,
+        headers: {
+          'Content-Type': file.type
+        }
+      });
+      if (res.status === 200) {
+        console.log('Avatar uploaded successfully');
+      } else {
+        console.log('Upload failed:', res);
+      }
+    } catch (err) {
+      console.log(err);
+    }
+  };
+
   const bio_onchange = (event) => {
     setBio(event.target.value);
   };
@@ -80,6 +126,14 @@ export default function ProfileForm(props) {
                 placeholder="Bio"
                 value={bio}
                 onChange={bio_onchange}
+              />
+            </div>
+            <div className="field">
+              <label>Avatar</label>
+              <input
+                type="file"
+                accept="image/jpeg,image/png"
+                onChange={s3_upload}
               />
             </div>
             <div className='submit'>
