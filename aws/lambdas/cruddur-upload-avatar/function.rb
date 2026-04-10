@@ -11,7 +11,7 @@ def handler(event:, context:)
     return {
       headers: {
         "Access-Control-Allow-Headers": "*, Authorization",
-        "Access-Control-Allow-Origin": "https://3000-#{ENV['GITPOD_WORKSPACE_ID']}.#{ENV['GITPOD_WORKSPACE_CLUSTER_HOST']}",
+        "Access-Control-Allow-Origin": "https://friendly-space-couscous-5gqx944466q7h4g7w-3000.app.github.dev",
         "Access-Control-Allow-Methods": "OPTIONS,GET,POST"
       },
       statusCode: 200
@@ -29,7 +29,7 @@ def handler(event:, context:)
 
   s3 = Aws::S3::Resource.new
   bucket_name = ENV["UPLOADS_BUCKET_NAME"]
-  object_key = "#{cognito_user_uuid}.#{extension}"
+  object_key = "avatars/original/#{cognito_user_uuid}.#{extension}"
 
   obj = s3.bucket(bucket_name).object(object_key)
   url = obj.presigned_url(:put, expires_in: 300)
@@ -38,7 +38,7 @@ def handler(event:, context:)
   {
     headers: {
       "Access-Control-Allow-Headers": "*, Authorization",
-      "Access-Control-Allow-Origin": "https://3000-#{ENV['GITPOD_WORKSPACE_ID']}.#{ENV['GITPOD_WORKSPACE_CLUSTER_HOST']}",
+      "Access-Control-Allow-Origin": "https://friendly-space-couscous-5gqx944466q7h4g7w-3000.app.github.dev",
       "Access-Control-Allow-Methods": "OPTIONS,GET,POST"
     },
     statusCode: 200,

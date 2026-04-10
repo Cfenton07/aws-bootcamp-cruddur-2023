@@ -38,6 +38,7 @@ export default function UserFeedPage() {
       });
       let resJson = await res.json();
       if (res.status === 200) {
+        console.log('PROFILE DATA:', resJson);
         setProfile(resJson.profile);
         setActivities(resJson.profile.activities);
       } else {
