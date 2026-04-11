@@ -10,7 +10,7 @@
 .profile_heading .avatar {
   position: absolute;
   bottom: -74px;
-  left: 16px;
+  left: 4px;
 }
 
 .profile_heading .avatar img {
@@ -25,7 +25,7 @@
   flex-direction: row;
   align-items: start;
   padding: 16px;
-  padding-top: 80px;
+  padding-top: 145px;
 }
 
 .profile_heading .info .id {

@@ -18,7 +18,11 @@ export default function ActivityContent(props) {
   return (
     <div className='activity_content_wrap'>
       <div className='activity_avatar'>
-        <img src={`https://assets.fentoncruddur.com/avatars/processed/${props.activity.cognito_user_id || 'data'}.jpg`} alt={props.activity.handle} />
+        <img 
+  src={`https://assets.fentoncruddur.com/avatars/processed/${props.activity.cognito_user_id}.jpg?v=${Date.now()}`}
+  className="activity-avatar"
+  alt={`Avatar for ${props.activity.display_name}`}
+/>
       </div>
       <div className='activity_content'>
         <div className='activity_meta'>
