@@ -439,3 +439,215 @@ aws cloudformation delete-stack --stack-name ThumbnailServerlessCdkStack
 - [x] Upgrade Lambda runtime to Node.js 20.x
 - [x] Redeploy with `./bin/cdk/deploy` — confirmed working
 - [ ] Enable SNS webhook subscription (requires running API endpoint)
+
+---
+
+## Phase 4 — Avatar Upload Pipeline, API Gateway, and Dynamic Avatar Rendering
+
+**Date:** April 9–11, 2026
+
+### Overview
+
+This phase completed the client-side avatar upload flow using presigned URLs, API Gateway, a JWT Lambda authorizer, and dynamic avatar rendering using Cognito user UUIDs across all frontend components. It also included a `ProfileAvatar` component refactor and several debugging sessions that produced valuable lessons about AWS infrastructure, Docker volume mounts, and CloudFront caching.
+
+---
+
+### Architecture: Presigned URL Upload Pipeline
+
+This pattern is production-standard for three reasons:
+- Files never pass through your application servers — direct browser-to-S3
+- Presigned URLs expire (300 seconds) — least privilege by design
+- Lambda authorizer validates JWT before issuing the URL — auth at the edge
+
+---
+
+### Lambda 1 — CruddurAvatarUpload (Ruby 3.4)
+
+Located at `aws/lambdas/cruddur-upload-avatar/function.rb`.
+
+Key implementation decisions:
+- Uses `aws-sdk-s3` (pre-installed on Lambda runtime — no packaging needed)
+- `jwt` and `ox` gems packaged as a Lambda Layer (`ruby-jwt`, version 1, 1.67 MB)
+- CORS origin read from `FRONTEND_URL` environment variable — not hardcoded
+- Object key includes `avatars/original/` prefix to match ThumbLambda's S3 trigger filter
+- Presigned URL uses PUT method with 300-second expiry
+
+**Why Ruby?** Lambda is runtime-agnostic. In production, teams standardize on one language to reduce operational overhead. For this portfolio project, Ruby demonstrates polyglot capability — a valid talking point in interviews.
+
+**Deployment note:** `bundle install` failed in Codespaces due to native extension compilation errors for `aws-eventstream`. Solution: since AWS SDK is pre-installed on the Lambda runtime, only `jwt` and `ox` needed packaging. Built the Layer in `/tmp` to avoid workspace pollution.
+
+---
+
+### Lambda 2 — CruddurApiGatewayLambdaAuthorizer (Node.js 24.x)
+
+Located at `aws/lambdas/lambda-authorizer/index.js`.
+
+Key implementation decisions:
+- Uses `aws-jwt-verify` library for Cognito JWT validation
+- Verifier instantiated **outside** the handler — cold start optimization (verifier is reused across warm invocations)
+- Returns `{ isAuthorized: true/false }` — Simple response mode for HTTP API
+- Strips `Bearer ` prefix before passing token to verifier (bug found during testing)
+- Identity source: `$request.header.Authorization`
+
+---
+
+### API Gateway Configuration
+
+Created HTTP API named `api.fentoncruddur.com` (invoke URL: `https://rtvb6kbife.execute-api.us-east-1.amazonaws.com`).
+
+| Route | Integration | Authorizer |
+|-------|-------------|------------|
+| POST /avatars/key_upload | CruddurAvatarUpload | CruddurJWTAuthorizer |
+| OPTIONS /{proxy+} | CruddurAvatarUpload | None |
+
+**Why OPTIONS has no authorizer:** CORS preflight requests don't carry Authorization headers — browsers send OPTIONS first to check if the request is allowed. Attaching an authorizer to OPTIONS would cause all uploads to fail before they start.
+
+---
+
+### S3 CORS Policy
+
+Added to `fentoncruddur-uploaded-avatars` bucket:
+- `AllowedOrigins`: Codespace URL (dev) / `https://fentoncruddur.com` (prod)
+- `AllowedMethods`: PUT only
+
+The browser does a CORS preflight directly against S3 when uploading via presigned URL — API Gateway CORS config doesn't cover this. Both layers need CORS configured independently.
+
+---
+
+### Frontend Integration
+
+**`ProfileForm.js`** — Two new functions:
+- `s3_upload_key`: calls API Gateway POST to get presigned URL (requires JWT in Authorization header)
+- `s3_upload`: PUTs file directly to S3 using presigned URL (plain `fetch`, no AWS SDK needed)
+- After successful upload: stores timestamp in `localStorage`, triggers `window.location.reload()` after 5-second delay (gives ThumbLambda time to process)
+
+**Environment variable:** `REACT_APP_API_GATEWAY_ENDPOINT_URL` added to `.env.template`, `.env`, and `docker-compose.yml`.
+
+---
+
+### CloudFront Caching Fix
+
+**Problem:** After uploading a new avatar, CloudFront served the cached old image because the filename never changes (UUID-based).
+
+**Solution:** Created a new CloudFront behavior specifically for `/avatars/processed/*`:
+
+| Setting | Value |
+|---------|-------|
+| Path pattern | `/avatars/processed/*` |
+| Cache policy | `CachingDisabled` |
+| Origin request policy | `CORS-S3Origin` |
+| Response headers policy | `SimpleCORS` |
+
+The default behavior (`*`) retains `CachingOptimized` for all other assets (CSS, JS, banner). Only avatar images bypass cache.
+
+Additionally added `?v=${Date.now()}` to all avatar `<img>` src URLs — ensures each page load generates a unique URL as a secondary cache-busting layer.
+
+---
+
+### ProfileAvatar Component Refactor
+
+Extracted avatar rendering into a reusable component following Andrew's pattern from the "Render Avatar from CloudFront" video.
+
+**Created:**
+- `frontend-react-js/src/components/ProfileAvatar.js` — accepts single `id` prop (Cognito UUID), constructs CloudFront URL internally
+- `frontend-react-js/src/components/ProfileAvatar.css` — shared base styles (`border-radius: 999px`, `object-fit: cover`)
+
+**Updated to use ProfileAvatar:**
+- `ProfileInfo.js` — nav sidebar avatar
+- `ProfileHeading.js` — profile page large avatar
+- `ActivityContent.js` — activity feed avatar
+
+**Why this matters:** Avatar rendering logic now lives in one place. If the URL pattern, fallback behavior, or loading state ever changes, it's a single-file edit.
+
+---
+
+### SQL Fixes
+
+Added `users.handle` to two SQL queries that were missing it:
+
+**`backend-flask/db/sql/activities/home.sql`** — handle missing, causing `@` to render alone in activity feed items.
+
+**`backend-flask/db/sql/users/show.sql`** — handle missing from the **inner** activities SELECT (the nested subquery). The outer profile SELECT already had it, but the activities array didn't.
+
+---
+
+### Debugging Case Study: Docker Volume Mount Caching
+
+**Problem:** Updated `show.sql` was not being picked up by the running container despite saving the file and restarting the container multiple times.
+
+**Root cause:** In GitHub Codespaces (remote Docker host), the volume mount layer caches file inodes. `docker compose restart` and `stop/up` reuse the existing container filesystem layer, so the cache persisted across restarts.
+
+**Diagnostic steps taken:**
+1. `docker exec ... cat /backend-flask/db/sql/users/show.sql` — confirmed container had old version
+2. `docker compose rm -sf backend-flask && docker compose up backend-flask -d` — full container removal and recreation — still didn't fix it
+3. `docker cp backend-flask/db/sql/users/show.sql <container>:/backend-flask/db/sql/users/show.sql` — directly copied file bytes into container bypassing mount — **this worked**
+
+**Production equivalent:** Config file changes not taking effect after container restart. Enterprise solution: bake SQL/config files into the Docker image at build time using `COPY` in the Dockerfile rather than volume mounts. That way files are always part of the immutable image layer.
+
+**Interview answer:** "I hit a Docker volume mount caching issue in a cloud-based dev environment where the container was serving stale SQL files despite the source being updated. I diagnosed it by exec-ing into the container and comparing the actual file contents, then resolved it by directly copying the file into the container with `docker cp`. In production I'd prevent this entirely by baking config files into the image rather than relying on volume mounts."
+
+---
+
+### Bugs Found and Fixed
+
+| Bug | Root Cause | Fix |
+|-----|------------|-----|
+| CORS error on avatar upload | Lambda CORS origin hardcoded to Gitpod URL | Refactored to use `FRONTEND_URL` env var |
+| 403 on POST /avatars/key_upload | Authorizer passed full `Bearer token` string to jwt-verify | Added `.split(' ')[1]` to strip prefix |
+| ThumbLambda never triggered | Ruby Lambda uploaded to S3 root, not `avatars/original/` prefix | Updated `object_key` to include prefix |
+| Avatar not updating after upload | CloudFront edge cache serving old image | Added `CachingDisabled` behavior + `?v=timestamp` |
+| `@` symbol alone in activity feed | `users.handle` missing from SQL SELECT | Added to both `home.sql` and `show.sql` inner SELECT |
+| Duplicate Save button | Copy-paste error in ProfileForm.js | Removed duplicate div |
+| Avatar overlapping profile name | `padding-top` too small on `.info` | Increased to `90px` in ProfileHeading.css |
+| Lambda env vars swapped | Manual entry error in AWS Console | Corrected `FRONTEND_URL` and `UPLOADS_BUCKET_NAME` |
+
+---
+
+### Key Learnings
+
+1. **S3 trigger prefix filters must match upload path exactly** — uploading to bucket root won't trigger a Lambda filtering on `avatars/original/`
+2. **API Gateway HTTP API requires manual OPTIONS route** — unlike REST API which has a CORS checkbox
+3. **Presigned URLs use PUT not POST** — using POST returns 403
+4. **S3 needs its own CORS policy** — browser does preflight directly against S3, not through API Gateway
+5. **Frontend doesn't need AWS SDK for presigned URL uploads** — plain `fetch` with PUT method works
+6. **Container restart ≠ file change pickup in remote Docker** — `docker cp` is the reliable fix; production solution is baking files into the image
+7. **CloudFront CachingDisabled on specific paths** — create a targeted behavior rather than disabling cache globally
+8. **Lambda Layers for gems** — when native extension compilation fails in dev environment, package only the gems that need packaging (AWS SDK is pre-installed)
+
+---
+
+### AWS Resources Created
+
+| Resource | Type | Details |
+|----------|------|---------|
+| CruddurAvatarUpload | Lambda (Ruby 3.4) | Presigned URL generation |
+| CruddurApiGatewayLambdaAuthorizer | Lambda (Node.js 24.x) | JWT verification |
+| ruby-jwt | Lambda Layer | jwt + ox gems, Ruby 3.4 compatible |
+| api.fentoncruddur.com | API Gateway HTTP API | ID: rtvb6kbife |
+| CruddurJWTAuthorizer | API Gateway Authorizer | Simple response mode |
+| /avatars/processed/* behavior | CloudFront Behavior | CachingDisabled |
+
+---
+
+### Progress Checklist — Phase 4
+
+- [x] Create Ruby presigned URL Lambda with JWT decoding and S3 presigned URL generation
+- [x] Package jwt/ox gems as Lambda Layer (ruby-jwt)
+- [x] Deploy CruddurAvatarUpload to AWS Console
+- [x] Create Node.js JWT authorizer Lambda
+- [x] Deploy CruddurApiGatewayLambdaAuthorizer to AWS Console
+- [x] Create API Gateway HTTP API with POST and OPTIONS routes
+- [x] Configure JWT authorizer on POST route only
+- [x] Add S3 CORS policy to uploads bucket
+- [x] Add REACT_APP_API_GATEWAY_ENDPOINT_URL to frontend env
+- [x] Implement s3_upload_key and s3_upload functions in ProfileForm.js
+- [x] Confirm end-to-end upload pipeline working (Network tab verification)
+- [x] Fix ThumbLambda trigger (avatars/original/ prefix)
+- [x] Add CloudFront CachingDisabled behavior for /avatars/processed/*
+- [x] Add cache-busting ?v=timestamp to avatar URLs
+- [x] Add cognito_user_id to show.sql and home.sql
+- [x] Implement dynamic avatar paths across all three components
+- [x] Refactor to ProfileAvatar reusable component
+- [x] Fix users.handle missing from SQL queries
+- [x] Resolve Docker volume mount caching issue with docker cp
+- [x] Commit all changes
