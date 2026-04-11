@@ -1,6 +1,7 @@
 import './ProfileInfo.css';
 import {ReactComponent as ElipsesIcon} from './svg/elipses.svg';
 import React from "react";
+import ProfileAvatar from './ProfileAvatar';
 
 // [TODO] Authenication
 import { signOut } from 'aws-amplify/auth';
@@ -36,13 +37,7 @@ export default function ProfileInfo(props) {
         <button onClick={handleSignOut}>Sign Out</button> 
       </div>
       <div className="profile-info" onClick={click_pop}>
-        <div className="profile-avatar">
-  <img 
-  src={`https://assets.fentoncruddur.com/avatars/processed/${props.user.cognito_user_id}.jpg?v=${Date.now()}`}
-  className='avatar-img'
-  alt={`Avatar for ${props.user.display_name}`}
-/>
-</div>
+          <ProfileAvatar id={props.user.cognito_user_id} />
         <div className="profile-desc">
           <div className="profile-display-name">{props.user.display_name || "My Name" }</div>
           <div className="profile-username">@{props.user.handle || "handle"}</div>

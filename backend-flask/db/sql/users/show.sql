@@ -10,6 +10,7 @@ SELECT
         SELECT
           activities.uuid,
           users.display_name,
+          users.handle,
           users.cognito_user_id,
           activities.message,
           activities.replies_count,

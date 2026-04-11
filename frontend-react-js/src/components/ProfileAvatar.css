@@ -1,0 +1,4 @@
+.profile-avatar img {
+  border-radius: 999px;
+  object-fit: cover;
+}

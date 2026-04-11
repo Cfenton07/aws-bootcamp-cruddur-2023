@@ -1,5 +1,6 @@
 import './ProfileHeading.css';
 import EditProfileButton from '../components/EditProfileButton';
+import ProfileAvatar from './ProfileAvatar';
 
 export default function ProfileHeading(props) {
   const backgroundImage = 'url("https://assets.fentoncruddur.com/banners/banner.jpg")';
@@ -13,11 +14,7 @@ export default function ProfileHeading(props) {
     <div className='profile_heading'>
       <div className='banner' style={styles}>
         <div className='avatar'>
-     <img
-  src={`https://assets.fentoncruddur.com/avatars/processed/${props.profile.cognito_user_id}.jpg?v=${Date.now()}`}
-  className='avatar'
-  alt={`Avatar for ${props.profile.display_name}`}
-/>
+          <ProfileAvatar id={props.profile.cognito_user_id} />
         </div>
       </div>
       <div className='info'>
