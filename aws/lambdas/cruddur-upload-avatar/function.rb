@@ -5,13 +5,15 @@ require 'jwt'
 def handler(event:, context:)
   puts event
 
+  allowed_origin = ENV["FRONTEND_URL"]
+
   # Handle CORS preflight
   if event['routeKey'] == "OPTIONS /{proxy+}"
     puts({step: 'preflight', message: 'preflight CORS check'}.to_json)
     return {
       headers: {
         "Access-Control-Allow-Headers": "*, Authorization",
-        "Access-Control-Allow-Origin": "https://friendly-space-couscous-5gqx944466q7h4g7w-3000.app.github.dev",
+        "Access-Control-Allow-Origin": allowed_origin,
         "Access-Control-Allow-Methods": "OPTIONS,GET,POST"
       },
       statusCode: 200
@@ -38,7 +40,7 @@ def handler(event:, context:)
   {
     headers: {
       "Access-Control-Allow-Headers": "*, Authorization",
-      "Access-Control-Allow-Origin": "https://friendly-space-couscous-5gqx944466q7h4g7w-3000.app.github.dev",
+      "Access-Control-Allow-Origin": allowed_origin,
       "Access-Control-Allow-Methods": "OPTIONS,GET,POST"
     },
     statusCode: 200,

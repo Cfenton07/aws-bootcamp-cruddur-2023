@@ -7,7 +7,6 @@ import { signOut } from 'aws-amplify/auth';
 //import Cookies from 'js-cookie'
 
 export default function ProfileInfo(props) {
-  console.log('PROFILEINFO USER:', props.user);
   const [popped, setPopped] = React.useState(false);
 
   const click_pop = (event) => {
@@ -38,7 +37,11 @@ export default function ProfileInfo(props) {
       </div>
       <div className="profile-info" onClick={click_pop}>
         <div className="profile-avatar">
-  <img src={`https://assets.fentoncruddur.com/avatars/processed/${props.user.cognito_user_id || 'data'}.jpg`} alt="profile" />
+  <img 
+  src={`https://assets.fentoncruddur.com/avatars/processed/${props.user.cognito_user_id}.jpg?v=${Date.now()}`}
+  className='avatar-img'
+  alt={`Avatar for ${props.user.display_name}`}
+/>
 </div>
         <div className="profile-desc">
           <div className="profile-display-name">{props.user.display_name || "My Name" }</div>

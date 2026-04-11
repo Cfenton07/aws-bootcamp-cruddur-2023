@@ -13,7 +13,11 @@ export default function ProfileHeading(props) {
     <div className='profile_heading'>
       <div className='banner' style={styles}>
         <div className='avatar'>
-     <img src={`https://assets.fentoncruddur.com/avatars/processed/${props.profile.cognito_user_id || 'data'}.jpg`} alt="profile avatar" />
+     <img
+  src={`https://assets.fentoncruddur.com/avatars/processed/${props.profile.cognito_user_id}.jpg?v=${Date.now()}`}
+  className='avatar'
+  alt={`Avatar for ${props.profile.display_name}`}
+/>
         </div>
       </div>
       <div className='info'>
