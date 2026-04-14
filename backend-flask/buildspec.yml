@@ -1,0 +1,31 @@
+version: 0.2
+
+phases:
+  pre_build:
+    commands:
+      - echo "== Logging into ECR =="
+      - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
+      - REPO_URL=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/backend-flask
+      - IMAGE_TAG=$CODEBUILD_RESOLVED_SOURCE_VERSION
+  build:
+    commands:
+      - echo "== Building Docker image =="
+      - cd $CODEBUILD_SRC_DIR/backend-flask
+      - docker build -t $REPO_URL:$IMAGE_TAG -t $REPO_URL:latest .
+  post_build:
+    commands:
+      - echo "== Pushing image to ECR =="
+      - docker push $REPO_URL:$IMAGE_TAG
+      - docker push $REPO_URL:latest
+      - echo "== Writing imagedefinitions.json =="
+      - printf '[{"name":"backend-flask","imageUri":"%s"}]' $REPO_URL:$IMAGE_TAG > $CODEBUILD_SRC_DIR/imagedefinitions.json
+
+artifacts:
+  files:
+    - imagedefinitions.json
+  base-directory: $CODEBUILD_SRC_DIR
+
+logs:
+  cloudwatch:
+    group-name: /cruddur/codebuild
+    stream-name: backend-flask
