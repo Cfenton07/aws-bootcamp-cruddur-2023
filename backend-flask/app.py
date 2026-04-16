@@ -204,7 +204,7 @@ def log_request_info():
 # Returns 200 OK if the Flask app is running
 @app.route('/api/health-check')
 def health_check():
-  return {'success': True}, 200
+  return {'success': True, 'version': 1}, 200
 
 # ============================================================
 # ROLLBAR INITIALIZATION
