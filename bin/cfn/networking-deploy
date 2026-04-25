@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+
+set -e
+
+CFN_PATH="aws/cfn/networking/template.yaml"
+STACK_NAME="CrdNet"
+
+# Validate the template syntax before doing anything
+cfn-lint $CFN_PATH
+
+# Deploy the stack with a change set for review
+aws cloudformation deploy \
+  --stack-name $STACK_NAME \
+  --s3-bucket $CFN_BUCKET \
+  --template-file $CFN_PATH \
+  --no-execute-changeset \
+  --tags group=cruddur-networking \
+  --capabilities CAPABILITY_NAMED_IAM
