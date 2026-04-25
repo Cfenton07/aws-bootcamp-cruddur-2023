@@ -1,0 +1,236 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: |
+  Base networking layer for Cruddur:
+    - VPC (10.0.0.0/16)
+    - Internet Gateway
+    - 3 Public Subnets across 3 AZs
+    - 3 Private Subnets across 3 AZs
+    - Public and Private Route Tables
+
+Parameters:
+  VpcCidrBlock:
+    Type: String
+    Default: 10.0.0.0/16
+
+  SubnetCidrBlocks:
+    Description: "Comma-delimited list of CIDR blocks for our public and private subnets"
+    Type: CommaDelimitedList
+    Default: >
+      10.0.0.0/24,
+      10.0.1.0/24,
+      10.0.2.0/24,
+      10.0.4.0/24,
+      10.0.5.0/24,
+      10.0.6.0/24
+
+  Az1:
+    Type: AWS::EC2::AvailabilityZone::Name
+    Default: us-east-1a
+
+  Az2:
+    Type: AWS::EC2::AvailabilityZone::Name
+    Default: us-east-1b
+
+  Az3:
+    Type: AWS::EC2::AvailabilityZone::Name
+    Default: us-east-1c
+    
+Resources:
+
+  # ===== VPC =====
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidrBlock
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: CruddurVPC
+
+  # ===== Internet Gateway =====
+  IGW:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: CruddurIGW
+
+  AttachIGW:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref IGW
+
+  # ===== Public Subnets =====
+  SubnetPub1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Ref Az1
+      CidrBlock: !Select [0, !Ref SubnetCidrBlocks]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: CruddurPublicSubnet1
+
+  SubnetPub2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Ref Az2
+      CidrBlock: !Select [1, !Ref SubnetCidrBlocks]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: CruddurPublicSubnet2
+
+  SubnetPub3:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Ref Az3
+      CidrBlock: !Select [2, !Ref SubnetCidrBlocks]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: CruddurPublicSubnet3
+
+  # ===== Private Subnets =====
+  SubnetPriv1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Ref Az1
+      CidrBlock: !Select [3, !Ref SubnetCidrBlocks]
+      Tags:
+        - Key: Name
+          Value: CruddurPrivateSubnet1
+
+  SubnetPriv2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Ref Az2
+      CidrBlock: !Select [4, !Ref SubnetCidrBlocks]
+      Tags:
+        - Key: Name
+          Value: CruddurPrivateSubnet2
+
+  SubnetPriv3:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Ref Az3
+      CidrBlock: !Select [5, !Ref SubnetCidrBlocks]
+      Tags:
+        - Key: Name
+          Value: CruddurPrivateSubnet3
+
+  # ===== Route Tables =====
+  RouteTablePublic:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: CruddurPublicRT
+
+  RouteTablePrivate:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: CruddurPrivateRT
+
+  # ===== Public Route (to Internet) =====
+  RouteToInternet:
+    Type: AWS::EC2::Route
+    DependsOn: AttachIGW
+    Properties:
+      RouteTableId: !Ref RouteTablePublic
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref IGW
+
+  # ===== Route Table Associations (Public) =====
+  RTAPub1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref SubnetPub1
+      RouteTableId: !Ref RouteTablePublic
+
+  RTAPub2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref SubnetPub2
+      RouteTableId: !Ref RouteTablePublic
+
+  RTAPub3:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref SubnetPub3
+      RouteTableId: !Ref RouteTablePublic
+
+  # ===== Route Table Associations (Private) =====
+  RTAPriv1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref SubnetPriv1
+      RouteTableId: !Ref RouteTablePrivate
+
+  RTAPriv2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref SubnetPriv2
+      RouteTableId: !Ref RouteTablePrivate
+
+  RTAPriv3:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref SubnetPriv3
+      RouteTableId: !Ref RouteTablePrivate
+Outputs:
+
+  VpcId:
+    Description: VPC ID
+    Value: !Ref VPC
+    Export:
+      Name: !Sub "${AWS::StackName}VpcId"
+
+  VpcCidrBlock:
+    Description: VPC CIDR block
+    Value: !GetAtt VPC.CidrBlock
+    Export:
+      Name: !Sub "${AWS::StackName}VpcCidrBlock"
+
+  PublicSubnetIds:
+    Description: Comma-delimited list of public subnet IDs
+    Value: !Join
+      - ","
+      - - !Ref SubnetPub1
+        - !Ref SubnetPub2
+        - !Ref SubnetPub3
+    Export:
+      Name: !Sub "${AWS::StackName}PublicSubnetIds"
+
+  PrivateSubnetIds:
+    Description: Comma-delimited list of private subnet IDs
+    Value: !Join
+      - ","
+      - - !Ref SubnetPriv1
+        - !Ref SubnetPriv2
+        - !Ref SubnetPriv3
+    Export:
+      Name: !Sub "${AWS::StackName}PrivateSubnetIds"
+
+  AvailabilityZones:
+    Description: Availability Zones used
+    Value: !Join
+      - ","
+      - - !Ref Az1
+        - !Ref Az2
+        - !Ref Az3
+    Export:
+      Name: !Sub "${AWS::StackName}AvailabilityZones"
