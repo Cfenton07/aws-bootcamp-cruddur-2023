@@ -3,7 +3,11 @@
 set -e
 
 CFN_PATH="aws/cfn/networking/template.yaml"
-STACK_NAME="CrdNet"
+CONFIG_PATH="aws/cfn/networking/config.toml"
+
+BUCKET=$(cfn-toml key deploy.bucket -t $CONFIG_PATH)
+REGION=$(cfn-toml key deploy.region -t $CONFIG_PATH)
+STACK_NAME=$(cfn-toml key deploy.stack_name -t $CONFIG_PATH)
 
 # Validate the template syntax before doing anything
 cfn-lint $CFN_PATH
@@ -11,7 +15,8 @@ cfn-lint $CFN_PATH
 # Deploy the stack with a change set for review
 aws cloudformation deploy \
   --stack-name $STACK_NAME \
-  --s3-bucket $CFN_BUCKET \
+  --s3-bucket $BUCKET \
+  --region $REGION \
   --template-file $CFN_PATH \
   --no-execute-changeset \
   --tags group=cruddur-networking \
