@@ -1,0 +1,7 @@
+[deploy]
+bucket = '<your-cfn-artifacts-bucket-name>'
+region = '<your-aws-region>'
+stack_name = 'CrdNet'
+
+[parameters]
+# Networking stack takes no parameters
