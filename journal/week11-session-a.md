@@ -19,7 +19,7 @@ Deploy → review change set (18 Add resources) → execute → CREATE_COMPLETE
 → describe-stacks confirms removal. End-to-end refactor proven.
 
 ## Loose ends
-- Eric Holbrook email (Zscaler bypass request) — ready to send
+- IT policy clarification request — drafted, ready to send
 - IAM Access Key 1 rotation
-- RDS password in journal/week4.md (Kiro audit finding)
+- Sensitive value in earlier journal entry flagged by audit — remediation pending
 - .gitignore could use *.pem, *.key, __pycache__/ additions
