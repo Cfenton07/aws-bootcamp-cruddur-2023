@@ -4,3 +4,7 @@ docker/dynamodb/*.db
 backend-flask.env
 frontend-react-js.env
 node_modules/
+
+# cfn-toml local configuration (contains real values)
+aws/cfn/**/config.toml
+!aws/cfn/**/config.toml.example
