@@ -1,0 +1,10 @@
+[deploy]
+bucket = '<your-cfn-artifacts-bucket-name>'
+region = '<your-aws-region>'
+stack_name = 'CrdCluster'
+
+[parameters]
+NetworkingStack = 'CrdNet'
+CertificateArn = '<your-acm-certificate-arn>'
+FrontendPort = '3000'
+BackendPort = '4567'
