@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+
+set -e
+
+CFN_PATH="aws/cfn/cluster/template.yaml"
+CONFIG_PATH="aws/cfn/cluster/config.toml"
+
+BUCKET=$(cfn-toml key deploy.bucket -t $CONFIG_PATH)
+REGION=$(cfn-toml key deploy.region -t $CONFIG_PATH)
+STACK_NAME=$(cfn-toml key deploy.stack_name -t $CONFIG_PATH)
+PARAMETERS=$(cfn-toml params v2 -t $CONFIG_PATH)
+
+# Validate the template syntax before doing anything
+cfn-lint $CFN_PATH
+
+# Deploy the stack with a change set for review
+aws cloudformation deploy \
+  --stack-name $STACK_NAME \
+  --s3-bucket $BUCKET \
+  --region $REGION \
+  --template-file $CFN_PATH \
+  --parameter-overrides $PARAMETERS \
+  --no-execute-changeset \
+  --tags group=cruddur-cluster \
+  --capabilities CAPABILITY_NAMED_IAM
