@@ -279,7 +279,7 @@ graph TB
     BTA -.->|egress to ECR| NAT
 ```
 
-The Lucid version is the canonical one with proper AWS icons and clean spatial flow; this Mermaid version lives in the journal as a permanent record that travels with the codebase and renders in GitHub.
+The [Lucid version](https://lucid.app/lucidchart/0e65b01c-09ab-454a-b812-49867b336cc7/edit?viewport_loc=4694%2C408%2C5880%2C2844%2C0_0&invitationId=inv_b3558d71-dd1e-451d-aba6-123ef84facc7) is the canonical one with proper AWS icons and clean spatial flow; this Mermaid version lives in the journal as a permanent record that travels with the codebase and renders in GitHub.
 
 ---
 
