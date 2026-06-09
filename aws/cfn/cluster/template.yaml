@@ -201,6 +201,26 @@ Resources:
       VpcId:
         Fn::ImportValue:
           !Sub "${NetworkingStack}VpcId"
+  ServiceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    # https://docs.aws.amazon.com/AWSCloudFormationGuide/latest/UserGuide/aws-resource-ec2-securitygroup.html
+    Properties:
+      GroupName: !Sub "${AWS::StackName}ServiceSG"
+      GroupDescription: SG for Cruddur Fargate service tasks - allows ingress from ALB SG on container ports
+      VpcId:
+        Fn::ImportValue:
+          !Sub "${NetworkingStack}VpcId"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: !Ref BackendPort
+          ToPort: !Ref BackendPort
+          SourceSecurityGroupId: !GetAtt ALBSecurityGroup.GroupId
+          Description: ALB to backend Fargate tasks on container port (NOT ALB listener port 80)
+        - IpProtocol: tcp
+          FromPort: !Ref FrontendPort
+          ToPort: !Ref FrontendPort
+          SourceSecurityGroupId: !GetAtt ALBSecurityGroup.GroupId
+          Description: ALB to frontend Fargate tasks on container port        
 Outputs:
   ClusterName:
     Description: Cluster name
@@ -231,3 +251,8 @@ Outputs:
     Value: !Ref FrontendTG
     Export:
       Name: !Sub "${AWS::StackName}FrontendTGArn"
+  ServiceSecurityGroup:
+    Description: Service security group ID for Fargate tasks
+    Value: !GetAtt ServiceSecurityGroup.GroupId
+    Export:
+      Name: !Sub "${AWS::StackName}ServiceSGId"
