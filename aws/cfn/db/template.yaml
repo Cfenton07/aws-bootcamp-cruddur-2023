@@ -1,0 +1,112 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: |
+  CrdDb - RDS PostgreSQL instance for Cruddur
+  Restored from snapshot into CrdNet private subnets.
+  Imports CrdClusterServiceSGId for the DB security group ingress.
+
+Parameters:
+  NetworkingStack:
+    Type: String
+    Description: CrdNet stack name (source of VPC and private subnet exports)
+    Default: CrdNet
+
+  ClusterStack:
+    Type: String
+    Description: CrdCluster stack name (source of ServiceSG export)
+    Default: CrdCluster
+
+  DBSnapshotIdentifier:
+    Type: String
+    Description: Snapshot to restore the database from
+    Default: cruddur-db-pre-crddb-20260613
+
+  DBInstanceClass:
+    Type: String
+    Description: RDS instance size
+    Default: db.t3.micro
+
+  DBInstanceIdentifier:
+    Type: String
+    Description: Identifier for the new RDS instance
+    Default: cruddur-crddb-instance
+
+  EngineVersion:
+    Type: String
+    Description: PostgreSQL engine version
+    Default: "17.4"
+
+Resources:
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupName: cruddur-crddb-subnet-group
+      DBSubnetGroupDescription: Private subnets for CrdDb (CrdNet)
+      SubnetIds: 
+        !Split
+          - ","
+          - Fn::ImportValue: !Sub "${NetworkingStack}PrivateSubnetIds"
+
+  DBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: cruddur-crddb-sg
+      GroupDescription: Security group for CrdDb RDS instance
+      VpcId:
+        Fn::ImportValue: !Sub "${NetworkingStack}VpcId"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId:
+            Fn::ImportValue: !Sub "${ClusterStack}ServiceSGId"
+          Description: PostgreSQL from Fargate Service SG (chain ALB SG to Service SG to DB SG)
+      Tags:
+        - Key: Name
+          Value: cruddur-crddb-sg
+  DBLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/rds/instance/cruddur-crddb-instance/postgresql
+      RetentionInDays: 7
+
+  Database:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    DependsOn: DBLogGroup
+    Properties:
+      DBInstanceIdentifier: !Ref DBInstanceIdentifier
+      DBSnapshotIdentifier: !Ref DBSnapshotIdentifier
+      Engine: postgres
+      EngineVersion: !Ref EngineVersion
+      DBInstanceClass: !Ref DBInstanceClass
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      VPCSecurityGroups:
+        - !GetAtt DBSecurityGroup.GroupId
+      PubliclyAccessible: false
+      MultiAZ: false
+      StorageType: gp3
+      EnableCloudwatchLogsExports:
+        - postgresql
+      CopyTagsToSnapshot: true
+      Tags:
+        - Key: Name
+          Value: cruddur-crddb-instance        
+Outputs:
+  DBInstanceEndpoint:
+    Description: CrdDb RDS endpoint address
+    Value: !GetAtt Database.Endpoint.Address
+    Export:
+      Name: !Sub "${AWS::StackName}DBEndpoint"
+
+  DBInstancePort:
+    Description: CrdDb RDS port
+    Value: !GetAtt Database.Endpoint.Port
+    Export:
+      Name: !Sub "${AWS::StackName}DBPort"
+
+  DBSecurityGroupId:
+    Description: Security group ID for the CrdDb instance
+    Value: !GetAtt DBSecurityGroup.GroupId
+    Export:
+      Name: !Sub "${AWS::StackName}DBSecurityGroupId"  
