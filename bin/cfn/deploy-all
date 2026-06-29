@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+#
+# deploy-all — orchestrates the Cruddur stacks in dependency order.
+#
+# This script ORCHESTRATES and PAUSES. Each per-stack deploy script runs
+# `aws cloudformation deploy --no-execute-changeset`, which only CREATES a
+# change set. YOU review and EXECUTE each change set in the CloudFormation
+# console (or CLI) before pressing ENTER to continue. Nothing is auto-executed.
+#
+# Order: CrdNet -> CrdCluster -> CrdDb -> CrdService -> CrdFrontend
+
+set -e
+
+bar() { echo "=============================================================="; }
+
+# ---------------------------------------------------------------- CrdNet
+bar
+echo "STACK 1/5: CrdNet — Networking"
+echo "Expect ~21 resources (all Add): VPC, IGW, 6 subnets/3 AZs, route tables,"
+echo "NAT Gateway + EIP, private route to NAT."
+echo "Slow resource: NAT Gateway."
+bar
+./bin/cfn/networking-deploy
+echo
+echo ">>> Review the CrdNet change set in CloudFormation, then EXECUTE it."
+echo ">>> Verify egress route after CREATE_COMPLETE:"
+echo "    aws ec2 describe-route-tables --filters Name=tag:Name,Values=CruddurPrivateRT \\"
+echo "      --query \"RouteTables[0].Routes[?DestinationCidrBlock=='0.0.0.0/0']\" --output table"
+read -p "Press ENTER once CrdNet shows CREATE_COMPLETE and the NAT route is verified... "
+
+# ------------------------------------------------------------- CrdCluster
+bar
+echo "STACK 2/5: CrdCluster — Compute & Load Balancing"
+echo "Expect ~9 resources: ECS Fargate cluster, ALB, ALB SG, Service SG,"
+echo "two target groups (ip / HTTP1), HTTPS + HTTP listeners, api-host rule."
+echo "Slow resource: the ALB."
+bar
+./bin/cfn/cluster-deploy
+echo
+echo ">>> Review the CrdCluster change set, then EXECUTE it."
+echo ">>> Verify exports after CREATE_COMPLETE:"
+echo "    aws cloudformation list-exports --query \"Exports[?starts_with(Name,'CrdCluster')].Name\" --output table"
+read -p "Press ENTER once CrdCluster shows CREATE_COMPLETE... "
+
+# ---------------------------------------------------------------- CrdDb
+bar
+echo "STACK 3/5: CrdDb — Database (RDS PostgreSQL, snapshot restore)"
+echo "Expect 3 resources: DBSecurityGroup, DBSubnetGroup, Database."
+echo "Confirm Retain policies in the change set. Database sits CREATE_IN_PROGRESS"
+echo "~8-15 min on snapshot restore."
+bar
+./bin/cfn/db-deploy
+echo
+echo ">>> Review the CrdDb change set (confirm DeletionPolicy/UpdateReplacePolicy = Retain), then EXECUTE it."
+echo ">>> Verify after CREATE_COMPLETE:"
+echo "    aws rds describe-db-instances --db-instance-identifier cruddur-crddb-instance \\"
+echo "      --query 'DBInstances[0].DBInstanceStatus' --output text"
+read -p "Press ENTER once CrdDb shows CREATE_COMPLETE (DB 'available')... "
+
+# ------------------------------------------------------------- CrdService
+bar
+echo "STACK 4/5: CrdService — Backend (backend-flask)"
+echo "Expect 5 resources: ExecutionRole, TaskRole, LogGroup, TaskDefinition, Service."
+echo "Service reaches steady state only when the task is RUNNING and the"
+echo "BackendTG target is HEALTHY (HTTP1 health check on /api/health-check:4567)."
+bar
+./bin/cfn/service-deploy
+echo
+echo ">>> Review the CrdService change set (CAPABILITY_NAMED_IAM, 5 Add), then EXECUTE it."
+echo ">>> Verify after CREATE_COMPLETE:"
+echo "    curl -s https://api.fentoncruddur.com/api/health-check"
+echo "    aws elbv2 describe-target-health --target-group-arn \\"
+echo "      \$(aws cloudformation list-exports --query \"Exports[?Name=='CrdClusterBackendTGArn'].Value\" --output text) \\"
+echo "      --query 'TargetHealthDescriptions[*].TargetHealth.State' --output text"
+read -p "Press ENTER once CrdService is CREATE_COMPLETE and the backend health-check returns success... "
+
+# ------------------------------------------------------------ CrdFrontend
+bar
+echo "STACK 5/5: CrdFrontend — Frontend (React/nginx)"
+echo "Expect 5 resources: ExecutionRole, TaskRole, LogGroup, TaskDefinition, Service."
+echo "PREREQ: config.toml EcrImage must point at a SHA-pinned image built with"
+echo "        REACT_APP_BACKEND_URL=https://api.fentoncruddur.com (Phase 1.5)."
+echo "Registers into FrontendTG; target goes HEALTHY -> root-domain 503 resolves."
+bar
+./bin/cfn/frontend-deploy
+echo
+echo ">>> Review the CrdFrontend change set (5 Add), then EXECUTE it."
+echo ">>> Verify after CREATE_COMPLETE:"
+echo "    aws elbv2 describe-target-health --target-group-arn \\"
+echo "      \$(aws cloudformation list-exports --query \"Exports[?Name=='CrdClusterFrontendTGArn'].Value\" --output text) \\"
+echo "      --query 'TargetHealthDescriptions[*].TargetHealth.State' --output text"
+echo "    Then load https://fentoncruddur.com in a browser."
+read -p "Press ENTER once CrdFrontend is CREATE_COMPLETE and the FrontendTG is HEALTHY... "
+
+bar
+echo "All five stacks deployed. If DNS was repointed, flush local cache and verify:"
+echo "    nslookup fentoncruddur.com 8.8.8.8"
+echo "End-to-end: load https://fentoncruddur.com, log in via Cognito, exercise the home feed."
+bar

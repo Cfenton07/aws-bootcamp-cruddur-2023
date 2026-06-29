@@ -156,10 +156,10 @@ Resources:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     # https://docs.aws.amazon.com/AWSCloudFormationGuide/latest/UserGuide/aws-resource-elasticloadbalancingv2-targetgroup.html
     Properties:
-      Name: !Sub "${AWS::StackName}FrontendTG"
+      TargetType: ip # Use IP targets so that we can use the ENI IP addresses directly
       Port: !Ref FrontendPort
       Protocol: HTTP
-      ProtocolVersion: HTTP2
+      ProtocolVersion: HTTP1
       HealthCheckEnabled: true
       HealthCheckProtocol: HTTP
       HealthCheckPort: !Sub "${FrontendPort}"
@@ -181,10 +181,10 @@ Resources:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     # https://docs.aws.amazon.com/AWSCloudFormationGuide/latest/UserGuide/aws-resource-elasticloadbalancingv2-targetgroup.html
     Properties:
-      Name: !Sub "${AWS::StackName}BackendTG"
+      TargetType: ip # Use IP targets so that we can use the ENI IP addresses directly
       Port: !Ref BackendPort
       Protocol: HTTP
-      ProtocolVersion: HTTP2
+      ProtocolVersion: HTTP1
       HealthCheckEnabled: true
       HealthCheckProtocol: HTTP
       HealthCheckPort: !Sub "${BackendPort}"

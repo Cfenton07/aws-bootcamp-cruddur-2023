@@ -8,3 +8,4 @@ node_modules/
 # cfn-toml local configuration (contains real values)
 aws/cfn/**/config.toml
 !aws/cfn/**/config.toml.example
+.kiro/

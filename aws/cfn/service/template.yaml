@@ -1,0 +1,239 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: |
+  The ECS Fargate Service for the Cruddur backend-flask application.
+  - ECS TaskDefinition (xray sidecar + backend-flask container)
+  - ECS Service running on the cluster from the Cluster stack
+  - Task Execution Role (pull image, read SSM secrets, write logs)
+  - Task Role (application runtime permissions, e.g. X-Ray)
+  - CloudWatch Log Group
+  Imports: ClusterName, BackendTGArn, ServiceSGId (Cluster stack);
+           PublicSubnetIds (Networking stack).
+
+Parameters:
+  NetworkingStack:
+    Type: String
+    Description: The networking stack to import subnet IDs from
+    Default: CrdNet
+
+  ClusterStack:
+    Type: String
+    Description: The cluster stack to import ClusterName, BackendTGArn, ServiceSGId from
+    Default: CrdCluster
+
+  ContainerPort:
+    Type: Number
+    Default: 4567
+
+  # ECR image URI for the backend. Pulled from your task definition JSON.
+  EcrImage:
+    Type: String
+    Description: Full ECR image URI for backend-flask (e.g. <acct>.dkr.ecr.<region>.amazonaws.com/backend-flask:latest)
+
+  ServiceCpu:
+    Type: String
+    Default: '256'
+
+  ServiceMemory:
+    Type: String
+    Default: '512'
+
+  DesiredCount:
+    Type: Number
+    Default: 1
+
+  # Option A: tasks run in PRIVATE subnets behind a NAT Gateway, so no public
+  # IP is assigned. Egress (ECR pulls, SSM, Cognito) goes out via the NAT.
+  AssignPublicIp:
+    Type: String
+    AllowedValues: ['ENABLED', 'DISABLED']
+    Default: 'DISABLED'
+
+Resources:
+
+  # ----------------------------------------------------------------------
+  # CloudWatch Log Group
+  # ----------------------------------------------------------------------
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/cruddur/${AWS::StackName}"
+      RetentionInDays: 14
+
+  # ----------------------------------------------------------------------
+  # IAM: Task Execution Role (used by the ECS agent to start the task)
+  # Least-privilege: pull image, write logs, read only our SSM params.
+  # ----------------------------------------------------------------------
+  ExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Policies:
+        - PolicyName: SsmParameterRead
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameters
+                  - ssm:GetParameter
+                Resource:
+                  - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cruddur/backend-flask/*"
+
+  # ----------------------------------------------------------------------
+  # IAM: Task Role (assumed by the running application)
+  # Static access keys were removed from the task definition, so this role is
+  # now the ONLY AWS auth path for the app. Keep it least-privilege.
+  # ----------------------------------------------------------------------
+  TaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: XRayWrite
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - xray:PutTraceSegments
+                  - xray:PutTelemetryRecords
+                  - xray:GetSamplingRules
+                  - xray:GetSamplingTargets
+                Resource: '*'
+        - PolicyName: CognitoReadUserPool
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              # Start with read actions scoped to the pool ARN; expand only if
+              # runtime logs show AccessDenied. Do NOT use Resource '*'.
+              - Effect: Allow
+                Action:
+                  - cognito-idp:GetUser
+                  - cognito-idp:ListUsers
+                Resource: !Sub "arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/us-east-1_wAg3Cr3Px"
+        # TODO (CrdDynamo session): add scoped DynamoDB permissions for the
+        # cruddur-messages table here. Not added now.
+
+  # ----------------------------------------------------------------------
+  # ECS Task Definition (mirrors aws:json/task-definitions/backend-flask.json)
+  # ----------------------------------------------------------------------
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: backend-flask
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: !Ref ServiceCpu
+      Memory: !Ref ServiceMemory
+      ExecutionRoleArn: !GetAtt ExecutionRole.Arn
+      TaskRoleArn: !GetAtt TaskRole.Arn
+      ContainerDefinitions:
+        - Name: xray
+          Image: public.ecr.aws/xray/aws-xray-daemon
+          Essential: true
+          User: '1337'
+          PortMappings:
+            - ContainerPort: 2000
+              Protocol: udp
+        - Name: backend-flask
+          Image: !Ref EcrImage
+          Essential: true
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - python /backend-flask/bin/flask/health-check
+            Interval: 30
+            Timeout: 5
+            Retries: 3
+            StartPeriod: 60
+          PortMappings:
+            - ContainerPort: !Ref ContainerPort
+              Protocol: tcp
+              AppProtocol: http
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: backend-flask
+          # Non-secret config (mirrors your task definition JSON).
+          # FRONTEND_URL/BACKEND_URL are required — empty values break CORS / all API calls.
+          Environment:
+            - Name: OTEL_SERVICE_NAME
+              Value: backend-flask
+            - Name: OTEL_EXPORTER_OTLP_ENDPOINT
+              Value: https://api.honeycomb.io
+            - Name: AWS_COGNITO_USER_POOL_ID
+              Value: us-east-1_wAg3Cr3Px
+            - Name: AWS_COGNITO_USER_POOL_CLIENT_ID
+              Value: 12va2n69rq2of98ivm60b9625v
+            - Name: FRONTEND_URL
+              Value: https://fentoncruddur.com
+            - Name: BACKEND_URL
+              Value: https://api.fentoncruddur.com
+            - Name: AWS_DEFAULT_REGION
+              Value: !Ref AWS::Region
+          # Secrets pulled from SSM Parameter Store (NOT hardcoded).
+          # Static AWS access keys removed — the app authenticates via the Task Role.
+          Secrets:
+            - Name: CONNECTION_URL
+              ValueFrom: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cruddur/backend-flask/CONNECTION_URL"
+            - Name: OTEL_EXPORTER_OTLP_HEADERS
+              ValueFrom: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cruddur/backend-flask/OTEL_EXPORTER_OTLP_HEADERS"
+
+  # ----------------------------------------------------------------------
+  # ECS Service
+  # ----------------------------------------------------------------------
+  Service:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: backend-flask
+      Cluster:
+        Fn::ImportValue: !Sub "${ClusterStack}ClusterName"
+      TaskDefinition: !Ref TaskDefinition
+      LaunchType: FARGATE
+      DesiredCount: !Ref DesiredCount
+      HealthCheckGracePeriodSeconds: 60
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: !Ref AssignPublicIp
+          SecurityGroups:
+            - Fn::ImportValue: !Sub "${ClusterStack}ServiceSGId"
+          Subnets:
+            Fn::Split:
+              - ","
+              - Fn::ImportValue: !Sub "${NetworkingStack}PrivateSubnetIds"
+      LoadBalancers:
+        - TargetGroupArn:
+            Fn::ImportValue: !Sub "${ClusterStack}BackendTGArn"
+          ContainerName: backend-flask
+          ContainerPort: !Ref ContainerPort
+
+Outputs:
+  ServiceName:
+    Description: ECS Service name (used by the CI/CD pipeline deploy stage)
+    Value: !GetAtt Service.Name
+    Export:
+      Name: !Sub "${AWS::StackName}ServiceName"
+
+  TaskDefinitionArn:
+    Description: Task definition ARN
+    Value: !Ref TaskDefinition
+    Export:
+      Name: !Sub "${AWS::StackName}TaskDefinitionArn"

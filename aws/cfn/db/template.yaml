@@ -39,7 +39,6 @@ Resources:
   DBSubnetGroup:
     Type: AWS::RDS::DBSubnetGroup
     Properties:
-      DBSubnetGroupName: cruddur-crddb-subnet-group
       DBSubnetGroupDescription: Private subnets for CrdDb (CrdNet)
       SubnetIds: 
         !Split
@@ -49,7 +48,6 @@ Resources:
   DBSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupName: cruddur-crddb-sg
       GroupDescription: Security group for CrdDb RDS instance
       VpcId:
         Fn::ImportValue: !Sub "${NetworkingStack}VpcId"
@@ -63,17 +61,12 @@ Resources:
       Tags:
         - Key: Name
           Value: cruddur-crddb-sg
-  DBLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: /aws/rds/instance/cruddur-crddb-instance/postgresql
-      RetentionInDays: 7
+  
 
   Database:
     Type: AWS::RDS::DBInstance
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
-    DependsOn: DBLogGroup
     Properties:
       DBInstanceIdentifier: !Ref DBInstanceIdentifier
       DBSnapshotIdentifier: !Ref DBSnapshotIdentifier
