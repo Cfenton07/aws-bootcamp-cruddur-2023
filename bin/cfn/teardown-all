@@ -42,12 +42,61 @@ aws cloudformation wait stack-delete-complete --stack-name CrdDb --region "$REGI
   || echo "CrdDb first delete blocked (likely DBSubnetGroup in use by the retained instance) — will retry after the instance is gone."
 
 echo "--- Deleting the retained RDS instance (skip-final-snapshot) ---"
-aws rds delete-db-instance --db-instance-identifier "$DB_INSTANCE" --skip-final-snapshot --region "$REGION" \
-  || echo "RDS instance may already be deleting or gone."
+# Capture output + exit code instead of swallowing failures. A failed delete
+# that goes unnoticed lets 'wait db-instance-deleted' pass against a live
+# instance, so the script would proceed on false success (the bug we hit).
+DELETE_OUTPUT=$(aws rds delete-db-instance \
+  --db-instance-identifier "$DB_INSTANCE" \
+  --skip-final-snapshot \
+  --region "$REGION" 2>&1)
+DELETE_RC=$?
+
+if [ $DELETE_RC -ne 0 ]; then
+  if echo "$DELETE_OUTPUT" | grep -q "DBInstanceNotFound"; then
+    echo "RDS instance ${DB_INSTANCE} not found — already deleted. Skipping ahead."
+  else
+    echo "ERROR: delete-db-instance failed for an unexpected reason:" >&2
+    echo "$DELETE_OUTPUT" >&2
+    exit 1
+  fi
+else
+  # Delete request accepted. Confirm the instance actually enters 'deleting'
+  # BEFORE the long wait, so we never treat a no-op as success.
+  echo "Delete request accepted. Confirming the instance enters 'deleting'..."
+  DELETING_CONFIRMED=0
+  for i in $(seq 1 12); do
+    STATUS=$(aws rds describe-db-instances \
+      --db-instance-identifier "$DB_INSTANCE" \
+      --region "$REGION" \
+      --query 'DBInstances[0].DBInstanceStatus' \
+      --output text 2>/dev/null)
+    DESCRIBE_RC=$?
+    if [ $DESCRIBE_RC -ne 0 ] || [ -z "$STATUS" ] || [ "$STATUS" = "None" ]; then
+      echo "  Instance no longer describable — already gone. Proceeding."
+      DELETING_CONFIRMED=1
+      break
+    fi
+    echo "  attempt ${i}/12: status=${STATUS}"
+    if [ "$STATUS" = "deleting" ]; then
+      DELETING_CONFIRMED=1
+      break
+    fi
+    sleep 10
+  done
+  if [ "$DELETING_CONFIRMED" -ne 1 ]; then
+    echo "ERROR: ${DB_INSTANCE} never transitioned to 'deleting' (last status: ${STATUS})." >&2
+    echo "The delete did not take effect — aborting so this is not a false success." >&2
+    exit 1
+  fi
+fi
 
 echo "--- Waiting for the RDS instance to reach 'deleted/not found' (can take several minutes) ---"
-aws rds wait db-instance-deleted --db-instance-identifier "$DB_INSTANCE" --region "$REGION" \
-  || echo "Wait returned non-zero (instance likely already gone)."
+if ! aws rds wait db-instance-deleted --db-instance-identifier "$DB_INSTANCE" --region "$REGION"; then
+  echo "ERROR: timed out or errored waiting for ${DB_INSTANCE} to finish deleting." >&2
+  echo "Check the RDS console before continuing the teardown." >&2
+  exit 1
+fi
+echo "RDS instance ${DB_INSTANCE} deleted."
 
 echo "--- Retrying CrdDb stack delete now that the instance is gone ---"
 aws cloudformation delete-stack --stack-name CrdDb --region "$REGION"

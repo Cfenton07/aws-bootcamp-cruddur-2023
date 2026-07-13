@@ -43,6 +43,12 @@ Parameters:
   UnhealthyThresholdCount:
     Type: Number
     Default: 2
+
+  HostedZoneId:
+    Type: String
+    Description: |
+      Route 53 hosted zone ID for fentoncruddur.com. This is the zone the alias
+      A-records are written into (not the ALB's canonical hosted zone).
 Resources:
 
   FargateCluster:
@@ -108,6 +114,35 @@ Resources:
         Fn::Split:
           - ","
           - Fn::ImportValue: !Sub "${NetworkingStack}PublicSubnetIds"
+
+  ApexRecordSet:
+    Type: AWS::Route53::RecordSet
+    # https://docs.aws.amazon.com/AWSCloudFormationGuide/latest/UserGuide/aws-resource-route53-recordset.html
+    # Apex alias A-record (fentoncruddur.com -> ALB). Re-written on every deploy
+    # so DNS self-heals when a rebuild produces a new ALB (closes Gap 2).
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: fentoncruddur.com.
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt ALB.DNSName
+        HostedZoneId: !GetAtt ALB.CanonicalHostedZoneID
+        EvaluateTargetHealth: false
+
+  ApiRecordSet:
+    Type: AWS::Route53::RecordSet
+    # https://docs.aws.amazon.com/AWSCloudFormationGuide/latest/UserGuide/aws-resource-route53-recordset.html
+    # api.fentoncruddur.com -> same ALB. Host-based routing (ApiALBListenerRule)
+    # forwards this host header to the backend target group.
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: api.fentoncruddur.com.
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt ALB.DNSName
+        HostedZoneId: !GetAtt ALB.CanonicalHostedZoneID
+        EvaluateTargetHealth: false
+
   HTTPSListener:
     Type: AWS::ElasticLoadBalancingV2::Listener
     # https://docs.aws.amazon.com/AWSCloudFormationGuide/latest/UserGuide/aws-resource-elasticloadbalancingv2-listener.html
