@@ -154,6 +154,32 @@ Resources:
       DestinationCidrBlock: 0.0.0.0/0
       GatewayId: !Ref IGW
 
+  # ===== NAT Gateway (egress for private subnets) =====
+  NatGatewayEIP:
+    Type: AWS::EC2::EIP
+    DependsOn: AttachIGW
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: CruddurNatEIP
+
+  NatGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatGatewayEIP.AllocationId
+      SubnetId: !Ref SubnetPub1
+      Tags:
+        - Key: Name
+          Value: CruddurNatGateway
+
+  PrivateRouteToInternet:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref RouteTablePrivate
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway
+
   # ===== Route Table Associations (Public) =====
   RTAPub1:
     Type: AWS::EC2::SubnetRouteTableAssociation
@@ -234,3 +260,9 @@ Outputs:
         - !Ref Az3
     Export:
       Name: !Sub "${AWS::StackName}AvailabilityZones"
+
+  NatGatewayId:
+    Description: NAT Gateway ID
+    Value: !Ref NatGateway
+    Export:
+      Name: !Sub "${AWS::StackName}NatGatewayId"

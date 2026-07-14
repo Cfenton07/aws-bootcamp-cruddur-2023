@@ -1,0 +1,189 @@
+{
+  "session_title": "Cruddur App — Repo Onboarding, Security Audit, WSL/Docker Setup, MCP Config, and CFN Service Stack Scaffolding",
+  "environment": {
+    "os": "Windows running Kiro IDE (VS Code-based)",
+    "dev_environment": "WSL (Ubuntu 24.04), workspace at /home/fento01/aws-bootcamp-cruddur-2023",
+    "shells": "Kiro tool shell resolves to WSL bash; user also has PowerShell + WSL terminals",
+    "key_quirk_1": "Docker runs natively in WSL (v29.1.3), no Docker Desktop; Kiro Docker extension cannot see WSL socket",
+    "key_quirk_2": "Directory literally named 'aws:json' (with a colon). Windows cannot open colon paths, so Kiro read/write tools fail on it; must use WSL shell. User declined rename; will handle manually.",
+    "key_quirk_3": "No native Node in WSL initially (fell back to Windows Node via /mnt/c); fixed by installing nvm + Node 18",
+    "key_quirk_4": "External CDN downloads (Docker Hub, astral.sh) return 403 in this network; PyPI reachable",
+    "autonomy_mode": "User switched from Autopilot to Supervised mid-session (file writes now require manual accept/reject)"
+  },
+  "application_stack": {
+    "name": "Cruddur (Twitter-like app, AWS Cloud Project Bootcamp 2023)",
+    "frontend": "React 18, port 3000, AWS Amplify v6 (Cognito auth)",
+    "backend": "Python Flask, port 4567, psycopg (Postgres), boto3 (DynamoDB), X-Ray + OTEL/Honeycomb",
+    "datastores": "PostgreSQL 13 (RDS + local Docker), DynamoDB (local + AWS)",
+    "aws_services": "Cognito, S3, Lambda, ECS Fargate, RDS, API Gateway, CloudWatch, X-Ray, SNS",
+    "iac": "CloudFormation (networking, cluster, db stacks done) + CDK (thumbnail pipeline)",
+    "production_readiness_score": "Rated 5/10 (was 4/10 before cluster stack hardening)"
+  },
+  "timeline": [
+    {
+      "phase": 1,
+      "user_request": "Read the whole repo to get up to speed on the stack.",
+      "assistant_action": "Used context-gatherer sub-agent to map full stack.",
+      "files_changed": "none"
+    },
+    {
+      "phase": 2,
+      "user_request": "Scan repo for exposed access keys/secrets; assess exposure risk.",
+      "assistant_action": "Ran regex scans + file reads. Findings: CRITICAL real RDS production password committed in journal/week4.md (user cruddurroot); MEDIUM AWS account ID 931637612335 in 15+ files and hardcoded Cognito pool/client IDs; LOW infra ARNs/bucket names/domain. POSITIVE: no AKIA keys, .env files gitignored with ${VAR} refs, ECS task defs use SSM Parameter Store. Recommended rotating RDS password + scrubbing git history.",
+      "files_changed": "none (read-only)"
+    },
+    {
+      "phase": 3,
+      "user_request": "Put the security audit into a detailed JSON document.",
+      "assistant_action": "Created session-security-audit-summary.json (created during Autopilot; NOTE: this file was not present in final disk check — may have been reverted/rejected, verify in your repo).",
+      "files_changed": "session-security-audit-summary.json (status uncertain on disk)"
+    },
+    {
+      "phase": 4,
+      "user_request": "Run docker compose up.",
+      "assistant_action": "First attempt failed (PowerShell, no docker). User clarified WSL. Routed via bash. Hit Docker Hub 403 on postgres:13-alpine layer; resolved as transient CDN issue (images already cached locally). Diagnosed otel-collector flooding logs with TLS x509 errors to Honeycomb (no API key set). Confirmed containers DID start.",
+      "files_changed": "none"
+    },
+    {
+      "phase": 5,
+      "user_request": "Comment out the otel-collector for now.",
+      "assistant_action": "Edited docker-compose.yml: commented out otel-collector service block AND the backend-flask 'depends_on: otel-collector'.",
+      "files_changed": "docker-compose.yml (MODIFIED)"
+    },
+    {
+      "phase": 6,
+      "user_request": "Set up local Postgres so the backend container connects.",
+      "assistant_action": "Started db container, created 'cruddur' database, loaded schema.sql (users/activities/schema_information), loaded seed.sql (3 users + 1 activity), ran add_bio_column migration. Verified via SELECT.",
+      "files_changed": "none (DB state only, inside container)"
+    },
+    {
+      "phase": 7,
+      "user_request": "Why can't the Docker extension see my containers? Ports not showing?",
+      "assistant_action": "Explained Kiro runs on Windows, Docker in WSL — extension can't reach unix socket. Suggested docker.host settings (later determined not functional for this Kiro/WSL setup; recommended removal). Ports tab shows Kiro-forwarded ports, not Docker's WSL->Windows forwarding.",
+      "files_changed": "none (user edited their own settings.json)"
+    },
+    {
+      "phase": 8,
+      "user_request": "Frontend container exited; fix it. Default terminal to WSL.",
+      "assistant_action": "Diagnosed frontend exit code 127 (react-scripts missing — node_modules absent due to volume mount). npm install initially used slow Windows Node. Installed nvm + Node v18.20.8 in WSL, ran clean npm install (1519 packages), restarted frontend. All 5 services up. Advised adding terminal.integrated.defaultProfile.windows = 'Ubuntu-24.04 (WSL)' to settings.json (user added it).",
+      "files_changed": "WSL: nvm + Node 18 installed; ~/.bashrc updated by nvm; node_modules installed in frontend-react-js/"
+    },
+    {
+      "phase": 9,
+      "user_request": "Stop containers / docker compose down (multiple times).",
+      "assistant_action": "Ran docker compose down successfully.",
+      "files_changed": "none"
+    },
+    {
+      "phase": 10,
+      "user_request": "Is the app enterprise/production ready? Rate it. Re-rate after my cluster stack updates.",
+      "assistant_action": "Honest assessment: foundation is sound, additive path to production (no rewrite). Initial 4/10; after reviewing new aws/cfn/cluster/template.yaml (ECS Fargate cluster, ALB w/ HTTPS+HTTP->HTTPS redirect, least-privilege ServiceSecurityGroup, Container Insights, host-header routing) raised to 5/10. Blockers remaining: unrotated RDS credential in git history, no tests, single-AZ RDS, no WAF, no alerting, deletion_protection=false, no ECS Service/TaskDefinition in CFN yet.",
+      "files_changed": "none"
+    },
+    {
+      "phase": 11,
+      "user_request": "Recommend strategy for steering files, sub-agents, powers, hooks. Recommend an MCP server.",
+      "assistant_action": "Recommended sequence: steering files first, then hooks (secret-scan, cfn-lint, tests), then sub-agents, then powers. Recommended MCP servers: AWS Documentation + PostgreSQL (Tier 1), AWS CDK/Cost (Tier 2), GitHub.",
+      "files_changed": "none"
+    },
+    {
+      "phase": 12,
+      "user_request": "Add the first 2 MCP servers (AWS docs + Postgres), leave autoApprove empty, follow best practice.",
+      "assistant_action": "Created .kiro/settings/mcp.json with aws-docs (awslabs.aws-documentation-mcp-server) and postgres-local (postgres-mcp, --access-mode=restricted = read-only). autoApprove empty on both. Initially used 'uvx' directly; servers failed because Kiro (Windows) couldn't find WSL-installed uvx ('uvx not recognized'). Rewrote config to launch via 'wsl -d Ubuntu-24.04 -e bash -lc' with full path to uvx and inline env vars. Both servers then connected successfully.",
+      "files_changed": ".kiro/settings/mcp.json (CREATED, then REWRITTEN to wsl-wrapped commands)"
+    },
+    {
+      "phase": 13,
+      "user_request": "Should I install the prompted Python package (uv)? 403 error on installer.",
+      "assistant_action": "pip install uv blocked by PEP 668 externally-managed-environment (correct safety guard; do NOT use --break-system-packages). astral.sh installer returned 403 (network filter). Installed uv 0.11.23 into isolated venv ~/.uv-venv via PyPI (reachable), added to PATH in ~/.bashrc. uv + uvx verified working.",
+      "files_changed": "WSL: ~/.uv-venv created (uv 0.11.23); ~/.bashrc PATH export added"
+    },
+    {
+      "phase": 14,
+      "user_request": "Continue the build using bootcamp transcripts (weeks 12-13: DynamoDB via SAM, CI/CD pipeline, frontend CloudFront). Goal: showcase CI/CD + cloud (agentic) skills for hiring.",
+      "assistant_action": "Gap analysis vs transcripts. Current CFN stacks: networking, cluster, db. Pending: (1) ECS Service+TaskDefinition stack, (2) CI/CD pipeline stack, (3) DynamoDB SAM stack, (4) frontend CloudFront stack. Recommended building ECS Service stack first (unblocks pipeline), then CI/CD pipeline (resume centerpiece).",
+      "files_changed": "none"
+    },
+    {
+      "phase": 15,
+      "user_request": "Build the scaffolding first; be clear where files go; match my conventions. Where are my task definitions?",
+      "assistant_action": "Located task definitions at aws:json/task-definitions/ (backend-flask.json, frontend-react-js.json) + aws:json/policies/task-role-trust-policy.json. Flagged the 'aws:json' colon-in-name issue. Scaffolded the ECS Service stack matching existing conventions (folder under aws/cfn/, template.yaml + config.toml.example, deploy script under bin/cfn/ using cfn-toml + cfn-lint + --no-execute-changeset).",
+      "files_changed": "aws/cfn/service/config.toml.example (CREATED), bin/cfn/service-deploy (CREATED, chmod u+x)"
+    },
+    {
+      "phase": 16,
+      "user_request": "Editor error — did changes actually get made? (template.yaml appeared rejected)",
+      "assistant_action": "Verified on disk: config.toml.example and service-deploy existed, but template.yaml was NOT present (the creation was rejected, coinciding with a Kiro editor/diff UI crash). Recreated aws/cfn/service/template.yaml. Confirmed all three files now present.",
+      "files_changed": "aws/cfn/service/template.yaml (CREATED on retry)"
+    },
+    {
+      "phase": 17,
+      "user_request": "Summarize the session as JSON to inform another Claude chat; then store it in a file.",
+      "assistant_action": "Produced this JSON summary and stored it at _docs/session-summary.json.",
+      "files_changed": "_docs/session-summary.json (CREATED)"
+    }
+  ],
+  "files_changed_summary": {
+    "created_and_confirmed_on_disk": [
+      ".kiro/settings/mcp.json",
+      "aws/cfn/service/template.yaml",
+      "aws/cfn/service/config.toml.example",
+      "bin/cfn/service-deploy",
+      "_docs/session-summary.json"
+    ],
+    "modified": [
+      "docker-compose.yml (otel-collector service + backend depends_on commented out)"
+    ],
+    "wsl_environment_changes": [
+      "Installed nvm + Node v18.20.8",
+      "Installed uv 0.11.23 in isolated venv ~/.uv-venv",
+      "~/.bashrc: added uv PATH export (and nvm lines)",
+      "frontend-react-js/node_modules installed (1519 packages)"
+    ],
+    "user_edited_their_own": [
+      "C:/Users/FentoC01/AppData/Roaming/Kiro/User/settings.json (added WSL default terminal; docker.host settings — recommended removal; switched agentAutonomy to Supervised)"
+    ],
+    "status_uncertain": [
+      "session-security-audit-summary.json and session-full-summary.json (created earlier via tool but NOT found in final root listing — verify in your repo)"
+    ]
+  },
+  "service_stack_details": {
+    "purpose": "ECS Fargate Service + TaskDefinition for backend-flask",
+    "location": "aws/cfn/service/",
+    "imports_from_other_stacks": [
+      "ClusterStack: ClusterName, BackendTGArn, ServiceSGId",
+      "NetworkingStack: PublicSubnetIds"
+    ],
+    "resources": [
+      "AWS::Logs::LogGroup (/cruddur/<stackname>, 14-day retention)",
+      "AWS::IAM::Role ExecutionRole (AmazonECSTaskExecutionRolePolicy + least-privilege SSM read on /cruddur/backend-flask/*)",
+      "AWS::IAM::Role TaskRole (X-Ray write only — marked TODO to scope further)",
+      "AWS::ECS::TaskDefinition (xray sidecar + backend-flask container, SSM secrets, awslogs)",
+      "AWS::ECS::Service (Fargate, imports cluster/SG/subnets/target group)"
+    ],
+    "outputs": ["ServiceName (for CI/CD deploy stage)", "TaskDefinitionArn"],
+    "design_choices": [
+      "EcrImage is a parameter (not hardcoded account ID) so CI/CD can pass image tags",
+      "IAM roles created in-stack with least-privilege (not reusing existing named roles) — deploy script passes CAPABILITY_NAMED_IAM",
+      "AssignPublicIp defaults ENABLED for public-subnet tasks (no NAT gateway cost)"
+    ],
+    "todos_for_user": [
+      "Copy config.toml.example -> config.toml, fill bucket/region/EcrImage",
+      "Verify env vars and task-role permissions match needs",
+      "cfn-toml and cfn-lint are NOT installed in WSL — install or deploy from Gitpod/Codespaces"
+    ]
+  },
+  "pending_work_next_steps": [
+    "Deploy the ECS Service stack (after filling config.toml)",
+    "Scaffold CI/CD pipeline stack (aws/cfn/cicd/ + nested codebuild.yaml) — CodePipeline + CodeBuild + CodeStar v2 GitHub connection — RESUME CENTERPIECE",
+    "Scaffold DynamoDB SAM stack (table + stream + messaging Lambda — note: messaging-stream Lambda code not yet in aws/lambdas/)",
+    "Scaffold frontend CloudFront + S3 static hosting stack",
+    "Rotate the leaked RDS credential and scrub git history (still outstanding security blocker)",
+    "Optionally create steering files (.kiro/steering/) for persistent project context across sessions"
+  ],
+  "outstanding_security_items": [
+    "RDS production password still exposed in journal/week4.md git history — rotate + scrub",
+    "8 critical / 26 high npm vulnerabilities flagged during frontend npm install",
+    "Consider removing non-functional docker.host settings from Kiro settings.json"
+  ]
+}

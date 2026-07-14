@@ -1,0 +1,132 @@
+#!/usr/bin/env bash
+#
+# teardown-all — deletes all Cruddur stacks in REVERSE dependency order.
+#
+# Order: CrdFrontend -> CrdService -> CrdDb -> CrdCluster -> CrdNet
+# (delete consumers before producers, or exports-in-use blocks the delete).
+#
+# NOTE: no `set -e` — some steps (e.g. a CrdDb delete blocked by the retained
+# instance) are expected to fail once and succeed on retry; we handle those.
+
+REGION="us-east-1"
+DB_INSTANCE="cruddur-crddb-instance"
+DB_LOG_GROUP="/aws/rds/instance/${DB_INSTANCE}/postgresql"
+
+echo "=============================================================="
+echo "This DELETES all Cruddur infrastructure (CrdFrontend, CrdService,"
+echo "CrdDb + retained RDS instance, CrdCluster, CrdNet)."
+echo "=============================================================="
+read -p "Type DELETE to continue: " CONFIRM
+if [ "$CONFIRM" != "DELETE" ]; then
+  echo "Aborted."
+  exit 1
+fi
+
+delete_stack() {
+  local STACK="$1"
+  echo "--- Deleting ${STACK} ---"
+  aws cloudformation delete-stack --stack-name "$STACK" --region "$REGION"
+  aws cloudformation wait stack-delete-complete --stack-name "$STACK" --region "$REGION" \
+    && echo "${STACK}: deleted." \
+    || echo "${STACK}: delete did not complete cleanly — see notes below."
+}
+
+# 1) Frontend, 2) Backend
+delete_stack CrdFrontend
+delete_stack CrdService
+
+# 3) CrdDb — retained-instance special handling
+echo "--- Deleting CrdDb (RDS instance is retained by DeletionPolicy: Retain) ---"
+aws cloudformation delete-stack --stack-name CrdDb --region "$REGION"
+aws cloudformation wait stack-delete-complete --stack-name CrdDb --region "$REGION" \
+  || echo "CrdDb first delete blocked (likely DBSubnetGroup in use by the retained instance) — will retry after the instance is gone."
+
+echo "--- Deleting the retained RDS instance (skip-final-snapshot) ---"
+# Capture output + exit code instead of swallowing failures. A failed delete
+# that goes unnoticed lets 'wait db-instance-deleted' pass against a live
+# instance, so the script would proceed on false success (the bug we hit).
+DELETE_OUTPUT=$(aws rds delete-db-instance \
+  --db-instance-identifier "$DB_INSTANCE" \
+  --skip-final-snapshot \
+  --region "$REGION" 2>&1)
+DELETE_RC=$?
+
+if [ $DELETE_RC -ne 0 ]; then
+  if echo "$DELETE_OUTPUT" | grep -q "DBInstanceNotFound"; then
+    echo "RDS instance ${DB_INSTANCE} not found — already deleted. Skipping ahead."
+  else
+    echo "ERROR: delete-db-instance failed for an unexpected reason:" >&2
+    echo "$DELETE_OUTPUT" >&2
+    exit 1
+  fi
+else
+  # Delete request accepted. Confirm the instance actually enters 'deleting'
+  # BEFORE the long wait, so we never treat a no-op as success.
+  echo "Delete request accepted. Confirming the instance enters 'deleting'..."
+  DELETING_CONFIRMED=0
+  for i in $(seq 1 12); do
+    STATUS=$(aws rds describe-db-instances \
+      --db-instance-identifier "$DB_INSTANCE" \
+      --region "$REGION" \
+      --query 'DBInstances[0].DBInstanceStatus' \
+      --output text 2>/dev/null)
+    DESCRIBE_RC=$?
+    if [ $DESCRIBE_RC -ne 0 ] || [ -z "$STATUS" ] || [ "$STATUS" = "None" ]; then
+      echo "  Instance no longer describable — already gone. Proceeding."
+      DELETING_CONFIRMED=1
+      break
+    fi
+    echo "  attempt ${i}/12: status=${STATUS}"
+    if [ "$STATUS" = "deleting" ]; then
+      DELETING_CONFIRMED=1
+      break
+    fi
+    sleep 10
+  done
+  if [ "$DELETING_CONFIRMED" -ne 1 ]; then
+    echo "ERROR: ${DB_INSTANCE} never transitioned to 'deleting' (last status: ${STATUS})." >&2
+    echo "The delete did not take effect — aborting so this is not a false success." >&2
+    exit 1
+  fi
+fi
+
+echo "--- Waiting for the RDS instance to reach 'deleted/not found' (can take several minutes) ---"
+if ! aws rds wait db-instance-deleted --db-instance-identifier "$DB_INSTANCE" --region "$REGION"; then
+  echo "ERROR: timed out or errored waiting for ${DB_INSTANCE} to finish deleting." >&2
+  echo "Check the RDS console before continuing the teardown." >&2
+  exit 1
+fi
+echo "RDS instance ${DB_INSTANCE} deleted."
+
+echo "--- Retrying CrdDb stack delete now that the instance is gone ---"
+aws cloudformation delete-stack --stack-name CrdDb --region "$REGION"
+aws cloudformation wait stack-delete-complete --stack-name CrdDb --region "$REGION" \
+  && echo "CrdDb: deleted." \
+  || echo "CrdDb: still not deleted — check the console (subnet group / dependency)."
+
+echo "--- Deleting the orphaned RDS log group (AWS-managed, not in CFN) ---"
+aws logs delete-log-group --log-group-name "$DB_LOG_GROUP" --region "$REGION" \
+  && echo "Log group deleted." \
+  || echo "Log group already absent."
+
+# 4) Cluster, 5) Network last (NAT Gateway + EIP billing stops here)
+delete_stack CrdCluster
+delete_stack CrdNet
+
+# ------------------------------------------------------------- verify clean
+echo "=============================================================="
+echo "Verification (expect 'does not exist' for every stack):"
+for s in CrdFrontend CrdService CrdDb CrdCluster CrdNet; do
+  echo -n "  $s: "
+  aws cloudformation describe-stacks --stack-name "$s" --region "$REGION" \
+    --query 'Stacks[0].StackStatus' --output text 2>&1
+done
+echo -n "  RDS ${DB_INSTANCE}: "
+aws rds describe-db-instances --db-instance-identifier "$DB_INSTANCE" --region "$REGION" \
+  --query 'DBInstances[0].DBInstanceStatus' --output text 2>&1
+echo "  (want 'DBInstance not found')"
+echo "=============================================================="
+echo "REMINDER: Route 53 apex/api A-records now point at a deleted ALB."
+echo "They will resolve to a dead target until Gap 2 (Route 53 in IaC) is"
+echo "implemented, or you manually repoint them on the next deploy."
+echo "=============================================================="

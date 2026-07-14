@@ -1,0 +1,170 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: |
+  CrdFrontend — the React/nginx frontend as an isolated ECS Fargate service.
+  Runs the frontend container on port 3000 and registers tasks into the
+  existing CrdCluster FrontendTG (host-based routing: apex domain -> frontend).
+  Kept as a SEPARATE stack from the backend for blast-radius isolation and an
+  independent deploy cadence (frontend ships far more often than the API).
+
+  Imports:
+    - CrdClusterClusterName, CrdClusterFrontendTGArn, CrdClusterServiceSGId (Cluster stack)
+    - CrdNetPrivateSubnetIds (Networking stack)
+
+Parameters:
+  NetworkingStack:
+    Type: String
+    Description: Networking stack to import private subnet IDs from
+    Default: CrdNet
+
+  ClusterStack:
+    Type: String
+    Description: Cluster stack to import ClusterName, FrontendTGArn, ServiceSGId from
+    Default: CrdCluster
+
+  EcrImage:
+    Type: String
+    Description: >
+      SHA-pinned ECR image URI for frontend-react-js (NEVER :latest).
+      The image MUST be built with REACT_APP_BACKEND_URL=https://api.fentoncruddur.com
+      baked in at docker build time.
+
+  ContainerPort:
+    Type: Number
+    Default: 3000
+
+  Cpu:
+    Type: String
+    Default: '256'
+
+  Memory:
+    Type: String
+    Default: '512'
+
+  DesiredCount:
+    Type: Number
+    Default: 1
+
+  LogRetentionDays:
+    Type: Number
+    Default: 14
+
+Resources:
+
+  # ----------------------------------------------------------------------
+  # CloudWatch Log Group (this IS our app's log group — correct to declare,
+  # unlike the RDS log group which AWS auto-creates).
+  # ----------------------------------------------------------------------
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /cruddur/frontend-react-js
+      RetentionInDays: !Ref LogRetentionDays
+
+  # ----------------------------------------------------------------------
+  # Task Execution Role — lets the ECS agent pull the image from ECR and
+  # write logs to CloudWatch. No SSM read: the static frontend reads no params.
+  # ----------------------------------------------------------------------
+  ExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
+  # ----------------------------------------------------------------------
+  # Task Role — runtime identity of the frontend task. Deliberately MINIMAL:
+  # the React/nginx frontend serves static assets and calls the backend over
+  # HTTPS; it needs NO AWS permissions at runtime (least privilege).
+  # ----------------------------------------------------------------------
+  TaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+
+  # ----------------------------------------------------------------------
+  # ECS Task Definition (React/nginx container). CloudFormation requires
+  # PascalCase container properties (Name/Image/PortMappings/...).
+  # ----------------------------------------------------------------------
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: frontend-react-js
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: !Ref Cpu
+      Memory: !Ref Memory
+      ExecutionRoleArn: !GetAtt ExecutionRole.Arn
+      TaskRoleArn: !GetAtt TaskRole.Arn
+      ContainerDefinitions:
+        - Name: frontend-react-js
+          Image: !Ref EcrImage
+          Essential: true
+          PortMappings:
+            - ContainerPort: !Ref ContainerPort
+              Protocol: tcp
+              AppProtocol: http
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: frontend
+          # No runtime environment vars: REACT_APP_* are compiled into the
+          # static bundle at docker BUILD time (see Dockerfile.prod ARGs).
+          # The image must be rebuilt against the live backend URL to change it.
+
+  # ----------------------------------------------------------------------
+  # ECS Service — runs the task and registers it into the existing
+  # CrdCluster FrontendTG. Private subnets + NAT egress (Option A).
+  # ----------------------------------------------------------------------
+  Service:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: frontend-react-js
+      Cluster:
+        Fn::ImportValue: !Sub "${ClusterStack}ClusterName"
+      TaskDefinition: !Ref TaskDefinition
+      LaunchType: FARGATE
+      DesiredCount: !Ref DesiredCount
+      HealthCheckGracePeriodSeconds: 90
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          SecurityGroups:
+            - Fn::ImportValue: !Sub "${ClusterStack}ServiceSGId"
+          Subnets:
+            Fn::Split:
+              - ","
+              - Fn::ImportValue: !Sub "${NetworkingStack}PrivateSubnetIds"
+      LoadBalancers:
+        - TargetGroupArn:
+            Fn::ImportValue: !Sub "${ClusterStack}FrontendTGArn"
+          ContainerName: frontend-react-js
+          ContainerPort: !Ref ContainerPort
+
+Outputs:
+  FrontendServiceName:
+    Description: ECS Service name (for teardown / force-new-deployment)
+    Value: !GetAtt Service.Name
+    Export:
+      Name: !Sub "${AWS::StackName}ServiceName"
+
+  FrontendTaskDefArn:
+    Description: Frontend task definition ARN
+    Value: !Ref TaskDefinition
+    Export:
+      Name: !Sub "${AWS::StackName}TaskDefArn"

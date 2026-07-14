@@ -1,0 +1,14 @@
+[deploy]
+bucket = '<your-cfn-artifacts-bucket-name>'
+region = '<your-aws-region>'
+stack_name = 'CrdSrvBackendFlask'
+
+[parameters]
+NetworkingStack = 'CrdNet'
+ClusterStack = 'CrdCluster'
+ContainerPort = '4567'
+EcrImage = '<your-acct-id>.dkr.ecr.<your-region>.amazonaws.com/backend-flask:latest'
+ServiceCpu = '256'
+ServiceMemory = '512'
+DesiredCount = '1'
+AssignPublicIp = 'ENABLED'
