@@ -18,7 +18,7 @@ Parameters:
   DBSnapshotIdentifier:
     Type: String
     Description: Snapshot to restore the database from
-    Default: cruddur-db-pre-crddb-20260613
+    Default: cruddur-crddb-post-rotation-20260713
 
   DBInstanceClass:
     Type: String
