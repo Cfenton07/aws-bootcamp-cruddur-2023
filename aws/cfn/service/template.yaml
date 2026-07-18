@@ -21,6 +21,11 @@ Parameters:
     Description: The cluster stack to import ClusterName, BackendTGArn, ServiceSGId from
     Default: CrdCluster
 
+  DatabaseStack:
+    Type: String
+    Description: The database stack to import the DB endpoint and RDS-managed master user secret ARN from
+    Default: CrdDb
+
   ContainerPort:
     Type: Number
     Default: 4567
@@ -87,6 +92,17 @@ Resources:
                   - ssm:GetParameter
                 Resource:
                   - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cruddur/backend-flask/*"
+        # Read ONLY the RDS-managed master user secret (exact ARN imported from
+        # CrdDb, no wildcard). The ECS agent uses this at task start to inject
+        # PG_USER / PG_PASSWORD from the secret's JSON keys.
+        - PolicyName: SecretsManagerReadDbMaster
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource:
+                  Fn::ImportValue: !Sub "${DatabaseStack}DBMasterUserSecretArn"
 
   # ----------------------------------------------------------------------
   # IAM: Task Role (assumed by the running application)
@@ -189,11 +205,26 @@ Resources:
               Value: https://api.fentoncruddur.com
             - Name: AWS_DEFAULT_REGION
               Value: !Ref AWS::Region
-          # Secrets pulled from SSM Parameter Store (NOT hardcoded).
-          # Static AWS access keys removed — the app authenticates via the Task Role.
+            # DB host is non-secret; imported from the CrdDb stack export.
+            # The entrypoint combines it with PG_USER/PG_PASSWORD into the DB URL.
+            - Name: PG_HOST
+              Value:
+                Fn::ImportValue: !Sub "${DatabaseStack}DBEndpoint"
+          # DB credentials come from the RDS-managed Secrets Manager secret via
+          # ECS JSON-key selection (":username::" / ":password::"). No human ever
+          # writes the DB connection string — the entrypoint builds it at startup.
+          # OTEL header stays in SSM. Static AWS access keys removed (Task Role).
           Secrets:
-            - Name: CONNECTION_URL
-              ValueFrom: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cruddur/backend-flask/CONNECTION_URL"
+            - Name: PG_USER
+              ValueFrom: !Sub
+                - "${SecretArn}:username::"
+                - SecretArn:
+                    Fn::ImportValue: !Sub "${DatabaseStack}DBMasterUserSecretArn"
+            - Name: PG_PASSWORD
+              ValueFrom: !Sub
+                - "${SecretArn}:password::"
+                - SecretArn:
+                    Fn::ImportValue: !Sub "${DatabaseStack}DBMasterUserSecretArn"
             - Name: OTEL_EXPORTER_OTLP_HEADERS
               ValueFrom: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/cruddur/backend-flask/OTEL_EXPORTER_OTLP_HEADERS"
 
