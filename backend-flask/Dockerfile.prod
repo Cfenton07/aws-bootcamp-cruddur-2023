@@ -14,15 +14,10 @@ ENV FLASK_DEBUG=0
 
 EXPOSE ${PORT}
 
-# Production Flask run flags:
-# --no-debug:    disables the Werkzeug interactive debugger
-# --no-debugger: disables the IDE debugger attachment point
-# --no-reload:   disables the auto-reloader (not needed in production)
-CMD [ \
-  "python3", "-m", "flask", "run", \
-  "--host=0.0.0.0", \
-  "--port=4567", \
-  "--no-debug", \
-  "--no-debugger", \
-  "--no-reload" \
-]
+# Production entrypoint: assembles CONNECTION_URL from the injected secret parts
+# (PG_USER / PG_PASSWORD from the RDS-managed Secrets Manager secret, PG_HOST
+# from the CrdDb stack export), then execs gunicorn as PID 1 so ECS SIGTERM is
+# received for graceful shutdown. Baked into the image via COPY (never mounted).
+COPY bin/docker/entrypoint-prod /backend-flask/bin/docker/entrypoint-prod
+RUN chmod +x /backend-flask/bin/docker/entrypoint-prod
+ENTRYPOINT ["/backend-flask/bin/docker/entrypoint-prod"]

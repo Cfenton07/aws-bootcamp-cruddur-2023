@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -e
+
+# Production entrypoint for the backend-flask container.
+#
+# ECS injects the database master credentials as three separate variables:
+#   PG_USER, PG_PASSWORD  <- RDS-managed Secrets Manager secret (username/password keys)
+#   PG_HOST               <- plain env var from the CrdDb stack export (DBEndpoint)
+#
+# We assemble CONNECTION_URL here so that no human ever writes it and the
+# application code (which reads CONNECTION_URL) stays unchanged.
+
+# Fail fast: never start gunicorn with a URL built from empty parts.
+if [ -z "${PG_USER}" ] || [ -z "${PG_PASSWORD}" ] || [ -z "${PG_HOST}" ]; then
+  echo "FATAL: PG_USER, PG_PASSWORD and PG_HOST must all be set. Refusing to start." >&2
+  exit 1
+fi
+
+export CONNECTION_URL="postgresql://${PG_USER}:${PG_PASSWORD}@${PG_HOST}:5432/cruddur"
+
+# exec => gunicorn becomes PID 1 and receives SIGTERM from ECS for graceful shutdown.
+exec gunicorn -w 2 --threads 4 -b 0.0.0.0:4567 --access-logfile - --error-logfile - app:app

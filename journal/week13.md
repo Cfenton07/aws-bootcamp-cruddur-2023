@@ -24,7 +24,7 @@ The proof came after deploy: both records existed, aliased to the brand-new ALB,
 
 ## Hardening teardown-all: verify state transitions, don't assume success
 
-The previous teardown run had a silent failure: the RDS `delete-db-instance` call failed, an `|| echo` swallowed the error, and the subsequent waiter returned instantly against a still`available` instance — the script reported success for a delete that never happened. The rewrite:
+The previous teardown run had a silent failure: the RDS `delete-db-instance` call failed, an `|| echo` swallowed the error, and the subsequent waiter returned instantly against a still `available` instance — the script reported success for a delete that never happened. The rewrite:
 
 - Capture the delete command's output and exit code.
 
@@ -32,7 +32,7 @@ The previous teardown run had a silent failure: the RDS `delete-db-instance` cal
 
 - On success, **poll `DBInstanceStatus` until it actually reads `deleting`** before starting the long wait — so a no-op can never masquerade as success.
 
-On its first live run tonight, the new code confirmed the state transition on the first poll `attempt 1/12: status=deleting`) — the exact spot where the old script had lied. The principle: **a script should verify state transitions, not assume that a command that didn't visibly error must have worked.** The same audit found four other `|| echo` swallows in the script; all four proved benign, because nothing downstream assumes the swallowed command succeeded — which is precisely the property that makes an error-swallow safe or dangerous.
+On its first live run tonight, the new code confirmed the state transition on the first poll (`attempt 1/12: status=deleting`) — the exact spot where the old script had lied. The principle: **a script should verify state transitions, not assume that a command that didn't visibly error must have worked.** The same audit found four other `|| echo` swallows in the script; all four proved benign, because nothing downstream assumes the swallowed command succeeded — which is precisely the property that makes an error-swallow safe or dangerous.
 
 ## Credential remediation, end to end
 
@@ -40,9 +40,9 @@ On its first live run tonight, the new code confirmed the state transition on th
 
 - Rotated the RDS master password during the deploy — at the pause after CrdDb restored, before CrdService launched — then rewrote the SSM parameter (Version 4) so the first backend task read the fresh value at startup.
 
-- **The trap I caught before it fired:** rotating the password on the running instance does nothing to the restore snapshot. The next deploy would have restored an instance carrying the *old* password while SSM held the *new* one — trading last week's PoolTimeout for an auth failure. Fix: took a fresh snapshot of the instance *after* rotation `cruddur-crddb-post-rotation-20260713`) and repointed the CrdDb template and config at it. Snapshot, instance password, and SSM are now consistent by construction.
+- **The trap I caught before it fired:** rotating the password on the running instance does nothing to the restore snapshot. The next deploy would have restored an instance carrying the *old* password while SSM held the *new* one — trading last week's PoolTimeout for an auth failure. Fix: took a fresh snapshot of the instance *after* rotation (`cruddur-crddb-post-rotation-20260713`) and repointed the CrdDb template and config at it. Snapshot, instance password, and SSM are now consistent by construction.
 
-- Still open: scrubbing the old credential blobs from git history `git filter-repo`) before the PR to main. Scrubbing is hygiene, not incident response — rotation is what actually closed the exposure.
+- Still open: scrubbing the old credential blobs from git history (`git filter-repo`) before the PR to main. Scrubbing is hygiene, not incident response — rotation is what actually closed the exposure.
 
 ## The decisive test
 

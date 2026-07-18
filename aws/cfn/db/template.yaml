@@ -82,6 +82,10 @@ Resources:
       EnableCloudwatchLogsExports:
         - postgresql
       CopyTagsToSnapshot: true
+      # Let RDS generate and manage the master user password in Secrets Manager.
+      # On snapshot restore this resets the master password to the managed secret,
+      # so no human ever handles or writes the DB password again.
+      ManageMasterUserPassword: true
       Tags:
         - Key: Name
           Value: cruddur-crddb-instance        
@@ -102,4 +106,10 @@ Outputs:
     Description: Security group ID for the CrdDb instance
     Value: !GetAtt DBSecurityGroup.GroupId
     Export:
-      Name: !Sub "${AWS::StackName}DBSecurityGroupId"  
+      Name: !Sub "${AWS::StackName}DBSecurityGroupId"
+
+  DBMasterUserSecretArn:
+    Description: ARN of the RDS-managed master user secret in Secrets Manager
+    Value: !GetAtt Database.MasterUserSecret.SecretArn
+    Export:
+      Name: !Sub "${AWS::StackName}DBMasterUserSecretArn"
