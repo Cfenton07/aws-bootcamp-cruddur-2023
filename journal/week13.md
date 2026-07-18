@@ -48,17 +48,6 @@ On its first live run tonight, the new code confirmed the state transition on th
 
 With everything deployed: posted a crud with DevTools open. `POST /api/activities` returned **200 in ~42 milliseconds** — against last week's 30-second timeout and 500. Hostname fix, rotated password, security group chain, and schema all validated by one request. (One cosmetic bug logged: new posts show a broken avatar until refresh — the optimistic UI update object lacks the avatar UUID field the home query returns. App-layer, P3.)
 
-## Open items
-
-- Git history scrub → force-push both branches → PR `kiro-dev` → `main`
-
-- Avatar optimistic-update bug (P3)
-
-- Stale reminder text at the end of teardown-all (still references Gap 2 as open)
-
-- Delete the superseded June 13 snapshot after a safety window
-
-- Backlog: derive CONNECTION_URL from the CrdDb stack output + Secrets Manager; replace the Flask dev server with gunicorn; remove static AWS keys from SSM (Task Role makes them unnecessary)
 ## Closing out the week: history scrub, prod repoint, PR #11
 
 The remaining Bucket A items landed across two follow-up sessions. I scrubbed both leaked passwords from all 343 commits of git history with `git filter-repo --replace-text` (backup clone first — the only undo button a history rewrite has), verified with `git log -S` across all refs, and force-pushed the rewritten history to both `kiro-dev` and `main`.
