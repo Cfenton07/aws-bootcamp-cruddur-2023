@@ -31,6 +31,9 @@ export default function DesktopNavigationLink(props) {
       case 'messages':
         return <MessagesIcon className='icon' />
         break;
+      case 'people':
+        return <ProfileIcon className='icon' />
+        break;
     }
   }
 

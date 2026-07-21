@@ -1,4 +1,5 @@
 import './ProfileHeading.css';
+import { Link } from 'react-router-dom';
 import EditProfileButton from '../components/EditProfileButton';
 import ProfileAvatar from './ProfileAvatar';
 
@@ -9,6 +10,8 @@ export default function ProfileHeading(props) {
     backgroundSize: 'cover',
     backgroundPosition: 'center',
   };
+
+  const isOwnProfile = props.user && props.profile && props.user.handle === props.profile.handle;
 
   return (
     <div className='profile_heading'>
@@ -22,7 +25,10 @@ export default function ProfileHeading(props) {
           <div className='display_name'>{props.profile.display_name}</div>
           <div className='handle'>@{props.profile.handle}</div>
         </div>
-        <EditProfileButton setPopped={props.setPopped} />
+        {isOwnProfile
+          ? <EditProfileButton setPopped={props.setPopped} />
+          : (props.profile.handle && <Link to={'/messages/new/' + props.profile.handle} className='profile_edit_btn'>Message</Link>)
+        }
       </div>
       <div className='cruds_count'>{props.profile.cruds_count} Cruds</div>
       <div className='bio'>{props.profile.bio}</div>

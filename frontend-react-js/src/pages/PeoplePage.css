@@ -1,0 +1,36 @@
+/* People directory rows reuse SuggestedUserItem's user-row styling verbatim,
+   re-scoped from `.suggested_users` to `.people_list` (the sidebar-scoped
+   selectors would not otherwise apply here). No new visual language added.
+
+   Avatar sizing (below) reuses SuggestedUserItem's 36px/12px avatar dimensions,
+   applied to ProfileAvatar's `.profile-avatar` element (per Ruling 3). */
+.people_list .user {
+  text-decoration: none;
+  font-size: 16px;
+  color: #fff;
+  padding: 16px;
+  display: flex;
+}
+
+.people_list .user span {
+  display: block;
+}
+
+.people_list .user span.handle {
+  font-size: 13px;
+  color: rgba(255,255,255,0.5)
+}
+
+/* ProfileAvatar sizing for people rows — reuses the 36px/12px dimensions from
+   `.suggested_users .avatar` (dimension reuse, not new visual language). */
+.people_list .profile-avatar {
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  margin-right: 12px;
+}
+
+.people_list .profile-avatar img {
+  width: 100%;
+  height: 100%;
+}

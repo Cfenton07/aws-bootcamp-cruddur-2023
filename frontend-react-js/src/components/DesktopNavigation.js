@@ -10,6 +10,7 @@ export default function DesktopNavigation(props) {
   let profile;
   let notificationsLink;
   let messagesLink;
+  let peopleLink;
   let profileLink;
   if (props.user) {
     button = <CrudButton setPopped={props.setPopped} />;
@@ -24,8 +25,13 @@ export default function DesktopNavigation(props) {
       name="Messages"
       handle="messages" 
       active={props.active} />
+    peopleLink = <DesktopNavigationLink 
+      url="/people"
+      name="People"
+      handle="people" 
+      active={props.active} />
     profileLink = <DesktopNavigationLink 
-      url="/@chrisfenton" 
+      url={"/@" + props.user.handle} 
       name="Profile"
       handle="profile"
       active={props.active} />
@@ -40,6 +46,7 @@ export default function DesktopNavigation(props) {
         active={props.active} />
       {notificationsLink}
       {messagesLink}
+      {peopleLink}
       {profileLink}
       <DesktopNavigationLink url="/#" 
         name="More" 
