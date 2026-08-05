@@ -75,3 +75,15 @@ With the architecture proven, the next session removed the root cause behind bot
 - Avatar optimistic-update bug (P3): new posts show a broken avatar until refresh — create_activity response lacks the avatar UUID field the home query returns
 - Delete the pre-scrub backup clone and the superseded June 13 snapshot after their safety windows
 - Backlog: pipeline enablement as part of deploy orchestration; gunicorn worker tuning under load; DynamoDB CFN stack (CrdDynamo)
+
+Close-out of Week 13 open items
+
+The Week 13 entry ended with several items still outstanding. All of them were resolved during the Week 14 sessions, recorded here so this entry doesn't leave loose threads:
+
+- IAM key rotation. The C.Fenton_CLI access key created June 9 was rotated on August 1 using a two-key overlap (create the new key, repoint the CLI, verify with sts get-caller-identity, then deactivate the old one). The old key was deleted on August 4 after a full five-stack deploy proved nothing depended on it.
+- CodePipeline Build inbound transition. Disabled during the history scrub so a force-push wouldn't trigger a build. Re-enabled on August 4 at the start of the deploy session — the disabled-reason field I had filled in ("Infra torn down; scrub force-push pending. Re-enable at next deploy-all.") told present-me exactly what past-me had intended.
+- Pre-scrub backup clone and June 13 RDS snapshot. Both deleted on August 1 after two successful deploys proved the rewritten history and the post-rotation snapshot. The June snapshot in particular was a landmine: it predated the password rotation, so restoring from it would have reintroduced the drift I had just defused.
+- Avatar P3 bug (broken avatar on new posts). Root-caused as a response-shape mismatch between home.sql and object.sql and fixed as Task B of the beta-features work. Details in the Week 14 entry.
+- DynamoDB TaskRole permissions. The # TODO (CrdDynamo session) comment left in aws/cfn/service/template.yaml was closed on August 4, after production DMs failed with AccessDeniedException. The deferral was deliberate and documented; production verification found exactly the gap the note predicted.
+
+The beta-readiness work that follows from here — multi-user correctness, user discovery, and the first production deploy exercised by two real accounts — is recorded in journal/week14.md.
