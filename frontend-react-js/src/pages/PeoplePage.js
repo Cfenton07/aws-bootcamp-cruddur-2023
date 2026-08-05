@@ -1,26 +1,19 @@
-import './UserFeedPage.css';
+import './PeoplePage.css';
 import React from "react";
-import { useParams } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 
 import DesktopNavigation  from '../components/DesktopNavigation';
 import DesktopSidebar     from '../components/DesktopSidebar';
-import ActivityFeed from '../components/ActivityFeed';
-import ActivityForm from '../components/ActivityForm';
-import ProfileHeading from '../components/ProfileHeading';
-import ProfileForm from '../components/ProfileForm';
+import ProfileAvatar from '../components/ProfileAvatar';
 
 import { signOut } from 'aws-amplify/auth';
 import { checkAuth, getAccessToken } from '../components/lib/CheckAuth';
 
-export default function UserFeedPage() {
-  const [activities, setActivities] = React.useState([]);
-  const [profile, setProfile] = React.useState({});
+export default function PeoplePage() {
+  const [people, setPeople] = React.useState([]);
   const [popped, setPopped] = React.useState(false);
-  const [poppedProfile, setPoppedProfile] = React.useState(false);
   const [user, setUser] = React.useState(null);
   const dataFetchedRef = React.useRef(false);
-
-  const params = useParams();
 
   const loadData = async () => {
     const headers = {};
@@ -31,16 +24,14 @@ export default function UserFeedPage() {
     }
 
     try {
-      const backend_url = `${process.env.REACT_APP_BACKEND_URL}/api/activities/@${params.handle}`
+      const backend_url = `${process.env.REACT_APP_BACKEND_URL}/api/users`
       const res = await fetch(backend_url, {
         method: "GET",
         headers: headers,
       });
       let resJson = await res.json();
       if (res.status === 200) {
-        console.log('PROFILE DATA:', resJson);
-        setProfile(resJson.profile);
-        setActivities(resJson.profile.activities);
+        setPeople(resJson)
       } else {
         console.log(res)
       }
@@ -59,6 +50,7 @@ export default function UserFeedPage() {
   };
 
   React.useEffect(()=>{
+    //prevents double call
     if (dataFetchedRef.current) return;
     dataFetchedRef.current = true;
 
@@ -68,18 +60,25 @@ export default function UserFeedPage() {
 
   return (
     <article>
-      <DesktopNavigation user={user} active={'profile'} setPopped={setPopped} handleSignOut={handleSignOut} />
+      <DesktopNavigation user={user} active={'people'} setPopped={setPopped} handleSignOut={handleSignOut} />
       <div className='content'>
-        <ActivityForm popped={popped} setActivities={setActivities} />
-       <ProfileForm 
-          profile={profile}
-          popped={poppedProfile} 
-          setPopped={setPoppedProfile}
-          loadData={loadData}
-        />
         <div className='activity_feed'>
-          <ProfileHeading setPopped={setPoppedProfile} profile={profile} user={user} />
-          <ActivityFeed activities={activities} />
+          <div className='activity_feed_heading'>
+            <div className='title'>People</div>
+          </div>
+          <div className='people_list'>
+            {people.map(person => {
+              return (
+                <Link className="user" to={'/@' + person.handle} key={person.uuid}>
+                  <ProfileAvatar id={person.cognito_user_id} />
+                  <div className='identity'>
+                    <span className="display_name">{person.display_name}</span>
+                    <span className="handle">@{person.handle}</span>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
         </div>
       </div>
       <DesktopSidebar user={user} />

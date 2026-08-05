@@ -7,14 +7,14 @@ class CreateActivity:
   # @staticmethod decorator allows this method to be called without creating a class instance
   # This is useful for utility functions that don't need access to instance data (self)
   @staticmethod
-  def run(message, user_handle, ttl):
+  def run(message, cognito_user_id, ttl):
     # ============================================================
     # DEBUG LOGGING: Print incoming parameters for troubleshooting
     # ============================================================
     print('='*60)
     print('🔍 CreateActivity.run() called!')
     print(f'   message: {message}')
-    print(f'   user_handle: {user_handle}')
+    print(f'   cognito_user_id: {cognito_user_id}')
     print(f'   ttl: {ttl}')
     print('='*60)
     
@@ -61,12 +61,12 @@ class CreateActivity:
       model['errors'] = ['ttl_blank']
 
     # ============================================================
-    # VALIDATE USER HANDLE
+    # VALIDATE COGNITO USER ID
     # ============================================================
-    # Check if user_handle is provided and not empty
-    # user_handle identifies who is creating the activity
-    if user_handle == None or len(user_handle) < 1:
-      model['errors'] = ['user_handle_blank']
+    # Check if cognito_user_id is provided and not empty
+    # cognito_user_id identifies who is creating the activity
+    if cognito_user_id == None or len(cognito_user_id) < 1:
+      model['errors'] = ['cognito_user_id_blank']
 
     # ============================================================
     # VALIDATE MESSAGE
@@ -88,7 +88,7 @@ class CreateActivity:
       # The frontend can use this to show error messages to the user
       print(f'❌ Validation errors: {model["errors"]}')
       model['data'] = {
-        'handle':  user_handle,
+        'handle':  cognito_user_id,
         'message': message
       }  
     else:
@@ -102,7 +102,7 @@ class CreateActivity:
       expires_at = (now + ttl_offset)
       
       # Insert the activity into the database and get back its UUID
-      uuid = CreateActivity.create_activity(user_handle, message, expires_at)
+      uuid = CreateActivity.create_activity(cognito_user_id, message, expires_at)
       print(f'✅ Activity created with UUID: {uuid}')
       
       # Retrieve the complete activity object from the database
@@ -125,12 +125,12 @@ class CreateActivity:
   # DATABASE INSERT HELPER METHOD
   # ============================================================
   @staticmethod
-  def create_activity(handle, message, expires_at):
+  def create_activity(cognito_user_id, message, expires_at):
     """
     Inserts a new activity into the database
     
     Args:
-        handle: Username of the person creating the activity
+        cognito_user_id: Cognito sub (user id) of the person creating the activity
         message: Content of the activity/post
         expires_at: When the activity should expire
     
@@ -149,7 +149,7 @@ class CreateActivity:
     # 2. Commit the transaction to save changes
     # 3. Return the UUID from the RETURNING clause in the SQL
     uuid = db.query_commit(sql,{
-      'handle': handle,
+      'cognito_user_id': cognito_user_id,
       'message': message,
       'expires_at': expires_at
     })

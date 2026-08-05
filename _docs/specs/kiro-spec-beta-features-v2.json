@@ -1,0 +1,201 @@
+{
+  "spec_name": "beta-readiness-fixes-and-discovery-features",
+  "spec_version": "2.0",
+  "supersedes": "kiro-spec-avatar-fix-beta-features.json v1.0",
+  "date": "2026-07-20",
+  "project": "Cruddur (aws-bootcamp-cruddur-2023)",
+  "branch": "kiro-dev",
+  "verified_against_commit": "2959d7a (full codebase reviewed by mentor before spec authoring; all file paths, line references, field names, and patterns below are verified facts, not guesses)",
+
+  "mode": {
+    "autonomy": "SUPERVISED",
+    "rules": [
+      "Author and edit files only. Do NOT execute git commands, AWS CLI commands, docker commands, npm installs, or deployments.",
+      "Do NOT self-approve or mark tasks complete. Report changed file paths; the human runs all verification gates and commands.",
+      "If actual code differs from what this spec states (line numbers may drift slightly), STOP and report the discrepancy before editing. Do not silently adapt.",
+      "New files use LF line endings. Do NOT mass-convert line endings of existing files (ActivityForm.js currently has CRLF; edit it in place without converting untouched lines' endings if the editor allows, and do not let a save rewrite the whole file's endings silently).",
+      "Never write credentials, connection strings, account IDs, or secrets into any file.",
+      "Do not modify any file outside each task's files_in_scope.",
+      "Do not add npm dependencies, Python packages, or AWS resources. Everything below uses only what exists.",
+      "Aesthetics rule: introduce ZERO new visual styles. Every new UI element must reuse an existing CSS class or component pattern named in its task. No new colors, fonts, spacings, or button shapes."
+    ]
+  },
+
+  "context": {
+    "app": "Cruddur microblogging app. Flask backend (gunicorn) + React (react-router v6, createBrowserRouter) frontend. RDS PostgreSQL for users/activities, DynamoDB for DMs. Avatars served from https://assets.fentoncruddur.com/avatars/processed/{cognito_user_id}.jpg via ProfileAvatar component.",
+    "auth_pattern": "JWT verification exists and works. Reference implementation: data_update_profile in backend-flask/app.py (~line 505): extract_access_token(request.headers) -> cognito_jwt_token.verify(access_token) -> claims['sub'] is the cognito_user_id -> TokenVerifyError except-branch returns {}, 401. Frontend token pattern: getAccessToken() from components/lib/CheckAuth.js, sent as 'Authorization': `Bearer ${accessToken}` (see UserFeedPage.js loadData).",
+    "signed_in_user_object": "checkAuth(setUser) in components/lib/CheckAuth.js sets user = { display_name, handle, cognito_user_id } from Cognito attributes. Pages hold it in `user` state and pass it to DesktopNavigation/DesktopSidebar as props.user.",
+    "profile_route": "/@:handle -> UserFeedPage (verified in App.js). New-message route: /messages/new/:handle -> MessageGroupNewPage (verified in App.js).",
+    "goal": "Make the app multi-user-correct and self-discoverable for a 10-30 person closed beta."
+  },
+
+  "tasks": [
+    {
+      "id": "A",
+      "title": "P0 - Real post attribution: replace hardcoded user_handle with JWT identity (backend + frontend)",
+      "why": "backend-flask/app.py line ~446 hardcodes user_handle = 'chrisfenton' in data_activities. Every user's post is attributed to chrisfenton. ActivityForm.js also sends no Authorization header, so identity cannot currently reach the backend.",
+      "changes": [
+        {
+          "file": "frontend-react-js/src/components/ActivityForm.js",
+          "instruction": "Import getAccessToken from '../components/lib/CheckAuth' (adjust relative path: this file lives in components/, so './lib/CheckAuth'). In onsubmit, before the fetch, call const accessToken = await getAccessToken(); and add 'Authorization': `Bearer ${accessToken}` to the headers object, exactly mirroring the header pattern in UserFeedPage.js loadData."
+        },
+        {
+          "file": "backend-flask/app.py (data_activities route only, ~line 427-467)",
+          "instruction": "Replace the hardcoded user_handle = 'chrisfenton' with the exact auth pattern from data_update_profile in this same file: access_token = extract_access_token(request.headers); claims = cognito_jwt_token.verify(access_token); cognito_user_id = claims['sub']; wrapped so TokenVerifyError returns {}, 401. Pass cognito_user_id (NOT a handle) to CreateActivity.run. Keep the existing OPTIONS preflight handling and debug logging structure."
+        },
+        {
+          "file": "backend-flask/services/create_activity.py",
+          "instruction": "Change run(message, user_handle, ttl) to run(message, cognito_user_id, ttl). Update the validation branch from user_handle checks to cognito_user_id checks (error key 'cognito_user_id_blank'). Pass cognito_user_id through create_activity() into the SQL params as 'cognito_user_id'. Do not change the TTL logic, response model shape, or query_object_activity."
+        },
+        {
+          "file": "backend-flask/db/sql/activities/create.sql",
+          "instruction": "Change the inner SELECT's WHERE clause from users.handle = %(handle)s to users.cognito_user_id = %(cognito_user_id)s. This mirrors the existing lookup in db/sql/activities/users/uuid_from_cognito_user_id.sql. Nothing else in the file changes."
+        }
+      ],
+      "explicitly_not_in_scope": "data_activities_reply (~line 481) has the same hardcoded handle, but CreateReply is a non-persisting mock (writes nothing to the database). Fixing replies requires a schema migration (reply_to_activity_uuid is typed integer but must hold a UUID) and is deferred to a separate spec by human decision. Do not touch reply code in this spec."
+    },
+    {
+      "id": "B",
+      "title": "P1 - Avatar + counts on new posts: response shape parity in object.sql",
+      "why": "ActivityForm prepends the create-response object directly into the feed (setActivities(current => [data,...current])). The feed's ProfileAvatar reads activity.cognito_user_id and ActivityItem reads replies_count/reposts_count/likes_count. home.sql returns all of these; object.sql returns none of them, so a fresh post renders a broken avatar and empty counts until refresh.",
+      "changes": [
+        {
+          "file": "backend-flask/db/sql/activities/object.sql",
+          "instruction": "Add these five fields to the SELECT so its output shape matches home.sql exactly for all fields the frontend consumes: users.cognito_user_id, activities.replies_count, activities.reposts_count, activities.likes_count, activities.reply_to_activity_uuid. Keep existing fields and the INNER JOIN/WHERE unchanged."
+        }
+      ]
+    },
+    {
+      "id": "C",
+      "title": "P1 - Fix hardcoded Profile nav link",
+      "why": "DesktopNavigation.js line ~28 hardcodes url=\"/@chrisfenton\" for the Profile link. Every user's Profile button navigates to chrisfenton's page.",
+      "changes": [
+        {
+          "file": "frontend-react-js/src/components/DesktopNavigation.js",
+          "instruction": "In the props.user branch, change the profileLink url to a template using the signed-in user's handle: url={\"/@\" + props.user.handle}. The user object is guaranteed to have .handle here (set by checkAuth). No other nav items change in this task."
+        }
+      ]
+    },
+    {
+      "id": "D",
+      "title": "P2 - Profile page: Edit Profile for self, Message button for others",
+      "why": "ProfileHeading.js renders EditProfileButton unconditionally, including on other users' profiles. For beta discovery, viewing someone else's profile should offer Message instead, linking into the existing /messages/new/:handle flow.",
+      "changes": [
+        {
+          "file": "frontend-react-js/src/pages/UserFeedPage.js",
+          "instruction": "Pass the signed-in user into the heading: <ProfileHeading setPopped={setPoppedProfile} profile={profile} user={user} />. No other changes to this page."
+        },
+        {
+          "file": "frontend-react-js/src/components/ProfileHeading.js",
+          "instruction": "Compute const isOwnProfile = props.user && props.profile && props.user.handle === props.profile.handle. Render EditProfileButton only when isOwnProfile. When not own profile (and props.profile.handle exists), render a react-router <Link to={'/messages/new/' + props.profile.handle} className='profile_edit_btn'>Message</Link> in the exact same position in the .info div where EditProfileButton sits. Import Link from react-router-dom.",
+          "aesthetics": "Reuse the existing .profile_edit_btn class from EditProfileButton.css verbatim (pill border, transparent background, hover fill). Do not create a new CSS class or file. The Message link occupies the same slot as Edit Profile, so layout is unchanged. Note: .profile_edit_btn styles a <button>; applied to a <Link> (renders <a>), add ONLY text-decoration: none via the existing class if links show underline - if needed, extend EditProfileButton.css with a.profile_edit_btn { text-decoration: none; } and nothing else."
+        }
+      ]
+    },
+    {
+      "id": "E",
+      "title": "P2 - Make sidebar SuggestedUserItem clickable",
+      "why": "ActivityContent already links usernames to /@handle (verified). The only user-rendering component with no link is SuggestedUserItem.js.",
+      "changes": [
+        {
+          "file": "frontend-react-js/src/components/SuggestedUserItem.js",
+          "instruction": "Import Link from react-router-dom and wrap the existing .user div's contents in (or convert the outer div to) a <Link to={'/@' + props.handle}> preserving the existing className='user' on the rendered element so SuggestedUserItem.css applies unchanged. Add no new styles beyond text-decoration handling if underlines appear (match the approach used in Task D)."
+        }
+      ]
+    },
+    {
+      "id": "F",
+      "title": "P2 - People directory: backend endpoint + /people page + nav link",
+      "why": "There is no way to discover users you haven't seen post. A flat directory closes the loop for beta scale.",
+      "changes": [
+        {
+          "file": "backend-flask/db/sql/users/index.sql (NEW)",
+          "instruction": "SELECT users.uuid, users.handle, users.display_name, users.cognito_user_id FROM public.users ORDER BY users.display_name ASC. Return all rows as a JSON array using the same COALESCE(array_to_json(array_agg(row_to_json(...)))) wrapping pattern found in db/sql/users/show.sql's activities subquery, so db.query_array_json (or the array-json helper used elsewhere in lib/db.py - check which helper home_activities.py uses and match it) returns a clean array."
+        },
+        {
+          "file": "backend-flask/services/users_index.py (NEW)",
+          "instruction": "Mirror users_short.py exactly in structure: from lib.db import db; class UsersIndex with run() (no args); sql = db.template('users','index'); return the query result. Use the array-returning query helper consistent with how home_activities.py returns its list."
+        },
+        {
+          "file": "backend-flask/app.py",
+          "instruction": "Register @app.route(\"/api/users\", methods=['GET','OPTIONS']) with @cross_origin(), following the decorator style of data_messages (~line 271). Handler: import UsersIndex alongside the existing service imports, return UsersIndex.run(), 200. Handle OPTIONS with the same early-return pattern used in data_activities. IMPORTANT: use the path /api/users, NOT /api/users/@all, to avoid any ambiguity with the existing /api/users/@<string:handle>/short route."
+        },
+        {
+          "file": "frontend-react-js/src/pages/PeoplePage.js (NEW) and PeoplePage.css (NEW)",
+          "instruction": "Mirror the structure of NotificationsFeedPage.js (simplest existing authenticated page): imports DesktopNavigation and DesktopSidebar, checkAuth(setUser) + dataFetchedRef pattern in useEffect, loadData fetching `${process.env.REACT_APP_BACKEND_URL}/api/users` with the Authorization Bearer header via getAccessToken. Render inside the standard <article> / DesktopNavigation / <div className='content'> / DesktopSidebar skeleton. In the content area render a heading 'People' styled like other pages' headers (copy the title markup/classes used in NotificationsFeedPage or MessageGroupsPage), then one row per user: ProfileAvatar (id={user.cognito_user_id}) + display_name + @handle, the whole row wrapped in <Link to={'/@' + user.handle}>.",
+          "aesthetics": "Row markup and class names must copy SuggestedUserItem's structure (.user / .identity / .display_name / .handle) and PeoplePage.css should import/duplicate only those existing rules from SuggestedUserItem.css - no new visual language. Rows are a vertical list in the main content column, same width behavior as the activity feed. No cards, no grids, no new colors."
+        },
+        {
+          "file": "frontend-react-js/src/App.js",
+          "instruction": "Add route { path: \"/people\", element: <PeoplePage /> } to createBrowserRouter, placed after /notifications. Import PeoplePage with the other page imports."
+        },
+        {
+          "file": "frontend-react-js/src/components/DesktopNavigation.js",
+          "instruction": "Inside the props.user branch, add a peopleLink DesktopNavigationLink with url=\"/people\", name=\"People\", handle=\"people\", active={props.active}, rendered between messagesLink and profileLink. First read DesktopNavigationLink.js to see how it maps `handle` to an icon; if it has a fixed icon mapping with no entry for 'people', reuse the closest existing icon mapping mechanism rather than adding a new svg - report what you find in the completion report. Set active={'people'} on PeoplePage's DesktopNavigation usage."
+        }
+      ]
+    }
+  ],
+
+  "completion_report_required": {
+    "format": "For each task: list of files changed (full paths), and for Task F the DesktopNavigationLink icon findings. Note any place where actual code differed from this spec's description.",
+    "reminder": "Do not run gates. Do not modify code or comments to influence gate output. If a gate premise looks wrong, say so in the report for human ruling."
+  },
+
+  "verification_gates_human_run": [
+    {
+      "id": "GATE-1",
+      "name": "No hardcoded identity remains",
+      "command": "grep -rn \"chrisfenton\" backend-flask/app.py frontend-react-js/src/components/DesktopNavigation.js",
+      "pass_criteria": "Zero hits in data_activities and DesktopNavigation. (A hit may legitimately remain at app.py ~line 485 inside the reply route, which is explicitly out of scope - verify any remaining hit is ONLY there.)"
+    },
+    {
+      "id": "GATE-2",
+      "name": "Auth wired end to end for posting",
+      "command": "grep -n \"Authorization\" frontend-react-js/src/components/ActivityForm.js && grep -n \"claims\\['sub'\\]\\|TokenVerifyError\" backend-flask/app.py | head",
+      "pass_criteria": "ActivityForm sends Bearer header; data_activities verifies token and has a 401 branch."
+    },
+    {
+      "id": "GATE-3",
+      "name": "Shape parity in object.sql",
+      "command": "grep -c \"cognito_user_id\\|replies_count\\|reposts_count\\|likes_count\\|reply_to_activity_uuid\" backend-flask/db/sql/activities/object.sql",
+      "pass_criteria": "Count is 5."
+    },
+    {
+      "id": "GATE-4",
+      "name": "Self/other conditional on profile",
+      "command": "grep -n \"isOwnProfile\\|messages/new\" frontend-react-js/src/components/ProfileHeading.js",
+      "pass_criteria": "Conditional exists; Message link targets /messages/new/ + handle; EditProfileButton only in the own-profile branch."
+    },
+    {
+      "id": "GATE-5",
+      "name": "Directory wiring",
+      "command": "grep -n \"api/users\" backend-flask/app.py && ls backend-flask/db/sql/users/index.sql backend-flask/services/users_index.py frontend-react-js/src/pages/PeoplePage.js && grep -n \"people\" frontend-react-js/src/App.js frontend-react-js/src/components/DesktopNavigation.js",
+      "pass_criteria": "Route registered with cross_origin, all three new files exist, /people route and nav link present."
+    },
+    {
+      "id": "GATE-6",
+      "name": "Frontend builds clean",
+      "command": "npm run build (in frontend-react-js, locally or in container)",
+      "pass_criteria": "Build succeeds; no new errors versus pre-change baseline."
+    }
+  ],
+
+  "post_deploy_human_tests": [
+    "TWO-ACCOUNT ATTRIBUTION TEST (the decisive one): sign in as a second test account, post a crud, confirm it appears under that account's name and avatar - not chrisfenton. This proves Task A end to end.",
+    "Fresh-post rendering: post a crud and confirm avatar AND action counts render immediately without refresh (Task B).",
+    "Profile nav: as the second account, click Profile in the nav - it must land on that account's own page (Task C).",
+    "Discovery loop: home feed -> tap a username -> profile shows Message button (not Edit Profile) -> tap Message -> compose view at /messages/new/:handle (Task D).",
+    "Own profile still shows Edit Profile and it still opens the profile form (Task D regression check).",
+    "Sidebar suggested user navigates to their profile (Task E).",
+    "People page: /people lists all seeded users with avatars, each row navigates to the right profile; People nav item highlights when active (Task F).",
+    "DM regression: send a DM through the existing flow to confirm nothing in the message pages broke."
+  ],
+
+  "deploy_notes_for_human": [
+    "Frontend changes require a full React image rebuild and push (REACT_APP_* vars bake at build time); capture the new sha256 digest and pin it in config.toml per the established ECR digest-pinning practice.",
+    "Backend changes require backend image rebuild + digest pin likewise.",
+    "First deploy session should also: rotate the C.Fenton_CLI access key (scheduled item) and re-enable the CodePipeline Build inbound transition.",
+    "Known deferred items NOT in this spec: reply persistence (mock service + integer/uuid column migration), search (Search.js is a non-functional stub, internally even misnamed ActivityFeed), avatar upload for new users (beta testers will have broken avatars until they upload one - verify the avatar upload flow works for a brand-new Cognito account, or seed testers' avatars manually)."
+  ]
+}

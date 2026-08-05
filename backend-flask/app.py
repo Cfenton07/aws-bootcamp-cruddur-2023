@@ -21,6 +21,7 @@ from services.messages import *
 from services.create_message import *
 from services.show_activity import *
 from services.users_short import *
+from services.users_index import *
 from services.update_profile import *
 
 # ============================================================
@@ -441,16 +442,20 @@ def data_activities():
         print('✅ Handling OPTIONS preflight request')
         return '', 204
     
+    # Verify the caller's identity from the JWT (same pattern as data_update_profile)
+    access_token = extract_access_token(request.headers)
     try:
+        claims = cognito_jwt_token.verify(access_token)
+        cognito_user_id = claims['sub']
+
         # Extract request data
-        user_handle = 'chrisfenton'  # Hardcoded for now - TODO: get from authenticated user
         message = request.json['message']
         ttl = request.json['ttl']  # Time-to-live for activity expiration
         
         print(f'🔍 Request data - message: {message}, ttl: {ttl}')
         
-        # Create activity in database
-        model = CreateActivity.run(message, user_handle, ttl)
+        # Create activity in database, attributed to the authenticated user
+        model = CreateActivity.run(message, cognito_user_id, ttl)
         
         # Return response based on success/failure
         if model['errors'] is not None:
@@ -459,6 +464,10 @@ def data_activities():
         else:
             print(f'✅ CreateActivity succeeded: {model["data"]}')
             return model['data'], 200
+    except TokenVerifyError as e:
+        # Unauthenticated request - reject rather than attribute the post to anyone
+        app.logger.debug(e)
+        return {}, 401
     except Exception as e:
         # Catch and log any unexpected errors
         print(f'💥 EXCEPTION in data_activities: {e}')
@@ -498,6 +507,17 @@ def data_activities_reply(activity_uuid):
 def data_users_short(handle):
   data = UsersShort.run(handle)
   return data, 200 
+
+# ============================================================
+# API ENDPOINTS - USERS DIRECTORY (PEOPLE)
+# ============================================================
+@app.route("/api/users", methods=['GET','OPTIONS'])
+@cross_origin()
+def data_users_index():
+  # OPTIONS preflight handled the same way as data_activities
+  if request.method == 'OPTIONS':
+    return '', 204
+  return UsersIndex.run(), 200 
 
 # ============================================================
 # API ENDPOINTS - UPDATE PROFILE

@@ -11,3 +11,9 @@
 .profile_edit_btn:hover {
   background: rgba(255,255,255,0.3);
 }
+
+/* When .profile_edit_btn is applied to a <Link> (renders <a>), suppress the
+   default underline so the Message link matches the Edit Profile button. */
+a.profile_edit_btn {
+  text-decoration: none;
+}
