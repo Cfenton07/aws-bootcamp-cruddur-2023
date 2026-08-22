@@ -53,6 +53,17 @@ class CreateMessage:
       print("USERS=[other-user]==")
       print(other_user)
 
+      # The sender must exist in public.users. If the Cognito post-confirmation
+      # sync failed, they are authenticated but absent from the database.
+      # Return a named error rather than dereferencing None (which produced a
+      # bare 500 and a silent failure in the UI).
+      if my_user is None:
+        model['errors'] = ['sender_not_found']
+        return model
+      if mode == "create" and other_user is None:
+        model['errors'] = ['receiver_not_found']
+        return model
+
       ddb = Ddb.client()
 
       if (mode == "update"):
