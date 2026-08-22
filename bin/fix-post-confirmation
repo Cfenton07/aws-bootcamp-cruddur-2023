@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+set -euo pipefail
+FN=cruddur-post-confirmation
+
+CLUSTER=$(aws ecs list-clusters --query "clusterArns[?contains(@,'CrdCluster')]|[0]" --output text)
+SERVICE=$(aws ecs list-services --cluster "$CLUSTER" \
+  --query "serviceArns[?contains(@,'ackend')]|[0]" --output text)
+NET=$(aws ecs describe-services --cluster "$CLUSTER" --services "$SERVICE" \
+  --query 'services[0].networkConfiguration.awsvpcConfiguration')
+
+SUBNETS=$(echo "$NET" | python3 -c "import sys,json;print(','.join(json.load(sys.stdin)['subnets']))")
+SG=$(echo "$NET" | python3 -c "import sys,json;print(json.load(sys.stdin)['securityGroups'][0])")
+
+export PGHOST=$(aws rds describe-db-instances --db-instance-identifier cruddur-crddb-instance \
+  --query 'DBInstances[0].Endpoint.Address' --output text)
+SECRET_ARN=$(aws rds describe-db-instances --db-instance-identifier cruddur-crddb-instance \
+  --query 'DBInstances[0].MasterUserSecret.SecretArn' --output text)
+
+CONN=$(aws secretsmanager get-secret-value --secret-id "$SECRET_ARN" \
+  --query SecretString --output text | python3 -c "
+import sys, json, os
+from urllib.parse import quote_plus
+s = json.load(sys.stdin)
+print('postgresql://' + quote_plus(s['username']) + ':' + quote_plus(s['password']) +
+      '@' + os.environ['PGHOST'] + ':5432/cruddur')
+")
+
+aws lambda update-function-configuration --function-name "$FN" \
+  --vpc-config "SubnetIds=$SUBNETS,SecurityGroupIds=$SG" \
+  --timeout 10 \
+  --environment "Variables={CONNECTION_URL=$CONN}" \
+  --query 'FunctionName' --output text
+
+echo "repointed $FN -> host=$PGHOST sg=$SG"

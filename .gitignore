@@ -12,3 +12,4 @@ frontend-react-js/build/
 aws/cfn/**/config.toml
 !aws/cfn/**/config.toml.example
 .kiro/
+aws/cfn/db/config.toml.bak
