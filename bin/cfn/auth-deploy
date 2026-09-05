@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+
+set -e
+
+CFN_PATH="aws/cfn/auth/template.yaml"
+CONFIG_PATH="aws/cfn/auth/config.toml"
+PACKAGED_PATH="/tmp/crdauth-packaged.yaml"
+
+BUCKET=$(cfn-toml key deploy.bucket -t $CONFIG_PATH)
+REGION=$(cfn-toml key deploy.region -t $CONFIG_PATH)
+STACK_NAME=$(cfn-toml key deploy.stack_name -t $CONFIG_PATH)
+PARAMETERS=$(cfn-toml params v2 -t $CONFIG_PATH)
+
+# Zip aws/lambdas/cruddur-post-confirmation/, upload it, and rewrite the
+# Code property to point at S3. This is the step the other five stacks do not
+# need, because none of them ship code.
+aws cloudformation package \
+  --template-file $CFN_PATH \
+  --s3-bucket $BUCKET \
+  --s3-prefix lambdas/cruddur-post-confirmation \
+  --region $REGION \
+  --output-template-file $PACKAGED_PATH
+
+# Lint the PACKAGED template - the source template's Code property is a local
+# directory path, which cfn-lint correctly rejects as not being an S3 location.
+cfn-lint $PACKAGED_PATH
+
+aws cloudformation deploy \
+  --stack-name $STACK_NAME \
+  --s3-bucket $BUCKET \
+  --region $REGION \
+  --template-file $PACKAGED_PATH \
+  --parameter-overrides $PARAMETERS \
+  --no-execute-changeset \
+  --tags group=cruddur-auth \
+  --capabilities CAPABILITY_NAMED_IAM
