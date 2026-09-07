@@ -164,21 +164,25 @@ fi
 # A 200 alone is not enough: nginx will happily serve a 200 for a page that
 # never mounted React.
 if http_get "https://${APEX}/"; then
-  ROOT_DIV_FOUND="no"
-  case "$HTTP_BODY" in
-    *'<div id="root'*) ROOT_DIV_FOUND="yes" ;;
-  esac
+  # This build mounts React into <main>, not the CRA-default <div id="root">.
+  # Assert on two independent things: the mount point proves the shell rendered,
+  # and the hashed bundle reference proves a real build was served rather than a
+  # placeholder or an error page that happens to return 200.
+  HAS_MOUNT="no"
+  HAS_BUNDLE="no"
+  case "$HTTP_BODY" in *'<main>'*) HAS_MOUNT="yes" ;; esac
+  case "$HTTP_BODY" in *'/static/js/main.'*) HAS_BUNDLE="yes" ;; esac
 
-  if [ "$HTTP_CODE" = "200" ] && [ "$ROOT_DIV_FOUND" = "yes" ]; then
-    pass_check "4 frontend root" 'HTTP 200 and body contains <div id="root'
+  if [ "$HTTP_CODE" = "200" ] && [ "$HAS_MOUNT" = "yes" ] && [ "$HAS_BUNDLE" = "yes" ]; then
+    pass_check "4 frontend root" "HTTP 200, <main> mount point and hashed JS bundle both present"
   else
     fail_check "4 frontend root" \
-      'HTTP 200 AND body containing <div id="root' \
-      "HTTP ${HTTP_CODE}, root div present: ${ROOT_DIV_FOUND}"
+      'HTTP 200 AND body containing <main> AND /static/js/main.' \
+      "HTTP ${HTTP_CODE}, mount point: ${HAS_MOUNT}, bundle reference: ${HAS_BUNDLE}"
   fi
 else
   fail_check "4 frontend root" \
-    'HTTP 200 AND body containing <div id="root' \
+    'HTTP 200 AND body containing <main> AND /static/js/main.' \
     "curl exit ${CURL_RC} (no response)"
 fi
 
