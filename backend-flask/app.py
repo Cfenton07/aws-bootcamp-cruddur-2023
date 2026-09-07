@@ -491,9 +491,19 @@ def data_show_activity(activity_uuid):
 @cross_origin()
 def data_activities_reply(activity_uuid):
     """Create a reply to an existing activity"""
-    user_handle  = 'chrisfenton'
-    message = request.json['message']
-    model = CreateReply.run(message, user_handle, activity_uuid)
+    # Verify the caller's identity from the JWT. The handle used to be
+    # hardcoded to 'chrisfenton', which meant every reply was attributed
+    # to the same person regardless of who posted it.
+    access_token = extract_access_token(request.headers)
+    try:
+        claims = cognito_jwt_token.verify(access_token)
+        cognito_user_id = claims['sub']
+    except TokenVerifyError as e:
+        app.logger.debug(f'reply auth failed: {e}')
+        return {'errors': ['not_authenticated']}, 401
+
+    message = request.json.get('message')
+    model = CreateReply.run(message, cognito_user_id, activity_uuid)
     if model['errors'] is not None:
         return model['errors'], 422
     else:
