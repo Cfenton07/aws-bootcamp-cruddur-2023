@@ -1,0 +1,511 @@
+#!/usr/bin/env bash
+#
+# smoke-test — post-deploy verification for the Cruddur stack.
+#
+# Why this exists: in August 2026 a bug caused 100% of signups to silently fail
+# to insert into public.users while /api/health-check returned 200 the whole
+# time. A liveness probe cannot catch that. Every check below therefore reaches
+# past HTTP into either the database or the identity wiring.
+#
+# Deliberately NO `set -e`: a single failing check must not abort the suite.
+# The whole point is to get a complete picture in one run.
+#
+# Read-only. Nothing here creates, updates, or deletes any AWS resource.
+
+# LIMITATIONS
+#   - Check 12 calls cognito-idp initiate-auth. This is NOT read-only: it
+#     writes Cognito auth history and increments lockout counters. Point it
+#     only at the dedicated canary user, never at a real account.
+#   - The canary password is passed as an AWS CLI argument and is therefore
+#     visible in process arguments (ps) for the duration of the call.
+#   - The canary password must not contain a comma. --auth-parameters uses
+#     commas as its key/value separator.
+
+set +H
+export AWS_PAGER=""
+
+REGION="us-east-1"
+APEX="fentoncruddur.com"
+API="api.fentoncruddur.com"
+USER_POOL_ID="us-east-1_wAg3Cr3Px"
+APP_CLIENT_ID="12va2n69rq2of98ivm60b9625v"
+LAMBDA_FN="cruddur-post-confirmation"
+DDB_TABLE="cruddur-messages"
+KNOWN_HANDLE="chrisfenton"
+
+PASS_COUNT=0
+FAIL_COUNT=0
+SKIP_COUNT=0
+
+# ---------------------------------------------------------------- reporting
+
+pass_check() {
+  PASS_COUNT=$((PASS_COUNT + 1))
+  printf 'PASS  %s — %s\n' "$1" "$2"
+}
+
+fail_check() {
+  FAIL_COUNT=$((FAIL_COUNT + 1))
+  printf 'FAIL  %s\n' "$1"
+  printf '        expected: %s\n' "$2"
+  printf '        got:      %s\n' "$3"
+}
+
+skip_check() {
+  SKIP_COUNT=$((SKIP_COUNT + 1))
+  printf 'SKIP  %s — %s\n' "$1" "$2"
+}
+
+# ---------------------------------------------------------------- helpers
+
+# Resolve a CloudFormation export by name. VPC / subnet / SG / secret ARNs are
+# never hardcoded: they change on every rebuild. Prints the value, or the
+# literal "None" when the export does not exist.
+get_export() {
+  aws cloudformation list-exports \
+    --region "$REGION" \
+    --query "Exports[?Name=='$1'].Value | [0]" \
+    --output text 2>/dev/null
+}
+
+if command -v dig >/dev/null 2>&1; then
+  HAVE_DIG=1
+else
+  HAVE_DIG=0
+fi
+
+resolve_host() {
+  if [ "$HAVE_DIG" = "1" ]; then
+    dig +short "$1" 2>/dev/null
+  else
+    getent hosts "$1" 2>/dev/null
+  fi
+}
+
+# Fetch a URL and populate HTTP_CODE / HTTP_BODY / CURL_RC.
+# Body and status come back in one request; the status is the final line.
+HTTP_CODE=""
+HTTP_BODY=""
+CURL_RC=0
+
+http_get() {
+  local url="$1"
+  shift
+  local raw
+  raw=$(curl -s --max-time 15 -w $'\n%{http_code}' "$@" "$url" 2>/dev/null)
+  CURL_RC=$?
+  if [ $CURL_RC -ne 0 ]; then
+    HTTP_CODE=""
+    HTTP_BODY=""
+    return 1
+  fi
+  HTTP_CODE=$(printf '%s' "$raw" | tail -n 1)
+  HTTP_BODY=$(printf '%s' "$raw" | sed '$d')
+  return 0
+}
+
+echo "=============================================================="
+echo "Cruddur smoke test — region ${REGION}"
+echo "=============================================================="
+
+# ---------------------------------------------------------------- 1. DNS
+
+if [ "$HAVE_DIG" = "1" ]; then
+  RESOLVER_TOOL="dig +short"
+else
+  RESOLVER_TOOL="getent hosts (dig not installed)"
+fi
+
+APEX_DNS=$(resolve_host "$APEX")
+API_DNS=$(resolve_host "$API")
+
+if [ -n "$APEX_DNS" ] && [ -n "$API_DNS" ]; then
+  pass_check "1 DNS" "both names resolve via ${RESOLVER_TOOL}"
+else
+  MISSING=""
+  [ -z "$APEX_DNS" ] && MISSING="${MISSING}${APEX} resolved to nothing; "
+  [ -z "$API_DNS" ] && MISSING="${MISSING}${API} resolved to nothing; "
+  fail_check "1 DNS" \
+    "at least one address for ${APEX} and ${API}" \
+    "${MISSING}(resolver: ${RESOLVER_TOOL})"
+fi
+
+# ---------------------------------------------------------------- 2. TLS
+
+# No -k. A certificate or handshake problem makes curl exit non-zero, and that
+# exit code is the finding, so it is reported verbatim.
+APEX_TLS_CODE=$(curl -s -o /dev/null --max-time 15 -w '%{http_code}' "https://${APEX}/")
+APEX_TLS_RC=$?
+API_TLS_CODE=$(curl -s -o /dev/null --max-time 15 -w '%{http_code}' "https://${API}/api/health-check")
+API_TLS_RC=$?
+
+if [ $APEX_TLS_RC -eq 0 ] && [ $API_TLS_RC -eq 0 ]; then
+  pass_check "2 TLS" "handshake succeeded for both hosts without -k"
+else
+  fail_check "2 TLS" \
+    "curl exit 0 for https://${APEX}/ and https://${API}/api/health-check" \
+    "apex curl exit ${APEX_TLS_RC} (code '${APEX_TLS_CODE}'), api curl exit ${API_TLS_RC} (code '${API_TLS_CODE}')"
+fi
+
+# ---------------------------------------------------------------- 3. backend health
+
+if http_get "https://${API}/api/health-check"; then
+  if [ "$HTTP_CODE" = "200" ]; then
+    pass_check "3 backend health" "HTTP 200 from /api/health-check"
+  else
+    fail_check "3 backend health" "HTTP 200" "HTTP ${HTTP_CODE}"
+  fi
+else
+  fail_check "3 backend health" "HTTP 200" "curl exit ${CURL_RC} (no response)"
+fi
+
+# ---------------------------------------------------------------- 4. frontend root
+
+# A 200 alone is not enough: nginx will happily serve a 200 for a page that
+# never mounted React.
+if http_get "https://${APEX}/"; then
+  ROOT_DIV_FOUND="no"
+  case "$HTTP_BODY" in
+    *'<div id="root'*) ROOT_DIV_FOUND="yes" ;;
+  esac
+
+  if [ "$HTTP_CODE" = "200" ] && [ "$ROOT_DIV_FOUND" = "yes" ]; then
+    pass_check "4 frontend root" 'HTTP 200 and body contains <div id="root'
+  else
+    fail_check "4 frontend root" \
+      'HTTP 200 AND body containing <div id="root' \
+      "HTTP ${HTTP_CODE}, root div present: ${ROOT_DIV_FOUND}"
+  fi
+else
+  fail_check "4 frontend root" \
+    'HTTP 200 AND body containing <div id="root' \
+    "curl exit ${CURL_RC} (no response)"
+fi
+
+# ---------------------------------------------------------------- 5. target health
+
+BACKEND_TG_ARN=$(get_export "CrdClusterBackendTGArn")
+FRONTEND_TG_ARN=$(get_export "CrdClusterFrontendTGArn")
+
+check_target_group() {
+  local label="$1"
+  local arn="$2"
+
+  if [ -z "$arn" ] || [ "$arn" = "None" ]; then
+    fail_check "5 target health (${label})" \
+      "export resolvable and every target healthy" \
+      "export not found in aws cloudformation list-exports"
+    return
+  fi
+
+  local states
+  states=$(aws elbv2 describe-target-health \
+    --region "$REGION" \
+    --target-group-arn "$arn" \
+    --query 'TargetHealthDescriptions[*].TargetHealth.State' \
+    --output text 2>&1)
+  local rc=$?
+
+  if [ $rc -ne 0 ]; then
+    fail_check "5 target health (${label})" \
+      "describe-target-health to succeed" \
+      "aws exit ${rc}: ${states}"
+    return
+  fi
+
+  if [ -z "$states" ]; then
+    fail_check "5 target health (${label})" \
+      "at least one registered target, all healthy" \
+      "zero registered targets"
+    return
+  fi
+
+  local unhealthy
+  unhealthy=$(printf '%s' "$states" | tr '\t' '\n' | grep -v '^healthy$' | tr '\n' ' ')
+
+  if [ -z "$unhealthy" ]; then
+    pass_check "5 target health (${label})" "all targets healthy: ${states}"
+  else
+    fail_check "5 target health (${label})" \
+      "every TargetHealth.State to be healthy" \
+      "states received: ${states}"
+  fi
+}
+
+check_target_group "backend" "$BACKEND_TG_ARN"
+check_target_group "frontend" "$FRONTEND_TG_ARN"
+
+# ---------------------------------------------------------------- 6. database via app
+
+# THE deep check. This endpoint selects from public.users, so a 200 with a
+# handle in the body proves Flask reached Postgres and got a row back. If this
+# fails while check 3 passed, the backend is up and the database path is broken
+# — exactly the shape of the August 2026 incident.
+if http_get "https://${API}/api/users/@${KNOWN_HANDLE}/short"; then
+  HANDLE_FOUND="no"
+  case "$HTTP_BODY" in
+    *handle*) HANDLE_FOUND="yes" ;;
+  esac
+
+  if [ "$HTTP_CODE" = "200" ] && [ "$HANDLE_FOUND" = "yes" ]; then
+    pass_check "6 database via app" "HTTP 200 and body contains handle for @${KNOWN_HANDLE}"
+  else
+    fail_check "6 database via app" \
+      "HTTP 200 AND body containing handle" \
+      "HTTP ${HTTP_CODE}, handle present: ${HANDLE_FOUND} (backend up but DB path suspect if check 3 passed)"
+  fi
+else
+  fail_check "6 database via app" \
+    "HTTP 200 AND body containing handle" \
+    "curl exit ${CURL_RC} (no response)"
+fi
+
+# ---------------------------------------------------------------- 7. home feed
+
+if http_get "https://${API}/api/activities/home"; then
+  if [ "$HTTP_CODE" = "401" ]; then
+    skip_check "7 home feed" "route requires auth — belongs in the authenticated group"
+  else
+    STARTS_WITH_BRACKET="no"
+    case "$HTTP_BODY" in
+      \[*) STARTS_WITH_BRACKET="yes" ;;
+    esac
+
+    if [ "$HTTP_CODE" = "200" ] && [ "$STARTS_WITH_BRACKET" = "yes" ]; then
+      pass_check "7 home feed" "HTTP 200 and body is a JSON array"
+    else
+      fail_check "7 home feed" \
+        "HTTP 200 AND body starting with [" \
+        "HTTP ${HTTP_CODE}, body starts with [: ${STARTS_WITH_BRACKET}"
+    fi
+  fi
+else
+  fail_check "7 home feed" \
+    "HTTP 200 AND body starting with [" \
+    "curl exit ${CURL_RC} (no response)"
+fi
+
+# ---------------------------------------------------------------- 8. lambda state + VPC
+
+EXPECTED_VPC=$(get_export "CrdNetVpcId")
+
+# --output text on a JMESPath hash emits values in alphabetical key order,
+# so this is State then Vpc.
+LAMBDA_STATE_VPC=$(aws lambda get-function-configuration \
+  --region "$REGION" \
+  --function-name "$LAMBDA_FN" \
+  --query '{State:State,Vpc:VpcConfig.VpcId}' \
+  --output text 2>&1)
+LAMBDA_CFG_RC=$?
+
+if [ $LAMBDA_CFG_RC -ne 0 ]; then
+  fail_check "8 lambda state and VPC" \
+    "State=Active and Vpc=${EXPECTED_VPC}" \
+    "aws exit ${LAMBDA_CFG_RC}: ${LAMBDA_STATE_VPC}"
+else
+  LAMBDA_STATE=$(printf '%s' "$LAMBDA_STATE_VPC" | awk '{print $1}')
+  LAMBDA_VPC=$(printf '%s' "$LAMBDA_STATE_VPC" | awk '{print $2}')
+
+  if [ -z "$EXPECTED_VPC" ] || [ "$EXPECTED_VPC" = "None" ]; then
+    fail_check "8 lambda state and VPC" \
+      "CrdNetVpcId export to exist for comparison" \
+      "export not found; function reports State=${LAMBDA_STATE} Vpc=${LAMBDA_VPC}"
+  elif [ "$LAMBDA_STATE" = "Active" ] && [ "$LAMBDA_VPC" = "$EXPECTED_VPC" ]; then
+    pass_check "8 lambda state and VPC" "State=Active, Vpc=${LAMBDA_VPC} matches CrdNetVpcId"
+  else
+    fail_check "8 lambda state and VPC" \
+      "State=Active and Vpc=${EXPECTED_VPC}" \
+      "State=${LAMBDA_STATE} Vpc=${LAMBDA_VPC}"
+  fi
+fi
+
+# ---------------------------------------------------------------- 9. lambda DB wiring
+
+# Only key NAMES and the PG_HOST comparison are printed. No other environment
+# variable value is ever echoed.
+EXPECTED_DB_ENDPOINT=$(get_export "CrdDbDBEndpoint")
+
+LAMBDA_ENV_KEYS=$(aws lambda get-function-configuration \
+  --region "$REGION" \
+  --function-name "$LAMBDA_FN" \
+  --query 'keys(Environment.Variables)' \
+  --output text 2>&1)
+LAMBDA_ENV_RC=$?
+
+LAMBDA_PG_HOST=$(aws lambda get-function-configuration \
+  --region "$REGION" \
+  --function-name "$LAMBDA_FN" \
+  --query 'Environment.Variables.PG_HOST' \
+  --output text 2>&1)
+
+if [ $LAMBDA_ENV_RC -ne 0 ]; then
+  fail_check "9 lambda DB wiring" \
+    "PG_HOST=${EXPECTED_DB_ENDPOINT} and no CONNECTION_URL key" \
+    "aws exit ${LAMBDA_ENV_RC}: ${LAMBDA_ENV_KEYS}"
+else
+  HAS_CONNECTION_URL="no"
+  case " $LAMBDA_ENV_KEYS " in
+    *CONNECTION_URL*) HAS_CONNECTION_URL="yes" ;;
+  esac
+
+  if [ "$HAS_CONNECTION_URL" = "yes" ]; then
+    fail_check "9 lambda DB wiring" \
+      "no CONNECTION_URL key in Environment.Variables" \
+      "CONNECTION_URL present on a CrdAuth-managed function — configuration was modified outside CloudFormation (keys: ${LAMBDA_ENV_KEYS})"
+  elif [ -z "$LAMBDA_PG_HOST" ] || [ "$LAMBDA_PG_HOST" = "None" ]; then
+    # Environment.Variables absent, or present without PG_HOST. The CLI renders
+    # either as None; treat it as a failed comparison, not a crash.
+    fail_check "9 lambda DB wiring" \
+      "PG_HOST=${EXPECTED_DB_ENDPOINT}" \
+      "PG_HOST resolved to None (keys: ${LAMBDA_ENV_KEYS})"
+  elif [ -z "$EXPECTED_DB_ENDPOINT" ] || [ "$EXPECTED_DB_ENDPOINT" = "None" ]; then
+    fail_check "9 lambda DB wiring" \
+      "CrdDbDBEndpoint export to exist for comparison" \
+      "export not found; function PG_HOST=${LAMBDA_PG_HOST}"
+  elif [ "$LAMBDA_PG_HOST" = "$EXPECTED_DB_ENDPOINT" ]; then
+    pass_check "9 lambda DB wiring" "PG_HOST matches CrdDbDBEndpoint, no CONNECTION_URL (keys: ${LAMBDA_ENV_KEYS})"
+  else
+    fail_check "9 lambda DB wiring" \
+      "PG_HOST=${EXPECTED_DB_ENDPOINT}" \
+      "PG_HOST=${LAMBDA_PG_HOST}"
+  fi
+fi
+
+# ---------------------------------------------------------------- 10. cognito trigger
+
+TRIGGER_ARN=$(aws cognito-idp describe-user-pool \
+  --region "$REGION" \
+  --user-pool-id "$USER_POOL_ID" \
+  --query 'UserPool.LambdaConfig.PostConfirmation' \
+  --output text 2>&1)
+TRIGGER_RC=$?
+
+FUNCTION_ARN=$(aws lambda get-function-configuration \
+  --region "$REGION" \
+  --function-name "$LAMBDA_FN" \
+  --query 'FunctionArn' \
+  --output text 2>&1)
+
+LAMBDA_POLICY=$(aws lambda get-policy \
+  --region "$REGION" \
+  --function-name "$LAMBDA_FN" \
+  --output text 2>&1)
+POLICY_RC=$?
+
+POLICY_HAS_COGNITO="no"
+case "$LAMBDA_POLICY" in
+  *cognito-idp.amazonaws.com*) POLICY_HAS_COGNITO="yes" ;;
+esac
+
+POLICY_MISSING="no"
+case "$LAMBDA_POLICY" in
+  *ResourceNotFoundException*) POLICY_MISSING="yes" ;;
+esac
+
+if [ $TRIGGER_RC -ne 0 ]; then
+  fail_check "10 cognito trigger" \
+    "PostConfirmation trigger equal to ${FUNCTION_ARN} and a resource policy naming cognito-idp.amazonaws.com" \
+    "describe-user-pool exit ${TRIGGER_RC}: ${TRIGGER_ARN}"
+elif [ "$POLICY_MISSING" = "yes" ]; then
+  fail_check "10 cognito trigger" \
+    "a Lambda resource policy allowing cognito-idp.amazonaws.com" \
+    "get-policy returned ResourceNotFoundException — no resource policy exists at all, so Cognito cannot invoke the function"
+elif [ $POLICY_RC -ne 0 ]; then
+  fail_check "10 cognito trigger" \
+    "get-policy to succeed and name cognito-idp.amazonaws.com" \
+    "get-policy exit ${POLICY_RC}: ${LAMBDA_POLICY}"
+elif [ "$TRIGGER_ARN" = "$FUNCTION_ARN" ] && [ "$POLICY_HAS_COGNITO" = "yes" ]; then
+  pass_check "10 cognito trigger" "PostConfirmation points at ${FUNCTION_ARN} and the resource policy allows cognito-idp.amazonaws.com"
+else
+  fail_check "10 cognito trigger" \
+    "PostConfirmation=${FUNCTION_ARN} AND resource policy naming cognito-idp.amazonaws.com" \
+    "PostConfirmation=${TRIGGER_ARN}, policy names cognito-idp: ${POLICY_HAS_COGNITO}"
+fi
+
+# ---------------------------------------------------------------- 11. dynamodb
+
+DDB_STATUS=$(aws dynamodb describe-table \
+  --region "$REGION" \
+  --table-name "$DDB_TABLE" \
+  --query 'Table.TableStatus' \
+  --output text 2>&1)
+DDB_RC=$?
+
+if [ $DDB_RC -ne 0 ]; then
+  fail_check "11 dynamodb" \
+    "TableStatus ACTIVE for ${DDB_TABLE}" \
+    "aws exit ${DDB_RC}: ${DDB_STATUS}"
+elif [ "$DDB_STATUS" = "ACTIVE" ]; then
+  pass_check "11 dynamodb" "${DDB_TABLE} is ACTIVE"
+else
+  fail_check "11 dynamodb" \
+    "TableStatus ACTIVE for ${DDB_TABLE}" \
+    "TableStatus ${DDB_STATUS}"
+fi
+
+# ---------------------------------------------------------------- 12. authenticated e2e
+
+if [ -z "${SMOKE_TEST_USERNAME:-}" ] || [ -z "${SMOKE_TEST_PASSWORD:-}" ]; then
+  skip_check "12 authenticated end-to-end" "SMOKE_TEST_USERNAME/PASSWORD not set"
+else
+  # The token is captured into a variable and never printed. The password is
+  # never printed either.
+  ACCESS_TOKEN=$(aws cognito-idp initiate-auth \
+    --region "$REGION" \
+    --auth-flow USER_PASSWORD_AUTH \
+    --client-id "$APP_CLIENT_ID" \
+    --auth-parameters "USERNAME=${SMOKE_TEST_USERNAME},PASSWORD=${SMOKE_TEST_PASSWORD}" \
+    --query 'AuthenticationResult.AccessToken' \
+    --output text 2>&1)
+  AUTH_RC=$?
+
+  FLOW_DISABLED="no"
+  case "$ACCESS_TOKEN" in
+    *"USER_PASSWORD_AUTH flow not enabled"*) FLOW_DISABLED="yes" ;;
+    *"Auth flow not enabled"*) FLOW_DISABLED="yes" ;;
+  esac
+
+  if [ "$FLOW_DISABLED" = "yes" ]; then
+    skip_check "12 authenticated end-to-end" "USER_PASSWORD_AUTH flow not enabled on app client ${APP_CLIENT_ID}"
+  elif [ $AUTH_RC -ne 0 ]; then
+    # ACCESS_TOKEN holds stderr here, not a token, so it is safe to print.
+    fail_check "12 authenticated end-to-end" \
+      "initiate-auth to return an access token" \
+      "initiate-auth exit ${AUTH_RC}: ${ACCESS_TOKEN}"
+  elif [ -z "$ACCESS_TOKEN" ] || [ "$ACCESS_TOKEN" = "None" ]; then
+    fail_check "12 authenticated end-to-end" \
+      "a non-empty access token from initiate-auth" \
+      "initiate-auth succeeded but AccessToken was empty or None"
+  else
+    AUTH_CODE=$(curl -s -o /dev/null --max-time 15 -w '%{http_code}' \
+      -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+      "https://${API}/api/message_groups")
+    AUTH_CURL_RC=$?
+
+    if [ $AUTH_CURL_RC -ne 0 ]; then
+      fail_check "12 authenticated end-to-end" \
+        "HTTP 200 from /api/message_groups with a bearer token" \
+        "curl exit ${AUTH_CURL_RC} (no response)"
+    elif [ "$AUTH_CODE" = "200" ]; then
+      pass_check "12 authenticated end-to-end" "HTTP 200 from /api/message_groups as ${SMOKE_TEST_USERNAME}"
+    else
+      fail_check "12 authenticated end-to-end" \
+        "HTTP 200 from /api/message_groups with a bearer token" \
+        "HTTP ${AUTH_CODE}"
+    fi
+  fi
+
+  unset ACCESS_TOKEN
+fi
+
+# ---------------------------------------------------------------- summary
+
+echo "=============================================================="
+printf 'SMOKE TEST: %s passed, %s failed, %s skipped\n' "$PASS_COUNT" "$FAIL_COUNT" "$SKIP_COUNT"
+echo "=============================================================="
+
+if [ "$FAIL_COUNT" -gt 0 ]; then
+  exit 1
+fi
+
+exit 0
