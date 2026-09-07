@@ -2,7 +2,7 @@
 #
 # teardown-all — deletes all Cruddur stacks in REVERSE dependency order.
 #
-# Order: CrdFrontend -> CrdService -> CrdDb -> CrdCluster -> CrdNet
+# Order: CrdAuth -> CrdFrontend -> CrdService -> CrdDb -> CrdCluster -> CrdNet
 # (delete consumers before producers, or exports-in-use blocks the delete).
 #
 # NOTE: no `set -e` — some steps (e.g. a CrdDb delete blocked by the retained
@@ -13,7 +13,7 @@ DB_INSTANCE="cruddur-crddb-instance"
 DB_LOG_GROUP="/aws/rds/instance/${DB_INSTANCE}/postgresql"
 
 echo "=============================================================="
-echo "This DELETES all Cruddur infrastructure (CrdFrontend, CrdService,"
+echo "This DELETES all Cruddur infrastructure (CrdAuth, CrdFrontend, CrdService,"
 echo "CrdDb + retained RDS instance, CrdCluster, CrdNet)."
 echo "=============================================================="
 read -p "Type DELETE to continue: " CONFIRM
@@ -30,6 +30,13 @@ delete_stack() {
     && echo "${STACK}: deleted." \
     || echo "${STACK}: delete did not complete cleanly — see notes below."
 }
+
+# 0) CrdAuth first. It imports CrdDb and CrdNet exports, and CloudFormation
+# refuses to delete a stack whose exports are still in use. Doing it first also
+# fails early: if the Lambda's Hyperplane ENIs will not release, we learn that
+# before the rest of the environment is gone. CrdAuth owns its own security
+# group, so CloudFormation handles the ENI wait itself — no manual detach.
+delete_stack CrdAuth
 
 # 1) Frontend, 2) Backend
 delete_stack CrdFrontend
@@ -110,41 +117,14 @@ aws logs delete-log-group --log-group-name "$DB_LOG_GROUP" --region "$REGION" \
   || echo "Log group already absent."
 
 # 4) Cluster, 5) Network last (NAT Gateway + EIP billing stops here)
-# --- Detach the post-confirmation Lambda from the VPC ------------------------
-# bin/fix-post-confirmation attaches this function to the CrdCluster service
-# security group. Lambda Hyperplane ENIs hold that SG for as long as the
-# function stays VPC-attached, so ServiceSecurityGroup cannot be deleted and
-# CrdCluster fails with DependencyViolation. Clearing the VPC config releases
-# the ENIs (observed ~60s). The next deploy re-attaches via fix-post-confirmation.
-LAMBDA_FN="cruddur-post-confirmation"
-echo "--- Detaching ${LAMBDA_FN} from the VPC (releases ENIs holding the service SG) ---"
-if aws lambda get-function --function-name "$LAMBDA_FN" --region "$REGION" >/dev/null 2>&1; then
-  aws lambda update-function-configuration \
-    --function-name "$LAMBDA_FN" \
-    --vpc-config "SubnetIds=[],SecurityGroupIds=[]" \
-    --region "$REGION" \
-    --query 'FunctionName' --output text >/dev/null \
-    && echo "  VPC config cleared." \
-    || echo "  WARNING: could not clear VPC config; CrdCluster delete may fail." >&2
-  echo "  Waiting for Lambda ENIs to release..."
-  for i in $(seq 1 20); do
-    sleep 15
-    ENI_COUNT=$(aws ec2 describe-network-interfaces \
-      --filters "Name=description,Values=AWS Lambda VPC ENI-${LAMBDA_FN}*" \
-      --region "$REGION" --query 'length(NetworkInterfaces)' --output text 2>/dev/null)
-    echo "    attempt ${i}/20: ENIs=${ENI_COUNT}"
-    [ "$ENI_COUNT" = "0" ] && break
-  done
-else
-  echo "  ${LAMBDA_FN} not found — skipping."
-fi
+
 delete_stack CrdCluster
 delete_stack CrdNet
 
 # ------------------------------------------------------------- verify clean
 echo "=============================================================="
 echo "Verification (expect 'does not exist' for every stack):"
-for s in CrdFrontend CrdService CrdDb CrdCluster CrdNet; do
+for s in CrdAuth CrdFrontend CrdService CrdDb CrdCluster CrdNet; do
   echo -n "  $s: "
   aws cloudformation describe-stacks --stack-name "$s" --region "$REGION" \
     --query 'Stacks[0].StackStatus' --output text 2>&1
