@@ -33,20 +33,21 @@ export default function MessageGroupPage() {
         method: "GET",
         headers: headers,
       });
-      let resJson = await res.json();
-      if (res.status === 200) {
-        setMessageGroups(resJson)
-      } else {
-        console.log(res)
+      // Status before parse: a 502 from the ALB is HTML and a 401 can be empty.
+      // res.json() throws SyntaxError on both, which hides the real status.
+      if (!res.ok) {
+        console.log('message_groups failed', res.status);
+        return;
       }
+      const resJson = await res.json();
+      setMessageGroups(resJson);
     } catch (err) {
       console.log(err);
     }
   };
 
-
- const loadMessageGroupData = async () => {
-    console.log('loadMessageGroupData called');
+  const loadMessageGroupData = async (message_group_uuid, shouldApply) => {
+    console.log('loadMessageGroupData called', message_group_uuid);
     const headers = {};
 
     const accessToken = await getAccessToken();
@@ -55,16 +56,19 @@ export default function MessageGroupPage() {
     }
 
     try {
-      const backend_url = `${process.env.REACT_APP_BACKEND_URL}/api/messages/${params.message_group_uuid}`
+      const backend_url = `${process.env.REACT_APP_BACKEND_URL}/api/messages/${message_group_uuid}`
       const res = await fetch(backend_url, {
         method: "GET",
         headers: headers,
       });
-      let resJson = await res.json();
-      if (res.status === 200) {
-        setMessages(resJson)
-      } else {
-        console.log(res)
+      if (!res.ok) {
+        console.log('messages failed', res.status);
+        return;
+      }
+      const resJson = await res.json();
+      // Discard a response whose request has been superseded by a newer one.
+      if (shouldApply()) {
+        setMessages(resJson);
       }
     } catch (err) {
       console.log(err);
@@ -80,15 +84,27 @@ export default function MessageGroupPage() {
     }
   };
 
-  React.useEffect(()=>{
-    //prevents double call
+  // Runs once: auth and the left-hand conversation list.
+  React.useEffect(() => {
     if (dataFetchedRef.current) return;
     dataFetchedRef.current = true;
 
     checkAuth(setUser);
     loadMessageGroupsData();
-    loadMessageGroupData();
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Runs on every route change. React Router REUSES this component when only
+  // the param changes - it does not unmount - so an empty dependency array
+  // left the right-hand panel showing the previous conversation until a
+  // manual page refresh. The ignore flag discards a slow response that lands
+  // after the user has already clicked a different group.
+  React.useEffect(() => {
+    let ignore = false;
+    loadMessageGroupData(params.message_group_uuid, () => !ignore);
+    return () => { ignore = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params.message_group_uuid]);
 
   return (
     <article>

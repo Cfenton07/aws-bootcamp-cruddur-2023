@@ -1,0 +1,13 @@
+[deploy]
+bucket = 'cfn-artifacts-YOUR-BUCKET'
+region = 'us-east-1'
+stack_name = 'CrdAuth'
+
+[parameters]
+NetworkingStack = 'CrdNet'
+DbStack = 'CrdDb'
+FunctionName = 'cruddur-post-confirmation'
+UserPoolId = 'us-east-1_XXXXXXXXX'
+PsycopgLayerArn = 'arn:aws:lambda:us-east-1:ACCOUNT_ID:layer:LAYER_NAME:VERSION'
+LambdaRuntime = 'python3.13'
+DBName = 'cruddur'

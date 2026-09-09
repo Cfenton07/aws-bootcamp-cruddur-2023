@@ -1,0 +1,173 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  CrdAuth - Cognito post-confirmation Lambda under CloudFormation management.
+  Imports networking from CrdNet and database wiring from CrdDb so a rebuild
+  cannot leave the function pointing at a previous environment.
+
+Parameters:
+  NetworkingStack:
+    Type: String
+    Default: CrdNet
+  DbStack:
+    Type: String
+    Default: CrdDb
+  FunctionName:
+    Type: String
+    Default: cruddur-post-confirmation
+    Description: Must match the ARN already referenced by the Cognito trigger.
+  UserPoolId:
+    Type: String
+    Description: Cognito user pool allowed to invoke this function.
+  PsycopgLayerArn:
+    Type: String
+    Description: Layer providing psycopg2 for the chosen runtime.
+  LambdaRuntime:
+    Type: String
+    Default: python3.13
+  DBName:
+    Type: String
+    Default: cruddur
+  LogRetentionDays:
+    Type: Number
+    Default: 7
+
+Resources:
+
+  # Its own SG. CrdAuth creates it and CrdAuth deletes it, so the Hyperplane
+  # ENIs can never block a stack that does not own them.
+  LambdaSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Post-confirmation Lambda - egress to CrdDb and Secrets Manager
+      VpcId:
+        Fn::ImportValue: !Sub "${NetworkingStack}VpcId"
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          DestinationSecurityGroupId:
+            Fn::ImportValue: !Sub "${DbStack}DBSecurityGroupId"
+          Description: PostgreSQL to CrdDb
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: Secrets Manager API via the NAT Gateway
+        # VPC DNS is not normally filtered by security groups, but declaring an
+        # explicit egress set removes the default allow-all rule, so these are
+        # stated deliberately rather than relied upon.
+        - IpProtocol: udp
+          FromPort: 53
+          ToPort: 53
+          CidrIp:
+            Fn::ImportValue: !Sub "${NetworkingStack}VpcCidrBlock"
+          Description: DNS to the VPC resolver
+        - IpProtocol: tcp
+          FromPort: 53
+          ToPort: 53
+          CidrIp:
+            Fn::ImportValue: !Sub "${NetworkingStack}VpcCidrBlock"
+          Description: DNS to the VPC resolver
+      Tags:
+        - Key: Name
+          Value: cruddur-post-confirmation-sg
+
+  # Standalone ingress rule targeting the imported CrdDb SG. Declared here, not
+  # in CrdDb, because CrdDb deploys first - a rule in CrdDb referencing this SG
+  # would be a circular dependency.
+  DbIngressFromLambda:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId:
+        Fn::ImportValue: !Sub "${DbStack}DBSecurityGroupId"
+      IpProtocol: tcp
+      FromPort: 5432
+      ToPort: 5432
+      SourceSecurityGroupId: !GetAtt LambdaSecurityGroup.GroupId
+      Description: PostgreSQL from the post-confirmation Lambda
+
+  ExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        # Grants CloudWatch Logs plus the ENI create/describe/delete needed for
+        # a VPC-attached function.
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+      Policies:
+        - PolicyName: ReadDbMasterUserSecret
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource:
+                  Fn::ImportValue: !Sub "${DbStack}DBMasterUserSecretArn"
+
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${FunctionName}"
+      RetentionInDays: !Ref LogRetentionDays
+
+  PostConfirmationFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: LogGroup
+    Properties:
+      FunctionName: !Ref FunctionName
+      Description: Writes a public.users row when a Cognito signup is confirmed.
+      Runtime: !Ref LambdaRuntime
+      Handler: lambda_function.lambda_handler
+      Architectures:
+        - x86_64
+      MemorySize: 256
+      Timeout: 30
+      Role: !GetAtt ExecutionRole.Arn
+      Layers:
+        - !Ref PsycopgLayerArn
+      # Local directory. Resolved and uploaded by `aws cloudformation package`.
+      Code: ../../lambdas/cruddur-post-confirmation
+      VpcConfig:
+        SecurityGroupIds:
+          - !GetAtt LambdaSecurityGroup.GroupId
+        SubnetIds:
+          !Split
+            - ","
+            - Fn::ImportValue: !Sub "${NetworkingStack}PrivateSubnetIds"
+      Environment:
+        Variables:
+          PG_HOST:
+            Fn::ImportValue: !Sub "${DbStack}DBEndpoint"
+          PG_PORT:
+            Fn::ImportValue: !Sub "${DbStack}DBPort"
+          PG_DATABASE: !Ref DBName
+          DB_SECRET_ARN:
+            Fn::ImportValue: !Sub "${DbStack}DBMasterUserSecretArn"
+
+  # Recreates the resource-based policy that deleting the click-ops function
+  # destroys. Without this the trigger fails with AccessDeniedException.
+  CognitoInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt PostConfirmationFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: cognito-idp.amazonaws.com
+      SourceArn: !Sub "arn:aws:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${UserPoolId}"
+
+Outputs:
+  PostConfirmationFunctionArn:
+    Description: Attach this ARN as the user pool PostConfirmation trigger.
+    Value: !GetAtt PostConfirmationFunction.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}PostConfirmationFunctionArn"
+
+  LambdaSecurityGroupId:
+    Value: !GetAtt LambdaSecurityGroup.GroupId
+    Export:
+      Name: !Sub "${AWS::StackName}LambdaSecurityGroupId"

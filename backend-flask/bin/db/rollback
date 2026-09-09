@@ -74,5 +74,18 @@ else:
       migration_class.rollback()
       break
 
-  set_last_successful_run('0')
+ 
+  # Roll back to the migration BEFORE the one just reverted, not to zero.
+  # Zero would mark every earlier migration un-applied and cause migrate to
+  # re-run them; add_bio_column would then fail on a duplicate column.
+  previous = '0'
+  for mf in migration_files:
+    m = re.match(r'^(\d+)_', os.path.basename(mf))
+    if not m:
+      continue
+    t = int(m.group(1))
+    if t < last_migration_file['file_time']:
+      previous = str(t)
+  set_last_successful_run(previous)
   print(f"--- Rollback complete: {last_migration_file['module_name']} ---\n")
+  

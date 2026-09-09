@@ -2,7 +2,7 @@
 #
 # teardown-all — deletes all Cruddur stacks in REVERSE dependency order.
 #
-# Order: CrdFrontend -> CrdService -> CrdDb -> CrdCluster -> CrdNet
+# Order: CrdAuth -> CrdFrontend -> CrdService -> CrdDb -> CrdCluster -> CrdNet
 # (delete consumers before producers, or exports-in-use blocks the delete).
 #
 # NOTE: no `set -e` — some steps (e.g. a CrdDb delete blocked by the retained
@@ -13,7 +13,7 @@ DB_INSTANCE="cruddur-crddb-instance"
 DB_LOG_GROUP="/aws/rds/instance/${DB_INSTANCE}/postgresql"
 
 echo "=============================================================="
-echo "This DELETES all Cruddur infrastructure (CrdFrontend, CrdService,"
+echo "This DELETES all Cruddur infrastructure (CrdAuth, CrdFrontend, CrdService,"
 echo "CrdDb + retained RDS instance, CrdCluster, CrdNet)."
 echo "=============================================================="
 read -p "Type DELETE to continue: " CONFIRM
@@ -30,6 +30,13 @@ delete_stack() {
     && echo "${STACK}: deleted." \
     || echo "${STACK}: delete did not complete cleanly — see notes below."
 }
+
+# 0) CrdAuth first. It imports CrdDb and CrdNet exports, and CloudFormation
+# refuses to delete a stack whose exports are still in use. Doing it first also
+# fails early: if the Lambda's Hyperplane ENIs will not release, we learn that
+# before the rest of the environment is gone. CrdAuth owns its own security
+# group, so CloudFormation handles the ENI wait itself — no manual detach.
+delete_stack CrdAuth
 
 # 1) Frontend, 2) Backend
 delete_stack CrdFrontend
@@ -110,13 +117,14 @@ aws logs delete-log-group --log-group-name "$DB_LOG_GROUP" --region "$REGION" \
   || echo "Log group already absent."
 
 # 4) Cluster, 5) Network last (NAT Gateway + EIP billing stops here)
+
 delete_stack CrdCluster
 delete_stack CrdNet
 
 # ------------------------------------------------------------- verify clean
 echo "=============================================================="
 echo "Verification (expect 'does not exist' for every stack):"
-for s in CrdFrontend CrdService CrdDb CrdCluster CrdNet; do
+for s in CrdAuth CrdFrontend CrdService CrdDb CrdCluster CrdNet; do
   echo -n "  $s: "
   aws cloudformation describe-stacks --stack-name "$s" --region "$REGION" \
     --query 'Stacks[0].StackStatus' --output text 2>&1

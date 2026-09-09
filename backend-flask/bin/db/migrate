@@ -66,7 +66,11 @@ for migration_file in migration_files:
         migration_class.migrate()
         break
 
-    # Update the last successful run timestamp
-    timestamp = str(time.time()).replace(".", "")
-    set_last_successful_run(timestamp)
+    # Record the migration's OWN prefix, not a wall-clock stamp.
+    # str(time.time()) yields a variable number of digits, so the stored value
+    # was not monotonic: a new migration could compare SMALLER than the stored
+    # value and be silently skipped. Storing the prefix makes the comparison
+    # apples-to-apples — last_successful_run is now "the newest migration that
+    # has been applied", which is what the gate above actually means.
+    set_last_successful_run(str(file_time))
     print(f"--- Migration complete: {module_name} ---\n")

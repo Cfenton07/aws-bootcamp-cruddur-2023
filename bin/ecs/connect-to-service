@@ -13,7 +13,9 @@
 set -e
 
 # Configuration (with defaults)
-CLUSTER_NAME="cruddur"
+CLUSTER_NAME=$(aws ecs list-clusters \
+  --query "clusterArns[?contains(@,'CrdCluster')]|[0]" --output text)
+AWS_REGION="${AWS_DEFAULT_REGION:-us-east-1}"
 SERVICE_NAME="${1:-backend-flask}"
 CONTAINER_NAME="${2:-$SERVICE_NAME}"
 
@@ -55,7 +57,7 @@ echo ""
 
 # Connect to the container
 aws ecs execute-command \
-  --region $AWS_DEFAULT_REGION \
+  --region $AWS_REGION \
   --cluster $CLUSTER_NAME \
   --task $TASK_ID \
   --container $CONTAINER_NAME \

@@ -161,6 +161,20 @@ Resources:
                 Resource:
                   - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/cruddur-messages"
                   - !Sub "arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/cruddur-messages/index/*"
+        - PolicyName: ECSExecSSMMessages
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              # These four actions do not support resource-level permissions;
+              # AWS requires "*". The real gate is ecs:ExecuteCommand on the
+              # calling principal, not a resource ARN here.
+              - Effect: Allow
+                Action:
+                  - ssmmessages:CreateControlChannel
+                  - ssmmessages:CreateDataChannel
+                  - ssmmessages:OpenControlChannel
+                  - ssmmessages:OpenDataChannel
+                Resource: '*'
 
   # ----------------------------------------------------------------------
   # ECS Task Definition (mirrors aws:json/task-definitions/backend-flask.json)
@@ -187,6 +201,8 @@ Resources:
         - Name: backend-flask
           Image: !Ref EcrImage
           Essential: true
+          LinuxParameters:
+            InitProcessEnabled: true
           HealthCheck:
             Command:
               - CMD-SHELL
@@ -258,6 +274,7 @@ Resources:
       LaunchType: FARGATE
       DesiredCount: !Ref DesiredCount
       HealthCheckGracePeriodSeconds: 60
+      EnableExecuteCommand: true
       NetworkConfiguration:
         AwsvpcConfiguration:
           AssignPublicIp: !Ref AssignPublicIp
