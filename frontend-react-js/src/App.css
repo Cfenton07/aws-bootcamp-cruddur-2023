@@ -3,8 +3,13 @@ main, article {
   width: 100%;
 }
 
+/* The centre column is the only scroll container on the page.
+   body is overflow:hidden, so without this nothing can scroll
+   and the feed is clipped at the viewport edge. */
 .content {
   width: 600px;
   height: 100%;
   background: #000;
+  overflow-y: auto;
+  overflow-x: hidden;
 }

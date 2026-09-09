@@ -1,7 +1,6 @@
 .activity_feed {
   display: flex;
   flex-direction: column;
-  overflow: hidden;
   flex-shrink: 0;
 }
 
