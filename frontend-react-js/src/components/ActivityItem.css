@@ -44,3 +44,41 @@
 .activity_item .activity_actions .action:hover .icon {
   fill: rgb(149,0,255);
 }
+
+/* ---- Child (reply) styling: single-level threading ---- */
+
+/* Vertical rule hangs from the centre of the 60px parent avatar. */
+.activity_item .replies {
+  margin-top: 12px;
+  margin-left: 29px;
+  border-left: 2px solid rgb(58,63,78);
+}
+
+/* 29 (rule offset) + 2 (rule) + 41 = 72 = parent avatar 60 + gap 12,
+   so the child avatar aligns with the parent's text column. */
+.activity_item.reply {
+  padding: 12px 0 12px 41px;
+  border-bottom: none;
+}
+
+.activity_item.reply .activity_content_wrap .activity_avatar,
+.activity_item.reply .activity_avatar img {
+  height: 40px;
+  width: 40px;
+}
+
+.activity_item.reply .activity_content a.activity_identity,
+.activity_item.reply .activity_content .message {
+  font-size: 14px;
+}
+
+.activity_item.reply .activity_content .activity_times .created_at,
+.activity_item.reply .activity_content .activity_times .expires_at {
+  font-size: 12px;
+}
+
+/* Child avatar 40 + gap 12. */
+.activity_item.reply .activity_actions {
+  padding-left: 52px;
+  padding-top: 8px;
+}
