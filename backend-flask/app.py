@@ -15,6 +15,7 @@ from services.notifications_activities import *
 from services.user_activities import *
 from services.create_activity import *
 from services.create_reply import *
+from services.activity_replies import *
 from services.search_activities import *
 from services.message_groups import *
 from services.messages import *
@@ -483,6 +484,15 @@ def data_show_activity(activity_uuid):
     """Get a single activity by UUID"""
     data = ShowActivity.run(activity_uuid=activity_uuid)
     return data, 200
+
+@app.route("/api/activities/<string:activity_uuid>/replies", methods=['GET'])
+@cross_origin()
+def data_activity_replies(activity_uuid):
+    """All direct replies to one root activity, oldest first (backs "View N more replies")."""
+    model = ActivityReplies.run(activity_uuid)
+    if model['errors'] is not None:
+        return {'errors': model['errors']}, 400
+    return model['data'], 200
 
 # ============================================================
 # API ENDPOINTS - REPLY TO ACTIVITY

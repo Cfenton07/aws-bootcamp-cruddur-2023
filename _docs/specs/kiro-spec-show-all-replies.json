@@ -1,0 +1,196 @@
+{
+  "task": "Backlog #9 - 'View N more replies': a public endpoint returning every direct reply to a root, and an in-place expand/collapse toggle on root posts",
+  "branch": "kiro-dev",
+  "working_directory": "repository root (~/aws-bootcamp-cruddur-2023). All paths below are relative to it.",
+  "context": {
+    "problem": "home.sql returns at most 3 replies per root (LEFT JOIN LATERAL ... LIMIT 3). replies_count holds the true total. Today the 4th+ replies are saved but invisible, with nothing on the page saying so.",
+    "why_in_place": "The frontend has no activity/thread page route (App.js routes: /, /notifications, /people, /@:handle, /messages..., auth pages). A 'Show all' link would have nowhere to go. Expanding in place (Instagram 'View N more replies') needs one small endpoint and keeps the user in the feed. The dedicated thread page remains backlog #10.",
+    "backend": "New public GET /api/activities/<uuid>/replies, following the home route's conventions (@cross_origin(), service class, db.template + db.query_array_json). The service validates the uuid format first and returns an error model, which the route turns into HTTP 400 - not a 500 from a failed ::uuid cast (lesson from backlog #12). An unknown but well-formed uuid returns [] with 200. Reply objects carry exactly the fields home.sql's reply json_build_object carries, so the existing child rendering works unchanged.",
+    "frontend": "ActivityItem gains local state. On a ROOT only: if replies_count > the number of feed replies, render 'View N more replies' (singular 'reply' when N is 1). Clicking fetches /replies and replaces the shown list. After expanding, 'Show fewer replies' restores the feed's 3. Children never render a toggle.",
+    "incidental_fix": "The current code renders <div className='replies'> whenever props.activity.replies is truthy, and [] is truthy, so every root WITHOUT replies renders an empty replies div. Since 9a0353f that div has margin-top: 12px, so every reply-less root has 12px of dead space. The new code renders the div only when there is at least one reply to show. This is intentional and must be kept.",
+    "known_limitation": "If a user posts a reply while a thread is expanded, the expanded list does not include it until collapse/refresh; the ReplyForm updates the feed copy, not the fetched copy. Acceptable for now; noted in backlog #14.",
+    "gate_authoring_note": "Gates grep for exact CODE strings with grep -F, chosen so they cannot also match the prose comments this spec mandates. If a gate still returns an unexpected count, report it; do NOT edit comments or content to make a gate pass."
+  },
+  "phases": [
+    {
+      "phase": 1,
+      "name": "Read before writing (STOP conditions)",
+      "actions": [
+        "STOP 0: run `git status --short`. The ONLY permitted entry is this spec file as untracked (?? _docs/specs/kiro-spec-show-all-replies.json). Any other modified or untracked file - including anything from the Messages-avatars spec - means the previous work is not committed. STOP and report; do not proceed.",
+        "Read in full: backend-flask/app.py, backend-flask/services/home_activities.py, backend-flask/db/sql/activities/home.sql, frontend-react-js/src/components/ActivityItem.js, frontend-react-js/src/components/ActivityItem.css.",
+        "STOP 1: app.py must contain exactly one line `from services.create_reply import *` and at least one use of `@cross_origin()` (proving the decorator is imported). Report the line numbers. If either is missing, STOP and report.",
+        "STOP 2: app.py must contain exactly one function `def data_show_activity(activity_uuid):` whose body is `data = ShowActivity.run(activity_uuid=activity_uuid)` followed by `return data, 200`. Report its line numbers. If not, STOP and report.",
+        "STOP 3: app.py must NOT already contain the string `/replies`, and neither backend-flask/services/activity_replies.py nor backend-flask/db/sql/activities/replies.sql may exist. If any does, STOP and report.",
+        "STOP 4: `git diff --quiet HEAD -- frontend-react-js/src/components/ActivityItem.js && echo UNCHANGED` must print UNCHANGED, and the file must contain `rootActivity={replyTarget}` and `if (props.activity.replies) {`. If not, STOP and report."
+      ]
+    },
+    {
+      "phase": 2,
+      "name": "Create the SQL template",
+      "file": "backend-flask/db/sql/activities/replies.sql",
+      "mode": "create new file, byte for byte, using the IDE file-edit tool. No comments, no semicolon (query_array_json wraps it inside FROM ( ... )), ends with a single newline. Field list matches home.sql's reply json_build_object.",
+      "content": "SELECT\n  replies.uuid,\n  reply_users.display_name,\n  reply_users.handle,\n  reply_users.cognito_user_id,\n  replies.message,\n  replies.replies_count,\n  replies.reposts_count,\n  replies.likes_count,\n  replies.reply_to_activity_uuid,\n  replies.created_at\nFROM public.activities replies\nLEFT JOIN public.users reply_users ON reply_users.uuid = replies.user_uuid\nWHERE replies.reply_to_activity_uuid = %(activity_uuid)s::uuid\nORDER BY replies.created_at ASC\nLIMIT 100\n"
+    },
+    {
+      "phase": 3,
+      "name": "Create the service",
+      "file": "backend-flask/services/activity_replies.py",
+      "mode": "create new file, byte for byte, using the IDE file-edit tool.",
+      "content": "import uuid\n\nfrom lib.db import db\n\nclass ActivityReplies:\n  def run(activity_uuid):\n    \"\"\"\n    Every direct reply to one root activity, oldest first.\n\n    The home feed caps replies at 3 per root (home.sql LIMIT 3). This\n    backs the \"View N more replies\" button. Single-level threading means\n    there are no grandchildren, so direct replies are the whole thread.\n    LIMIT 100 in replies.sql is a safety cap, not pagination.\n    \"\"\"\n    model = {\n      'errors': None,\n      'data': None\n    }\n\n    # Reject a malformed id here with a clear error, instead of letting\n    # Postgres fail the ::uuid cast and surface as an HTTP 500.\n    try:\n      uuid.UUID(activity_uuid)\n    except ValueError:\n      model['errors'] = ['invalid_activity_uuid']\n      return model\n\n    sql = db.template('activities','replies')\n    model['data'] = db.query_array_json(sql, {'activity_uuid': activity_uuid}) or []\n    return model\n"
+    },
+    {
+      "phase": 4,
+      "name": "Edit app.py (two insertions, nothing else)",
+      "file": "backend-flask/app.py",
+      "mode": "Two insertions using the IDE file-edit tool. No other line changes.",
+      "edits": [
+        {
+          "where": "Immediately AFTER the line `from services.create_reply import *` (found in STOP 1), on a new line.",
+          "insert": "from services.activity_replies import *\n"
+        },
+        {
+          "where": "Immediately AFTER the `return data, 200` line that ends data_show_activity (found in STOP 2) and the single blank line that follows it. The inserted block must end up BEFORE the `# ====` separator / REPLY TO ACTIVITY section, which stays unchanged.",
+          "insert": "@app.route(\"/api/activities/<string:activity_uuid>/replies\", methods=['GET'])\n@cross_origin()\ndef data_activity_replies(activity_uuid):\n    \"\"\"All direct replies to one root activity, oldest first (backs \"View N more replies\").\"\"\"\n    model = ActivityReplies.run(activity_uuid)\n    if model['errors'] is not None:\n        return {'errors': model['errors']}, 400\n    return model['data'], 200\n\n"
+        }
+      ]
+    },
+    {
+      "phase": 5,
+      "name": "Replace ActivityItem.js",
+      "file": "frontend-react-js/src/components/ActivityItem.js",
+      "mode": "replace entire file, byte for byte, using the IDE file-edit tool. Everything from 9a0353f is preserved: rootActivity, isReply, replyTarget, the reply redirect, and the hidden repost/share on children.",
+      "content": "import './ActivityItem.css';\nimport { useState } from 'react';\n\nimport ActivityContent  from '../components/ActivityContent';\nimport ActivityActionReply  from '../components/ActivityActionReply';\nimport ActivityActionRepost  from '../components/ActivityActionRepost';\nimport ActivityActionLike  from '../components/ActivityActionLike';\nimport ActivityActionShare  from '../components/ActivityActionShare';\n\nexport default function ActivityItem(props) {\n  // Single-level threading. A child is an ActivityItem rendered by another\n  // ActivityItem, which passes the thread root down as rootActivity.\n  // Replying to a child targets the root, so a reply never gets replies.\n  const isReply = Boolean(props.rootActivity);\n  const replyTarget = props.rootActivity ?? props.activity;\n\n  // The home feed sends at most 3 replies per root. When the root's count\n  // is higher, the toggle fetches the full list in place from /replies.\n  const [allReplies, setAllReplies] = useState(null);\n  const [loadingReplies, setLoadingReplies] = useState(false);\n  const [repliesError, setRepliesError] = useState(null);\n\n  const feedReplies = props.activity.replies || [];\n  const hiddenCount = (props.activity.replies_count || 0) - feedReplies.length;\n  const shownReplies = allReplies ?? feedReplies;\n\n  const loadAllReplies = async () => {\n    setLoadingReplies(true);\n    setRepliesError(null);\n    try {\n      const backend_url = `${process.env.REACT_APP_BACKEND_URL}/api/activities/${props.activity.uuid}/replies`;\n      const res = await fetch(backend_url, { method: \"GET\" });\n      if (res.status !== 200) {\n        throw new Error(`HTTP ${res.status}`);\n      }\n      const resJson = await res.json();\n      setAllReplies(resJson);\n    } catch (err) {\n      console.log('load replies failed', err);\n      setRepliesError('Could not load replies. Please try again.');\n    } finally {\n      setLoadingReplies(false);\n    }\n  };\n\n  let replies;\n  if (shownReplies.length > 0) {\n    replies = <div className=\"replies\">\n                {shownReplies.map(reply => {\n                return  <ActivityItem \n                  rootActivity={replyTarget}\n                  setReplyActivity={props.setReplyActivity} \n                  setPopped={props.setPopped} \n                  key={reply.uuid} \n                  activity={reply} \n                  />\n                })}\n              </div>\n  }\n\n  let repliesToggle;\n  if (!isReply && allReplies === null && hiddenCount > 0) {\n    repliesToggle = <button type=\"button\" className=\"replies_toggle\" onClick={loadAllReplies} disabled={loadingReplies}>\n                      {loadingReplies ? 'Loading replies...' : `View ${hiddenCount} more ${hiddenCount === 1 ? 'reply' : 'replies'}`}\n                    </button>\n  } else if (!isReply && allReplies !== null && allReplies.length > feedReplies.length) {\n    repliesToggle = <button type=\"button\" className=\"replies_toggle\" onClick={() => setAllReplies(null)}>\n                      Show fewer replies\n                    </button>\n  }\n\n  return (\n    <div className={isReply ? 'activity_item reply' : 'activity_item'}>\n      <ActivityContent activity={props.activity} />\n      <div className=\"activity_actions\">\n        <ActivityActionReply setReplyActivity={props.setReplyActivity} activity={replyTarget} setPopped={props.setPopped} activity_uuid={replyTarget.uuid} count={props.activity.replies_count}/>\n        {!isReply && <ActivityActionRepost activity_uuid={props.activity.uuid} count={props.activity.reposts_count}/>}\n        <ActivityActionLike activity_uuid={props.activity.uuid} count={props.activity.likes_count}/>\n        {!isReply && <ActivityActionShare activity_uuid={props.activity.uuid} />}\n      </div>\n      {replies}\n      {repliesToggle}\n      {repliesError && <div className=\"replies_error\">{repliesError}</div>}\n    </div>\n  );\n}\n"
+    },
+    {
+      "phase": 6,
+      "name": "Append to ActivityItem.css",
+      "file": "frontend-react-js/src/components/ActivityItem.css",
+      "mode": "APPEND ONLY, using the IDE file-edit tool. Exactly one blank line between the last existing rule and the new block. Do not change any existing line.",
+      "content": "\n/* ---- \"View N more replies\" toggle (backlog #9) ---- */\n\n/* 72px = 29 (rule offset) + 2 (rule) + 41 (child inset), so the toggle\n   lines up with the reply avatars above it. */\n.activity_item .replies_toggle {\n  display: block;\n  margin: 8px 0 0 72px;\n  padding: 4px 0;\n  background: none;\n  border: none;\n  color: rgb(149,0,255);\n  font-size: 14px;\n  font-weight: 700;\n  text-align: left;\n  cursor: pointer;\n}\n\n.activity_item .replies_toggle:hover {\n  text-decoration: underline;\n}\n\n.activity_item .replies_toggle:disabled {\n  color: rgba(255,255,255,0.5);\n  cursor: default;\n  text-decoration: none;\n}\n\n.activity_item .replies_error {\n  margin: 4px 0 0 72px;\n  color: rgb(255,99,99);\n  font-size: 14px;\n}\n"
+    },
+    {
+      "phase": 7,
+      "name": "Syntax checks",
+      "actions": [
+        "From the repo root: python3 -c \"import ast; [ast.parse(open(p).read()) for p in ('backend-flask/app.py','backend-flask/services/activity_replies.py')]; print('python syntax ok')\"",
+        "test -d frontend-react-js/node_modules && echo PRESENT || echo ABSENT",
+        "If PRESENT: cd frontend-react-js && npx eslint src/components/ActivityItem.js ; report full output and exit code. Zero errors required; report any warnings.",
+        "If ABSENT: report 'eslint skipped: node_modules absent'. Do NOT run npm install."
+      ]
+    },
+    {
+      "phase": 8,
+      "name": "Verification gates (run from the repo root; paste raw output of every command)",
+      "commands": [
+        {
+          "cmd": "grep -c ';' backend-flask/db/sql/activities/replies.sql",
+          "expect": "0"
+        },
+        {
+          "cmd": "grep -c -- '--' backend-flask/db/sql/activities/replies.sql",
+          "expect": "0"
+        },
+        {
+          "cmd": "grep -cF '%(activity_uuid)s::uuid' backend-flask/db/sql/activities/replies.sql",
+          "expect": "1"
+        },
+        {
+          "cmd": "grep -cF 'LIMIT 100' backend-flask/db/sql/activities/replies.sql",
+          "expect": "1"
+        },
+        {
+          "cmd": "tail -c 1 backend-flask/db/sql/activities/replies.sql | xxd",
+          "expect": "0a only"
+        },
+        {
+          "cmd": "grep -cF 'from services.activity_replies import *' backend-flask/app.py",
+          "expect": "1"
+        },
+        {
+          "cmd": "grep -cF '/api/activities/<string:activity_uuid>/replies' backend-flask/app.py",
+          "expect": "1"
+        },
+        {
+          "cmd": "grep -cF 'def data_activity_replies(activity_uuid):' backend-flask/app.py",
+          "expect": "1"
+        },
+        {
+          "cmd": "grep -n 'def data_show_activity\\|def data_activity_replies\\|REPLY TO ACTIVITY' backend-flask/app.py",
+          "expect": "Three lines, in this order: data_show_activity, then data_activity_replies, then the REPLY TO ACTIVITY comment."
+        },
+        {
+          "cmd": "grep -cF \"model['errors'] = ['invalid_activity_uuid']\" backend-flask/services/activity_replies.py",
+          "expect": "1"
+        },
+        {
+          "cmd": "grep -cF 'onClick={loadAllReplies}' frontend-react-js/src/components/ActivityItem.js",
+          "expect": "1"
+        },
+        {
+          "cmd": "grep -cF '/api/activities/${props.activity.uuid}/replies' frontend-react-js/src/components/ActivityItem.js",
+          "expect": "1"
+        },
+        {
+          "cmd": "grep -cF 'if (shownReplies.length > 0) {' frontend-react-js/src/components/ActivityItem.js",
+          "expect": "1"
+        },
+        {
+          "cmd": "grep -cF 'rootActivity={replyTarget}' frontend-react-js/src/components/ActivityItem.js",
+          "expect": "1"
+        },
+        {
+          "cmd": "grep -cF '{!isReply && <ActivityActionRepost' frontend-react-js/src/components/ActivityItem.js",
+          "expect": "1"
+        },
+        {
+          "cmd": "grep -cF '.activity_item .replies_toggle {' frontend-react-js/src/components/ActivityItem.css",
+          "expect": "1"
+        },
+        {
+          "cmd": "git diff --numstat -- frontend-react-js/src/components/ActivityItem.css backend-flask/app.py",
+          "expect": "Deletions column is 0 on both lines (CSS append-only; app.py insert-only)."
+        },
+        {
+          "cmd": "git status --short",
+          "expect": "Exactly: M backend-flask/app.py; M frontend-react-js/src/components/ActivityItem.js; M frontend-react-js/src/components/ActivityItem.css; ?? backend-flask/services/activity_replies.py; ?? backend-flask/db/sql/activities/replies.sql; ?? _docs/specs/kiro-spec-show-all-replies.json. Nothing else."
+        },
+        {
+          "cmd": "git diff --numstat",
+          "expect": "Report the real numbers."
+        }
+      ]
+    },
+    {
+      "phase": 9,
+      "name": "Report",
+      "actions": [
+        "Paste the line numbers found in STOP 1 and STOP 2, and `sed -n` output showing the inserted route block with 3 lines of context above and below.",
+        "Paste the raw output of phase 7 and every phase-8 command.",
+        "State any deviation from this spec and why.",
+        "If any gate did not match its expectation, say so plainly. Do not report a pass you did not observe.",
+        "State explicitly that no database, AWS, docker, or package-manager command was run."
+      ]
+    }
+  ],
+  "must_not": [
+    "Do not run git add, git commit, git push, or any history-rewriting command. The operator commits.",
+    "Do not write files via shell redirection, python, sed, tee, or any command. Use the IDE file-edit tool for every write so the operator reviews each diff.",
+    "Do not modify any file other than the five named in phases 2-6.",
+    "Do not change any existing line of app.py; the only permitted edits are the two insertions in phase 4.",
+    "Do not modify home.sql, create_reply.sql, create_reply.py, ReplyForm.js, ActivityContent.js, show_activity.py, or lib/db.py.",
+    "Do not add authentication to the new route; it is public, like the home feed.",
+    "Do not add comments or a semicolon to replies.sql.",
+    "Do not run npm install, pip install, bin/db/*, psql, docker, flask, or any aws command.",
+    "Do not invent content if a phase-1 STOP condition fails; stop and report."
+  ],
+  "verify_next_deploy": [
+    "curl https://api.fentoncruddur.com/api/activities/eb5f6f31-99da-4311-88b5-6d7b64b83a0c/replies returns HTTP 200 and a JSON array of 5 replies, oldest first, every reply_to_activity_uuid equal to eb5f6f31-99da-4311-88b5-6d7b64b83a0c.",
+    "curl .../api/activities/not-a-uuid/replies returns HTTP 400 with {\"errors\": [\"invalid_activity_uuid\"]}, not 500.",
+    "curl .../api/activities/00000000-0000-4000-8000-000000000000/replies returns HTTP 200 and [].",
+    "Home feed: 'Let's get rusty!' shows 3 replies and a 'View 2 more replies' button aligned under the reply avatars.",
+    "Clicking it shows all 5 in place; the button becomes 'Show fewer replies', which restores 3.",
+    "Posts with 0 replies show no button and no longer have 12px of dead space at the bottom.",
+    "Posts with 1-3 replies show no button.",
+    "Reply children never show a toggle."
+  ]
+}
