@@ -1,0 +1,99 @@
+{
+  "task": "Make the centre feed column scrollable (Cruddur home page)",
+  "branch": "kiro-dev",
+  "working_directory": "frontend-react-js/src",
+  "context": {
+    "problem": "The home page cannot scroll. body has overflow:hidden (added to contain the body::before glow animation) and no element on the home page has overflow:auto, so any feed taller than the viewport is clipped at the bottom edge and the last posts are unreachable.",
+    "design": "Keep body { overflow: hidden }. Make .content the single scroll container (X/Twitter model: navigation and sidebar stay fixed, the timeline scrolls). Give #root an explicit height so the height:100% chain (main -> article -> .content) resolves instead of collapsing to auto.",
+    "why_root_height": "height:100% only works when the parent has an explicit height. React mounts into <div id=\"root\"> which has no height rule, so every 100% below it currently resolves to auto.",
+    "safety_already_verified": "ReplyForm wrapper is position:fixed (ReplyForm.css line 2) and is unaffected by ancestor overflow. ActivityForm's position:absolute (line 68) is contained inside its own position:relative box (line 63). DesktopNavigation and DesktopSidebar have no positioning and remain in place as flex siblings of .content."
+  },
+  "phases": [
+    {
+      "phase": 1,
+      "name": "Read before writing",
+      "actions": [
+        "Read App.css, components/ActivityFeed.css, index.css in full.",
+        "Confirm index.css contains exactly one rule whose selector is `html, body` and that it sets height, width and background-color. If the block differs from what is described in phase 3, STOP and report the actual content rather than guessing."
+      ]
+    },
+    {
+      "phase": 2,
+      "name": "Replace App.css",
+      "file": "App.css",
+      "mode": "replace entire file with the content below, byte for byte",
+      "content": "main, article {\n  height: 100%;\n  width: 100%;\n}\n\n/* The centre column is the only scroll container on the page.\n   body is overflow:hidden, so without this nothing can scroll\n   and the feed is clipped at the viewport edge. */\n.content {\n  width: 600px;\n  height: 100%;\n  background: #000;\n  overflow-y: auto;\n  overflow-x: hidden;\n}\n"
+    },
+    {
+      "phase": 3,
+      "name": "Edit index.css",
+      "file": "index.css",
+      "mode": "replace one selector only; leave every other line untouched",
+      "find_selector": "html, body {",
+      "replace_selector_with": "html, body, #root {",
+      "note": "Only the selector line changes. The three declarations inside the block (height: 100%; width: 100%; background-color: #121212;) stay exactly as they are. Do not touch the separate `body {` block, the body::before rule, or the keyframes."
+    },
+    {
+      "phase": 4,
+      "name": "Edit ActivityFeed.css",
+      "file": "components/ActivityFeed.css",
+      "mode": "remove one declaration only",
+      "remove_line": "  overflow: hidden;",
+      "from_rule": ".activity_feed",
+      "note": "The .activity_feed rule keeps display:flex, flex-direction:column and flex-shrink:0. Nothing else in the file changes."
+    },
+    {
+      "phase": 5,
+      "name": "Verification gates (run all; report actual output, not a summary)",
+      "commands": [
+        {
+          "cmd": "grep -n 'overflow-' App.css",
+          "expect": "Exactly two lines: overflow-y: auto; and overflow-x: hidden;"
+        },
+        {
+          "cmd": "grep -n '#root' index.css",
+          "expect": "Exactly one line: html, body, #root {"
+        },
+        {
+          "cmd": "grep -c 'overflow' components/ActivityFeed.css",
+          "expect": "0"
+        },
+        {
+          "cmd": "grep -n 'overflow: hidden' index.css",
+          "expect": "Exactly one line, inside the body { } block. It must still be present."
+        },
+        {
+          "cmd": "git -C ../.. status --short",
+          "expect": "Exactly three modified files: frontend-react-js/src/App.css, frontend-react-js/src/index.css, frontend-react-js/src/components/ActivityFeed.css. No other files."
+        },
+        {
+          "cmd": "git -C ../.. diff --stat",
+          "expect": "Small: roughly +8/-1 across three files. Report the real numbers."
+        }
+      ]
+    },
+    {
+      "phase": 6,
+      "name": "Report",
+      "actions": [
+        "Paste the raw output of every phase-5 command.",
+        "State any deviation from this spec and why.",
+        "If any gate did not match its expectation, say so plainly. Do not report a pass you did not observe."
+      ]
+    }
+  ],
+  "must_not": [
+    "Do not run git add, git commit, git push, or any history-rewriting command. The operator commits.",
+    "Do not modify any file other than the three named above.",
+    "Do not remove or change body { overflow: hidden } in index.css.",
+    "Do not touch ReplyForm.css, ActivityForm.css, DesktopNavigation.css or DesktopSidebar.css.",
+    "Do not add scrollbar styling, transitions, or any change not listed in phases 2-4.",
+    "Do not invent content if a file does not match what phase 1 expects; stop and report."
+  ],
+  "verified_next_deploy": [
+    "Wheel-scroll over the centre column reaches the final post.",
+    "Navigation and sidebar do not move while the feed scrolls.",
+    "Reply modal opens centred and is not clipped.",
+    "The purple glow does not produce a page-level scrollbar."
+  ]
+}

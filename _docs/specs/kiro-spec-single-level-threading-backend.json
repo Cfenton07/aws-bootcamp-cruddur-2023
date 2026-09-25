@@ -1,0 +1,136 @@
+{
+  "task": "Single-level threading backend: reply insert resolves to root and bumps replies_count; home feed caps replies at 3 via LATERAL; backfill migration",
+  "branch": "kiro-dev",
+  "working_directory": "backend-flask",
+  "context": {
+    "policy": "A post is a root or a direct reply to a root. The UI half shipped in 9a0353f. This spec is the API-side guarantee: even a direct POST with a JWT cannot create a grandchild.",
+    "create_reply": "One statement with three CTEs, because db.query_commit executes a single statement and parameterised multi-statement strings are rejected. `target` resolves the true parent: COALESCE(a.reply_to_activity_uuid, a.uuid) means 'if the post being replied to is itself a reply, use ITS parent; otherwise use it'. `inserted` uses INSERT ... SELECT ... FROM target, so a nonexistent target inserts ZERO rows and the final SELECT returns nothing; query_commit then returns None and create_reply.py raises. This is deliberate: a bad uuid must fail loudly, not silently create a root post. `bumped` increments replies_count on the parent in the same transaction.",
+    "home": "The correlated scalar subquery is replaced by LEFT JOIN LATERAL. LATERAL lets a FROM-subquery reference the outer row, which is what makes a per-parent LIMIT expressible. json_agg over zero rows yields NULL, so the outer COALESCE to '[]'::json is kept \u2014 the frontend guards with Array.isArray and must never see null.",
+    "migration": "replies_count has never been incremented, so every root reports 0. The backfill sets it to the real child count once. Prefix 17800000000000001 is greater than the last applied migration (17800000000000000) with the same digit count, so numeric and lexical ordering agree.",
+    "semicolon_rule": "home.sql must NOT end with a semicolon. lib/db.py query_wrap_array interpolates it inside FROM ( ... ) array_row. create_reply.sql is not wrapped and keeps its semicolon."
+  },
+  "phases": [
+    {
+      "phase": 1,
+      "name": "Read before writing",
+      "actions": [
+        "Read db/sql/activities/create_reply.sql, db/sql/activities/home.sql, db/migrations/17800000000000000_alter_reply_to_activity_uuid.py, and bin/db/migrate in full.",
+        "Confirm create_reply.sql is a single INSERT ... VALUES ( (SELECT uuid FROM public.users WHERE users.cognito_user_id = %(cognito_user_id)s LIMIT 1), %(message)s, %(reply_to_activity_uuid)s, %(expires_at)s ) RETURNING uuid; If it differs materially, STOP and report.",
+        "Confirm home.sql ends with `ORDER BY activities.created_at DESC` and contains no semicolon anywhere. If it contains a semicolon, STOP and report.",
+        "Confirm the existing migration defines a class whose name ends in `Migration` with methods migrate_sql, rollback_sql, migrate, rollback, and that bin/db/migrate selects the class by `attr_name.endswith('Migration')`. If not, STOP and report.",
+        "Run `ls db/migrations/` and confirm no file with prefix 17800000000000001 exists. If one does, STOP and report."
+      ]
+    },
+    {
+      "phase": 2,
+      "name": "Replace create_reply.sql",
+      "file": "db/sql/activities/create_reply.sql",
+      "mode": "replace entire file with the content below, byte for byte, using the IDE file-edit tool",
+      "content": "-- Single-level threading. `target` resolves the TRUE parent: if the post\n-- being replied to is itself a reply, attach to its parent instead.\n-- INSERT ... SELECT FROM target inserts zero rows when the target uuid\n-- does not exist, so the final SELECT returns nothing, query_commit\n-- returns None, and create_reply.py raises. Loud failure is the point.\n-- `bumped` keeps replies_count honest in the same transaction.\nWITH target AS (\n  SELECT COALESCE(a.reply_to_activity_uuid, a.uuid) AS uuid\n  FROM public.activities a\n  WHERE a.uuid = %(reply_to_activity_uuid)s::uuid\n),\ninserted AS (\n  INSERT INTO public.activities (\n    user_uuid,\n    message,\n    reply_to_activity_uuid,\n    expires_at\n  )\n  SELECT\n    (SELECT uuid\n      FROM public.users\n      WHERE users.cognito_user_id = %(cognito_user_id)s\n      LIMIT 1\n    ),\n    %(message)s::text,\n    target.uuid,\n    %(expires_at)s::timestamp\n  FROM target\n  RETURNING uuid\n),\nbumped AS (\n  UPDATE public.activities\n  SET replies_count = COALESCE(replies_count, 0) + 1\n  WHERE uuid = (SELECT uuid FROM target)\n  RETURNING uuid\n)\nSELECT inserted.uuid FROM inserted;\n"
+    },
+    {
+      "phase": 3,
+      "name": "Replace home.sql",
+      "file": "db/sql/activities/home.sql",
+      "mode": "replace entire file with the content below, byte for byte, using the IDE file-edit tool. The file must end with `DESC` followed by a single newline and NO semicolon.",
+      "content": "SELECT\n  activities.uuid,\n  users.display_name,\n  users.handle,\n  users.cognito_user_id,\n  activities.message,\n  activities.replies_count,\n  activities.reposts_count,\n  activities.likes_count,\n  activities.reply_to_activity_uuid,\n  activities.expires_at,\n  activities.created_at,\n  COALESCE(r.replies, '[]'::json) AS replies\nFROM public.activities\nLEFT JOIN public.users ON users.uuid = activities.user_uuid\nLEFT JOIN LATERAL (\n  SELECT json_agg(\n    json_build_object(\n      'uuid', t.uuid,\n      'display_name', t.display_name,\n      'handle', t.handle,\n      'cognito_user_id', t.cognito_user_id,\n      'message', t.message,\n      'replies_count', t.replies_count,\n      'reposts_count', t.reposts_count,\n      'likes_count', t.likes_count,\n      'reply_to_activity_uuid', t.reply_to_activity_uuid,\n      'created_at', t.created_at\n    )\n    ORDER BY t.created_at ASC\n  ) AS replies\n  FROM (\n    SELECT\n      replies.uuid,\n      replies.message,\n      replies.replies_count,\n      replies.reposts_count,\n      replies.likes_count,\n      replies.reply_to_activity_uuid,\n      replies.created_at,\n      reply_users.display_name,\n      reply_users.handle,\n      reply_users.cognito_user_id\n    FROM public.activities replies\n    LEFT JOIN public.users reply_users ON reply_users.uuid = replies.user_uuid\n    WHERE replies.reply_to_activity_uuid = activities.uuid\n    ORDER BY replies.created_at ASC\n    LIMIT 3\n  ) t\n) r ON true\nWHERE activities.reply_to_activity_uuid IS NULL\nORDER BY activities.created_at DESC\n"
+    },
+    {
+      "phase": 4,
+      "name": "Create backfill migration",
+      "file": "db/migrations/17800000000000001_backfill_replies_count.py",
+      "mode": "create new file with the content below, byte for byte, using the IDE file-edit tool",
+      "content": "from lib.db import db\n\nclass BackfillRepliesCountMigration:\n  def migrate_sql():\n    data = \"\"\"\n    UPDATE public.activities p\n    SET replies_count = (\n      SELECT COUNT(*)\n      FROM public.activities c\n      WHERE c.reply_to_activity_uuid = p.uuid\n    )\n    WHERE p.reply_to_activity_uuid IS NULL;\n    \"\"\"\n    return data\n\n  def rollback_sql():\n    data = \"\"\"\n    UPDATE public.activities\n    SET replies_count = 0\n    WHERE reply_to_activity_uuid IS NULL;\n    \"\"\"\n    return data\n\n  def migrate():\n    db.query_commit(BackfillRepliesCountMigration.migrate_sql(), {})\n\n  def rollback():\n    db.query_commit(BackfillRepliesCountMigration.rollback_sql(), {})\n"
+    },
+    {
+      "phase": 5,
+      "name": "Verification gates (run all from backend-flask; paste raw output)",
+      "commands": [
+        {
+          "cmd": "grep -c ';' db/sql/activities/home.sql",
+          "expect": "0"
+        },
+        {
+          "cmd": "tail -c 6 db/sql/activities/home.sql | xxd",
+          "expect": "Bytes for `DESC` then 0a (newline). No 3b (semicolon)."
+        },
+        {
+          "cmd": "grep -n 'LEFT JOIN LATERAL' db/sql/activities/home.sql",
+          "expect": "Exactly one line."
+        },
+        {
+          "cmd": "grep -n 'LIMIT 3' db/sql/activities/home.sql",
+          "expect": "Exactly one line."
+        },
+        {
+          "cmd": "grep -n \"COALESCE(r.replies, '\\[\\]'::json)\" db/sql/activities/home.sql",
+          "expect": "Exactly one line."
+        },
+        {
+          "cmd": "grep -n 'WITH target AS' db/sql/activities/create_reply.sql",
+          "expect": "Exactly one line."
+        },
+        {
+          "cmd": "grep -n 'FROM target' db/sql/activities/create_reply.sql",
+          "expect": "Exactly three lines: the comment on line 3, FROM target in `inserted`, and SELECT uuid FROM target in `bumped`."
+        },
+        {
+          "cmd": "grep -n 'replies_count' db/sql/activities/create_reply.sql",
+          "expect": "Exactly two lines: the comment on line 6 and the SET in `bumped`."
+        },
+        {
+          "cmd": "tail -c 40 db/sql/activities/create_reply.sql",
+          "expect": "Ends with `SELECT inserted.uuid FROM inserted;` and a newline. This file KEEPS its semicolon."
+        },
+        {
+          "cmd": "python3 -c \"import ast; ast.parse(open('db/migrations/17800000000000001_backfill_replies_count.py').read()); print('migration syntax ok')\"",
+          "expect": "migration syntax ok"
+        },
+        {
+          "cmd": "grep -n 'class BackfillRepliesCountMigration' db/migrations/17800000000000001_backfill_replies_count.py",
+          "expect": "Exactly one line."
+        },
+        {
+          "cmd": "ls db/migrations/ | sort",
+          "expect": "17800000000000000_alter_reply_to_activity_uuid.py then 17800000000000001_backfill_replies_count.py as the LAST entry, plus any older files before them."
+        },
+        {
+          "cmd": "git -C .. status --short",
+          "expect": "Two modified (create_reply.sql, home.sql) and one untracked (the migration). Any untracked spec file under _docs/specs/ is also acceptable. Nothing else."
+        },
+        {
+          "cmd": "git -C .. diff --numstat",
+          "expect": "Report the real numbers."
+        }
+      ]
+    },
+    {
+      "phase": 6,
+      "name": "Report",
+      "actions": [
+        "Paste the raw output of every phase-5 command.",
+        "State any deviation from this spec and why.",
+        "If any gate did not match, say so plainly. Do not report a pass you did not observe.",
+        "State explicitly that no database command and no migration was run."
+      ]
+    }
+  ],
+  "must_not": [
+    "Do not run git add, git commit, git push, or any history-rewriting command. The operator commits.",
+    "Do not write files via shell redirection, python, sed, or any command; use the IDE file-edit tool so the operator sees each diff before it is applied.",
+    "Do not run bin/db/migrate, bin/db/rollback, psql, docker, or any command that connects to a database. There is no database to connect to; the stack is torn down.",
+    "Do not modify create_reply.py, create_activity.py, app.py, lib/db.py, or any file other than the three named above.",
+    "Do not add a semicolon to home.sql under any circumstances.",
+    "Do not change the migration filename prefix; 17800000000000001 is chosen deliberately.",
+    "Do not invent content if a phase-1 check fails; stop and report."
+  ],
+  "verify_next_deploy": [
+    "After deploy-all: run bin/db/migrate via ECS Exec (assemble CONNECTION_URL by hand). Output must show `=== Running migration: 17800000000000001_backfill_replies_count ===` and `--- Migration complete ---`.",
+    "GET /api/activities/home: every root's replies_count equals the length of its replies array (for roots with <= 3 replies).",
+    "Reply to a REPLY from the UI: the new row's reply_to_activity_uuid is the ROOT uuid, and the root's replies_count increments by 1.",
+    "Reply via curl with a JWT and a reply's uuid as reply_to_activity_uuid: same result \u2014 the API alone enforces the policy.",
+    "Reply via curl with a random uuid as reply_to_activity_uuid: request fails (create_reply.py error path), no row is created.",
+    "Post a 4th reply to one root: /api/activities/home returns exactly 3 in the array and replies_count 4.",
+    "bin/smoke-test check 7 still passes (home feed returns a JSON array)."
+  ]
+}

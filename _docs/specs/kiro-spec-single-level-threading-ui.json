@@ -1,0 +1,123 @@
+{
+  "task": "Single-level threading UI: reply-to-child targets the root; child posts styled as subordinate",
+  "branch": "kiro-dev",
+  "working_directory": "frontend-react-js/src/components",
+  "context": {
+    "policy": "A post is either a root or a direct reply to a root. Replying to a reply attaches the new post to the reply's ROOT, not to the reply (YouTube / Instagram comments model). This spec implements the UI half. The API half (create_reply.sql COALESCE) ships separately with the backend.",
+    "mechanism": "ActivityItem already renders its replies by recursing into ActivityItem. The parent passes itself down as a new prop `rootActivity`. A child derives `isReply` (for CSS class and hidden actions) and `replyTarget` (what the reply button opens the form against). No API change, no new field.",
+    "visual": "Parent today: 60px avatar, 16px identity and message, 14px timestamp, action row offset 60px. Child: 40px avatar, 14px identity and message, 12px timestamp, action row offset 52px. A 2px vertical rule hangs from the centre of the parent avatar (margin-left 29px on .replies) and the child sits 41px right of it, so 29 + 2 + 41 = 72 = parent avatar 60 + gap 12, aligning the child avatar with the parent's text column.",
+    "icons": "Children keep reply (redirected to root) and like. Repost and share are not rendered on children. Icon size stays 18px (touch target)."
+  },
+  "phases": [
+    {
+      "phase": 1,
+      "name": "Read before writing",
+      "actions": [
+        "Read ActivityItem.js, ActivityItem.css, ActivityActionReply.js in full.",
+        "Confirm ActivityItem.js matches this shape: imports ActivityContent and four ActivityAction* components; builds a `replies` block by mapping props.activity.replies into nested <ActivityItem>; renders <div className='activity_item'> containing ActivityContent, a div.activity_actions with the four actions, then {replies}. If it differs materially, STOP and report the actual file.",
+        "In ActivityActionReply.js, identify what it does with props.activity and props.activity_uuid. Expected: its click handler calls props.setReplyActivity(props.activity) and props.setPopped(true). If it does anything else with those two props (fetches, navigates, reads other fields), STOP and report the file content verbatim. Do not edit ActivityActionReply.js in any case.",
+        "Confirm ActivityItem.css contains a `.activity_item` rule with `overflow: hidden` and `padding: 16px`, and a `.activity_item .activity_actions` rule with `padding-left: 60px`. If not, STOP and report."
+      ]
+    },
+    {
+      "phase": 2,
+      "name": "Replace ActivityItem.js",
+      "file": "ActivityItem.js",
+      "mode": "replace entire file with the content below, byte for byte",
+      "content": "import './ActivityItem.css';\n\nimport ActivityContent  from '../components/ActivityContent';\nimport ActivityActionReply  from '../components/ActivityActionReply';\nimport ActivityActionRepost  from '../components/ActivityActionRepost';\nimport ActivityActionLike  from '../components/ActivityActionLike';\nimport ActivityActionShare  from '../components/ActivityActionShare';\n\nexport default function ActivityItem(props) {\n  // Single-level threading. A child is an ActivityItem rendered by another\n  // ActivityItem, which passes the thread root down as rootActivity.\n  // Replying to a child targets the root, so a reply never gets replies.\n  const isReply = Boolean(props.rootActivity);\n  const replyTarget = props.rootActivity ?? props.activity;\n\n  let replies;\n  if (props.activity.replies) {\n    replies = <div className=\"replies\">\n                {props.activity.replies.map(reply => {\n                return  <ActivityItem \n                  rootActivity={replyTarget}\n                  setReplyActivity={props.setReplyActivity} \n                  setPopped={props.setPopped} \n                  key={reply.uuid} \n                  activity={reply} \n                  />\n                })}\n              </div>\n  }\n\n  return (\n    <div className={isReply ? 'activity_item reply' : 'activity_item'}>\n      <ActivityContent activity={props.activity} />\n      <div className=\"activity_actions\">\n        <ActivityActionReply setReplyActivity={props.setReplyActivity} activity={replyTarget} setPopped={props.setPopped} activity_uuid={replyTarget.uuid} count={props.activity.replies_count}/>\n        {!isReply && <ActivityActionRepost activity_uuid={props.activity.uuid} count={props.activity.reposts_count}/>}\n        <ActivityActionLike activity_uuid={props.activity.uuid} count={props.activity.likes_count}/>\n        {!isReply && <ActivityActionShare activity_uuid={props.activity.uuid} />}\n      </div>\n      {replies}\n    </div>\n  );\n}\n",
+      "notes": [
+        "rootActivity={replyTarget} (not props.activity) so the TRUE root propagates even if a deeper item ever rendered.",
+        "activity_uuid={replyTarget.uuid} is passed alongside activity={replyTarget} so both props agree regardless of which one ActivityActionReply reads.",
+        "count={props.activity.replies_count} is unchanged: it is the item's own count, not the target's."
+      ]
+    },
+    {
+      "phase": 3,
+      "name": "Append to ActivityItem.css",
+      "file": "ActivityItem.css",
+      "mode": "append the block below to the END of the file. Do not change any existing rule. Ensure exactly one blank line separates the last existing rule from the new block.",
+      "content": "\n/* ---- Child (reply) styling: single-level threading ---- */\n\n/* Vertical rule hangs from the centre of the 60px parent avatar. */\n.activity_item .replies {\n  margin-top: 12px;\n  margin-left: 29px;\n  border-left: 2px solid rgb(58,63,78);\n}\n\n/* 29 (rule offset) + 2 (rule) + 41 = 72 = parent avatar 60 + gap 12,\n   so the child avatar aligns with the parent's text column. */\n.activity_item.reply {\n  padding: 12px 0 12px 41px;\n  border-bottom: none;\n}\n\n.activity_item.reply .activity_content_wrap .activity_avatar,\n.activity_item.reply .activity_avatar img {\n  height: 40px;\n  width: 40px;\n}\n\n.activity_item.reply .activity_content a.activity_identity,\n.activity_item.reply .activity_content .message {\n  font-size: 14px;\n}\n\n.activity_item.reply .activity_content .activity_times .created_at,\n.activity_item.reply .activity_content .activity_times .expires_at {\n  font-size: 12px;\n}\n\n/* Child avatar 40 + gap 12. */\n.activity_item.reply .activity_actions {\n  padding-left: 52px;\n  padding-top: 8px;\n}\n",
+      "notes": [
+        "Every new selector starts with `.activity_item.reply` or `.activity_item .replies`, giving it higher specificity than the parent rules in ActivityContent.css it overrides (e.g. (0,4,0) vs (0,2,0)). No !important.",
+        "Right padding is 0 on children because the enclosing parent .activity_item already supplies 16px."
+      ]
+    },
+    {
+      "phase": 4,
+      "name": "Syntax check (conditional)",
+      "actions": [
+        "From the repo root, run: test -d frontend-react-js/node_modules && echo PRESENT || echo ABSENT",
+        "If PRESENT: cd frontend-react-js && npx eslint src/components/ActivityItem.js ; report the full output and exit code. Zero errors expected; warnings are acceptable but must be reported.",
+        "If ABSENT: report 'eslint skipped: node_modules absent' and do NOT run npm install."
+      ]
+    },
+    {
+      "phase": 5,
+      "name": "Verification gates (run all from frontend-react-js/src/components; paste raw output)",
+      "commands": [
+        {
+          "cmd": "grep -n 'rootActivity={replyTarget}' ActivityItem.js",
+          "expect": "Exactly one line."
+        },
+        {
+          "cmd": "grep -c '!isReply' ActivityItem.js",
+          "expect": "2"
+        },
+        {
+          "cmd": "grep -n \"className={isReply\" ActivityItem.js",
+          "expect": "Exactly one line."
+        },
+        {
+          "cmd": "grep -n 'activity={replyTarget}' ActivityItem.js",
+          "expect": "Exactly one line (the ActivityActionReply element)."
+        },
+        {
+          "cmd": "grep -c '^\\.activity_item\\.reply' ActivityItem.css",
+          "expect": "8"
+        },
+        {
+          "cmd": "grep -n 'padding-left: 60px' ActivityItem.css",
+          "expect": "Exactly one line — the original parent rule, untouched."
+        },
+        {
+          "cmd": "grep -n 'overflow: hidden' ActivityItem.css",
+          "expect": "Exactly one line — the original .activity_item rule, untouched."
+        },
+        {
+          "cmd": "git -C ../../.. status --short",
+          "expect": "Exactly two modified files: frontend-react-js/src/components/ActivityItem.js and frontend-react-js/src/components/ActivityItem.css."
+        },
+        {
+          "cmd": "git -C ../../.. diff --stat",
+          "expect": "Report the real numbers. ActivityItem.css should be purely additive (0 deletions)."
+        }
+      ]
+    },
+    {
+      "phase": 6,
+      "name": "Report",
+      "actions": [
+        "Paste the full content of ActivityActionReply.js as read in phase 1 (the operator has not seen it).",
+        "Paste the raw output of phase 4 and every phase-5 command.",
+        "State any deviation from this spec and why.",
+        "If any gate did not match, say so plainly. Do not report a pass you did not observe."
+      ]
+    }
+  ],
+  "must_not": [
+    "Do not run git add, git commit, git push, or any history-rewriting command. The operator commits.",
+    "Do not modify any file other than ActivityItem.js and ActivityItem.css.",
+    "Do not edit ActivityActionReply.js, ActivityContent.js, ActivityContent.css, ReplyForm.js or ReplyForm.css even if a change there seems helpful; report the suggestion instead.",
+    "Do not run npm install or any package manager command.",
+    "Do not remove or alter any existing rule in ActivityItem.css; the change is append-only.",
+    "Do not add !important, transitions, hover effects, or any styling not listed in phase 3.",
+    "Do not invent content if a phase-1 check fails; stop and report."
+  ],
+  "verify_next_deploy": [
+    "Tapping reply on a child post opens the ReplyForm showing the ROOT post, not the child.",
+    "Submitting that reply creates a post whose reply_to_activity_uuid is the root's uuid (confirm via /api/activities/home).",
+    "Child posts show a 40px avatar, 14px text, and a vertical rule to their left; parent posts are unchanged.",
+    "Child posts show only reply and like icons; parents show all four.",
+    "The child avatar's left edge lines up with the parent's display name."
+  ]
+}
