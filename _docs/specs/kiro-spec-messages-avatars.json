@@ -1,0 +1,176 @@
+{
+  "task": "Backlog #11 - real avatars on the Messages page, with an initial fallback for users who have no uploaded avatar",
+  "branch": "kiro-dev",
+  "working_directory": "repository root (~/aws-bootcamp-cruddur-2023). All paths below are relative to it.",
+  "context": {
+    "problem": "The message-group list draws a solid purple circle for every user. MessageGroupItem.js renders an empty <div className='message_group_avatar'></div> and never uses ProfileAvatar. Even if it did, the data cannot support it: Ddb.list_message_groups returns uuid, display_name, handle, message and created_at, but not cognito_user_id, and ProfileAvatar builds the image URL from cognito_user_id.",
+    "design_backend": "Enrich at read time. services/message_groups.py already has every handle on the page; it makes ONE Postgres query (WHERE users.handle = ANY(%(handles)s)) and attaches cognito_user_id to each group before returning. DynamoDB item shape is NOT changed, so no backfill of existing items is needed. A handle with no matching user gets None.",
+    "design_frontend": "ProfileAvatar gains an optional `name` prop and a fallback: if `id` is missing, or the <img> fires onError (the user never uploaded an avatar, so S3/CloudFront returns 403/404), it renders a purple circle containing the first letter of `name`, or '?' when no name is given. MessageGroupItem renders ProfileAvatar inside its existing 50px circle.",
+    "blast_radius": "ProfileAvatar is shared with the home feed (ActivityContent). For users WITH an avatar the home feed is unchanged: same element, same src, same classes. The only home-feed change is that a broken image becomes a '?' circle. The new CSS is scoped with :has(.avatar-fallback) so it applies ONLY in the fallback case.",
+    "why_no_sql_comments": "db.query_array_json wraps the template inside FROM ( ... ) array_row. A trailing `--` comment line could swallow the closing parenthesis, and a semicolon would break the wrap. The new SQL file therefore has NO comments and NO semicolon, like home.sql.",
+    "gate_authoring_note": "Gates below grep for exact CODE strings with grep -F, chosen so they cannot also match the prose comments this spec mandates. If a gate still returns an unexpected count, report it; do NOT edit comments or content to make a gate pass."
+  },
+  "phases": [
+    {
+      "phase": 1,
+      "name": "Read before writing (STOP conditions)",
+      "actions": [
+        "Read in full: backend-flask/services/message_groups.py, backend-flask/lib/db.py, frontend-react-js/src/components/ProfileAvatar.js, frontend-react-js/src/components/ProfileAvatar.css, frontend-react-js/src/components/MessageGroupItem.js, frontend-react-js/src/components/MessageGroupItem.css.",
+        "STOP 1: services/message_groups.py must define class MessageGroups with run(cognito_user_id) that calls Ddb.list_message_groups(ddb, my_user_uuid), assigns the result to `data`, and sets model['data'] = data. If it differs materially, STOP and report the file verbatim.",
+        "STOP 2: lib/db.py must define methods named `template`, `query_value` and `query_array_json`, and query_array_json must accept (sql, params) and return a Python list (or None) by wrapping the SQL inside FROM ( ... ). Report the exact signature and the wrap line. If query_array_json does not exist, takes no params argument, or returns a JSON string rather than a list, STOP and report.",
+        "STOP 3: ls backend-flask/db/sql/users/. The directory must exist and must NOT already contain cognito_ids_by_handles.sql. If the directory is missing or the file exists, STOP and report.",
+        "STOP 4: ProfileAvatar.js must be a single default-export function ProfileAvatar({ id }) that renders <div className='profile-avatar'><img src=`https://assets.fentoncruddur.com/avatars/processed/${id}.jpg?v=${Date.now()}` className='avatar-img' alt='User avatar' /></div>. If it differs materially, STOP and report verbatim.",
+        "STOP 5: MessageGroupItem.js must contain exactly one <div className='message_group_avatar'></div> and must not already import ProfileAvatar. If not, STOP and report.",
+        "Paste the full content of ProfileAvatar.css in the final report (the operator has not seen it). Do not edit any existing rule in it."
+      ]
+    },
+    {
+      "phase": 2,
+      "name": "Create the SQL template",
+      "file": "backend-flask/db/sql/users/cognito_ids_by_handles.sql",
+      "mode": "create new file, byte for byte, using the IDE file-edit tool. No comments, no semicolon, ends with a single newline.",
+      "content": "SELECT\n  users.handle,\n  users.cognito_user_id\nFROM public.users\nWHERE users.handle = ANY(%(handles)s)\n"
+    },
+    {
+      "phase": 3,
+      "name": "Replace the message groups service",
+      "file": "backend-flask/services/message_groups.py",
+      "mode": "replace entire file, byte for byte, using the IDE file-edit tool. Everything above the new comment block is the original code, unchanged.",
+      "content": "from datetime import datetime, timedelta, timezone\n\nfrom lib.ddb import Ddb\nfrom lib.db import db\n\nclass MessageGroups:\n  def run(cognito_user_id):\n    model = {\n      'errors': None,\n      'data': None\n    }\n\n    sql = db.template('activities/users','uuid_from_cognito_user_id')\n    my_user_uuid = db.query_value(sql,{\n      'cognito_user_id': cognito_user_id\n    })\n\n    print(f\"UUID: {my_user_uuid}\")\n\n    ddb = Ddb.client()\n    data = Ddb.list_message_groups(ddb, my_user_uuid)\n    print(\"list_message_groups:\",data)\n\n    # DynamoDB message-group items carry handle and display name but not the\n    # Cognito id the frontend needs to build an avatar URL. Enrich at read\n    # time with ONE Postgres query for every handle on the page, instead of\n    # changing the DynamoDB item shape (which would need a backfill of every\n    # existing item). A handle with no match gets None and the frontend\n    # falls back to an initial.\n    handles = list({group['handle'] for group in data})\n    ids_by_handle = {}\n    if handles:\n      sql = db.template('users','cognito_ids_by_handles')\n      rows = db.query_array_json(sql, {'handles': handles}) or []\n      ids_by_handle = {row['handle']: row['cognito_user_id'] for row in rows}\n    for group in data:\n      group['cognito_user_id'] = ids_by_handle.get(group['handle'])\n\n    model['data'] = data\n    return model\n"
+    },
+    {
+      "phase": 4,
+      "name": "Replace ProfileAvatar.js",
+      "file": "frontend-react-js/src/components/ProfileAvatar.js",
+      "mode": "replace entire file, byte for byte, using the IDE file-edit tool. The img src expression is intentionally unchanged, including ?v=${Date.now()}.",
+      "content": "import './ProfileAvatar.css';\nimport { useState } from 'react';\n\nexport default function ProfileAvatar({ id, name }) {\n  // Fall back to an initial when there is no id to build a URL from, or\n  // when the image fails to load because the user never uploaded one.\n  const [failed, setFailed] = useState(false);\n  const initial = (name || '?').trim().charAt(0).toUpperCase() || '?';\n\n  if (!id || failed) {\n    return (\n      <div className='profile-avatar'>\n        <div className='avatar-fallback' aria-label='User avatar'>{initial}</div>\n      </div>\n    );\n  }\n\n  return (\n    <div className='profile-avatar'>\n      <img\n        src={`https://assets.fentoncruddur.com/avatars/processed/${id}.jpg?v=${Date.now()}`}\n        className='avatar-img'\n        alt='User avatar'\n        onError={() => setFailed(true)}\n      />\n    </div>\n  );\n}\n"
+    },
+    {
+      "phase": 5,
+      "name": "Append to ProfileAvatar.css",
+      "file": "frontend-react-js/src/components/ProfileAvatar.css",
+      "mode": "APPEND ONLY, using the IDE file-edit tool. Add the block below to the end of the file with exactly one blank line between the last existing rule and the new block. Do not change any existing line.",
+      "content": "\n/* ---- Fallback when there is no uploaded avatar: a circle with an initial ---- */\n\n/* :has() limits this to the fallback case, so existing avatars are untouched. */\n.profile-avatar:has(.avatar-fallback) {\n  width: 100%;\n  height: 100%;\n}\n\n.profile-avatar .avatar-fallback {\n  width: 100%;\n  height: 100%;\n  display: flex;\n  align-items: center;\n  justify-content: center;\n  border-radius: 999px;\n  background: rgb(149,0,255);\n  color: #fff;\n  font-weight: 800;\n  font-size: 20px;\n  user-select: none;\n}\n"
+    },
+    {
+      "phase": 6,
+      "name": "Replace MessageGroupItem.js",
+      "file": "frontend-react-js/src/components/MessageGroupItem.js",
+      "mode": "replace entire file, byte for byte, using the IDE file-edit tool. Only two things change from the original: the ProfileAvatar import, and the avatar div now contains <ProfileAvatar>. The pre-existing `==` comparison is intentionally left as-is.",
+      "content": "import './MessageGroupItem.css';\nimport { Link } from \"react-router-dom\";\nimport { timeAgo } from '../lib/DateTimeFormats';\nimport { useParams } from 'react-router-dom';\nimport ProfileAvatar from './ProfileAvatar';\n\nexport default function MessageGroupItem(props) {\n  const params = useParams();\n\n\n  const classes = () => {\n    let classes = [\"message_group_item\"];\n    if (params.message_group_uuid == props.message_group.uuid){\n      classes.push('active')\n    }\n    return classes.join(' ');\n  }\n\n  return (\n    <Link className={classes()} to={`/messages/`+props.message_group.uuid}>\n      <div className='message_group_avatar'>\n        <ProfileAvatar\n          id={props.message_group.cognito_user_id}\n          name={props.message_group.display_name}\n        />\n      </div>\n      <div className='message_content'>\n        <div className='message_group_meta'>\n          <div className='message_group_identity'>\n            <div className='display_name'>{props.message_group.display_name}</div>\n            <div className=\"handle\">@{props.message_group.handle}</div>\n          </div>{/* activity_identity */}\n        </div>{/* message_meta */}\n        <div className=\"message\">{props.message_group.message}</div>\n        <div className=\"created_at\" title={props.message_group.created_at}>\n          <span className='ago'>{timeAgo(props.message_group.created_at)}</span> \n        </div>{/* created_at */}\n      </div>{/* message_content */}\n    </Link>\n  );\n}\n"
+    },
+    {
+      "phase": 7,
+      "name": "Append to MessageGroupItem.css",
+      "file": "frontend-react-js/src/components/MessageGroupItem.css",
+      "mode": "APPEND ONLY, using the IDE file-edit tool. Add the block below to the end of the file with exactly one blank line between the last existing rule and the new block. Do not change any existing line.",
+      "content": "\n/* ---- Real avatars in the message-group list ---- */\n\n/* Clip the avatar to the existing 50px purple circle. */\n.message_group_item .message_group_avatar {\n  overflow: hidden;\n}\n\n.message_group_item .message_group_avatar .profile-avatar,\n.message_group_item .message_group_avatar .avatar-img {\n  width: 100%;\n  height: 100%;\n}\n\n.message_group_item .message_group_avatar .avatar-img {\n  display: block;\n  border-radius: 999px;\n  object-fit: cover;\n}\n"
+    },
+    {
+      "phase": 8,
+      "name": "Syntax checks",
+      "actions": [
+        "From the repo root: python3 -c \"import ast; ast.parse(open('backend-flask/services/message_groups.py').read()); print('service syntax ok')\"",
+        "test -d frontend-react-js/node_modules && echo PRESENT || echo ABSENT",
+        "If PRESENT: cd frontend-react-js && npx eslint src/components/ProfileAvatar.js src/components/MessageGroupItem.js ; report full output and exit code. Errors must be zero. Warnings are acceptable but must be reported; an eqeqeq warning on MessageGroupItem's pre-existing `==` is expected and must NOT be fixed.",
+        "If ABSENT: report 'eslint skipped: node_modules absent'. Do NOT run npm install."
+      ]
+    },
+    {
+      "phase": 9,
+      "name": "Verification gates (run from the repo root; paste raw output of every command)",
+      "commands": [
+        {
+          "cmd": "grep -cF 'ANY(%(handles)s)' backend-flask/db/sql/users/cognito_ids_by_handles.sql",
+          "expect": "1"
+        },
+        {
+          "cmd": "grep -c ';' backend-flask/db/sql/users/cognito_ids_by_handles.sql",
+          "expect": "0"
+        },
+        {
+          "cmd": "grep -c -- '--' backend-flask/db/sql/users/cognito_ids_by_handles.sql",
+          "expect": "0"
+        },
+        {
+          "cmd": "tail -c 1 backend-flask/db/sql/users/cognito_ids_by_handles.sql | xxd",
+          "expect": "0a only"
+        },
+        {
+          "cmd": "grep -cF \"db.template('users','cognito_ids_by_handles')\" backend-flask/services/message_groups.py",
+          "expect": "1"
+        },
+        {
+          "cmd": "grep -cF \"group['cognito_user_id'] = ids_by_handle.get(group['handle'])\" backend-flask/services/message_groups.py",
+          "expect": "1"
+        },
+        {
+          "cmd": "grep -cF 'onError={() => setFailed(true)}' frontend-react-js/src/components/ProfileAvatar.js",
+          "expect": "1"
+        },
+        {
+          "cmd": "grep -cF 'export default function ProfileAvatar({ id, name })' frontend-react-js/src/components/ProfileAvatar.js",
+          "expect": "1"
+        },
+        {
+          "cmd": "grep -cF \"import ProfileAvatar from './ProfileAvatar';\" frontend-react-js/src/components/MessageGroupItem.js",
+          "expect": "1"
+        },
+        {
+          "cmd": "grep -cF '<ProfileAvatar' frontend-react-js/src/components/MessageGroupItem.js",
+          "expect": "1"
+        },
+        {
+          "cmd": "grep -cF \"<div className='message_group_avatar'></div>\" frontend-react-js/src/components/MessageGroupItem.js",
+          "expect": "0"
+        },
+        {
+          "cmd": "grep -cF '.profile-avatar:has(.avatar-fallback)' frontend-react-js/src/components/ProfileAvatar.css",
+          "expect": "1"
+        },
+        {
+          "cmd": "git diff --numstat -- frontend-react-js/src/components/ProfileAvatar.css frontend-react-js/src/components/MessageGroupItem.css",
+          "expect": "Second column (deletions) is 0 on both lines: both CSS files are append-only."
+        },
+        {
+          "cmd": "git status --short",
+          "expect": "Exactly: M backend-flask/services/message_groups.py; M the two JS and two CSS files under frontend-react-js/src/components/; ?? backend-flask/db/sql/users/cognito_ids_by_handles.sql; and the untracked spec under _docs/specs/. Nothing else."
+        },
+        {
+          "cmd": "git diff --numstat",
+          "expect": "Report the real numbers."
+        }
+      ]
+    },
+    {
+      "phase": 10,
+      "name": "Report",
+      "actions": [
+        "Paste the full content of ProfileAvatar.css as read in phase 1, and the query_array_json signature and wrap line from lib/db.py.",
+        "Paste the raw output of phase 8 and every phase-9 command.",
+        "State any deviation from this spec and why.",
+        "If any gate did not match its expectation, say so plainly. Do not report a pass you did not observe.",
+        "State explicitly that no database, AWS, docker, or package-manager command was run."
+      ]
+    }
+  ],
+  "must_not": [
+    "Do not run git add, git commit, git push, or any history-rewriting command. The operator commits.",
+    "Do not write files via shell redirection, python, sed, tee, or any command. Use the IDE file-edit tool for every write so the operator reviews each diff.",
+    "Do not modify any file other than the six named in phases 2-7.",
+    "Do not modify lib/ddb.py, lib/db.py, app.py, ActivityContent.js, ActivityContent.css, or any DynamoDB item shape.",
+    "Do not remove the ?v=${Date.now()} cache-buster from ProfileAvatar, even though it is wasteful; it is tracked separately.",
+    "Do not fix the pre-existing `==` in MessageGroupItem.js.",
+    "Do not add comments or a semicolon to the new SQL file.",
+    "Do not run npm install, pip install, bin/db/*, psql, docker, or any aws command.",
+    "Do not invent content if a phase-1 STOP condition fails; stop and report."
+  ],
+  "verify_next_deploy": [
+    "Messages page: Michael M. shows his real (cat) avatar, not a purple circle.",
+    "Messages page: users with no uploaded avatar (e.g. Stacy, Antwuan) show a purple circle with their initial, not a broken-image icon.",
+    "Avatars are round and fill the 50px circle without overflowing.",
+    "Home feed avatars are unchanged for users who have one.",
+    "curl the message_groups endpoint with a JWT: every group carries a cognito_user_id key (value or null).",
+    "Backend logs show one users query per Messages page load, not one per group."
+  ]
+}
