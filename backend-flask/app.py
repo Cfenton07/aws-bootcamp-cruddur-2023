@@ -240,7 +240,7 @@ def health_check():
 @app.after_request
 def after_request(response):
     timestamp = strftime('[%Y-%b-%d %H:%M]')
-    LOGGER.error('%s %s %s %s %s %s', timestamp, request.remote_addr, request.method, request.scheme, request.full_path, response.status)
+    LOGGER.info('%s %s %s %s %s %s', timestamp, request.remote_addr, request.method, request.scheme, request.full_path, response.status)
     return response
 
 # ============================================================
@@ -520,6 +520,12 @@ def data_activities_reply(activity_uuid):
     message = request.json.get('message')
     model = CreateReply.run(message, cognito_user_id, activity_uuid)
     if model['errors'] is not None:
+        # 400 malformed id, 404 unknown target, 422 anything else
+        # (validation or a failed write).
+        if 'invalid_activity_uuid' in model['errors']:
+            return {'errors': model['errors']}, 400
+        if 'activity_not_found' in model['errors']:
+            return {'errors': model['errors']}, 404
         return model['errors'], 422
     else:
         return model['data'], 200

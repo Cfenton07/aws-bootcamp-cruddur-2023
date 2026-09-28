@@ -1,0 +1,263 @@
+{
+  "task": "Hardening: 404/400 for bad reply targets, query_commit success/failure signals, migration runner stops on failure, request logs at INFO, stable avatar cache key, home-feed avatar initial, schema.sql drift (backlog #12, #13, #15, #16, #21)",
+  "branch": "kiro-dev",
+  "working_directory": "repository root (~/aws-bootcamp-cruddur-2023). All paths are relative to it.",
+  "context": {
+    "why_500": "Pilot test B (reply to a nonexistent uuid) returned an HTML 500. Cause, from lib/db.py: query_commit does cur.fetchone()[0]; for zero rows fetchone() is None, so None[0] raises TypeError; the except calls print_sql_err, which reads err.pgerror; TypeError has no pgerror, so the error handler itself raises AttributeError, which escapes to Flask.",
+    "why_migrate_blind": "query_commit returns None for statements WITHOUT RETURNING whether they succeed or fail, so bin/db/migrate cannot detect a failed migration and stamps it applied anyway.",
+    "db_change": "query_commit: zero-row RETURNING -> None (no crash); non-RETURNING success -> True (was None); any exception -> None (explicit). print_sql_err: getattr for pgerror/pgcode so it cannot crash on non-psycopg errors. RETURNING statements that return a row are unchanged.",
+    "blast_radius": "query_commit is used by every write in the app. The only behaviour changes are (a) non-RETURNING success returns True instead of None, and (b) a zero-row RETURNING returns None instead of raising. Phase 1 STOP 2 audits every call site before any edit.",
+    "reply_fix": "CreateReply validates the target before inserting: malformed uuid -> 'invalid_activity_uuid' (route 400), nonexistent -> 'activity_not_found' (route 404). create_reply.py imports uuid as uuid_lib because the file already uses a local variable named uuid.",
+    "logging": "after_request logs every request with LOGGER.error, so a 200 OK is recorded as an ERROR and an error-count alarm would be noise. Change that one call to LOGGER.info. The LOGGER.error on the CloudWatch-setup failure path (around line 105) is correct and stays.",
+    "avatar_cache": "ProfileAvatar builds ?v=${Date.now()} during render, so every re-render requests every avatar again. A module-level constant gives one key per page load.",
+    "home_initial": "ActivityContent does not pass a name to ProfileAvatar, so a home-feed user without a photo would show '?'. Pass display_name.",
+    "schema_drift": "schema.sql still declares reply_to_activity_uuid integer; migration 17800000000000000 changed it to uuid in the real database. A fresh schema-load would reintroduce the old type.",
+    "gate_authoring_note": "Gates grep for exact CODE strings with grep -F (or anchored -E), chosen so they cannot match the prose comments this spec mandates. Many files in this repo lack a trailing newline; an append or full replace may therefore show exactly one '-}' (or similar last-line) deletion in numstat. That is expected and is not a failure."
+  },
+  "phases": [
+    {
+      "phase": 1,
+      "name": "Read before writing (STOP conditions)",
+      "actions": [
+        "STOP 0: GIT_PAGER=cat git status --short. The ONLY permitted entry is ?? _docs/specs/kiro-spec-hardening.json (other untracked _docs/specs/*.json files for LATER specs are also acceptable). Any modified file means earlier work is uncommitted. STOP and report.",
+        "Read in full: backend-flask/lib/db.py, backend-flask/bin/db/migrate, backend-flask/services/create_reply.py, frontend-react-js/src/components/ProfileAvatar.js, frontend-react-js/src/components/ActivityContent.js. Read backend-flask/app.py around the after_request function and the data_activities_reply route.",
+        "STOP 1: lib/db.py query_commit must contain, in order: the RETURNING regex, a try:, `with self.pool.connection() as conn:`, `cur =  conn.cursor()`, `cur.execute(sql,params)`, `if is_returning_id:` / `returning_id = cur.fetchone()[0]`, `conn.commit()` (the file may have a trailing space after it), `if is_returning_id:` / `return returning_id`, then `except Exception as err:` / `self.print_sql_err(err)`. Paste the block with `cat -A` so trailing spaces are visible. If the structure differs, STOP.",
+        "STOP 2: run `grep -rn \"query_commit(\" backend-flask --include=*.py` AND `grep -rn \"query_commit(\" backend-flask/bin`. For EVERY call site, open the SQL it runs and report: (a) does the SQL contain RETURNING, (b) is the return value used, and how. STOP if any call whose SQL has NO RETURNING uses the return value in a condition (e.g. `if result`, `if not result`, `is None`), because this spec changes that value from None to True on success. Report the full table either way.",
+        "STOP 3: bin/db/migrate must contain exactly these three consecutive lines (8-space indent): `print(migration_class.migrate_sql())`, `migration_class.migrate()`, `break`; and must import sys and `from lib.db import db`. If not, STOP.",
+        "STOP 4: services/create_reply.py must contain `from lib.db import db`, the `# PERSIST` banner comment block, and the line `uuid = CreateReply.create_reply(`. If not, STOP. backend-flask/db/sql/activities/exists.sql must NOT exist.",
+        "STOP 5: app.py must contain exactly one line equal to the phase-6 `log_find` string and exactly one occurrence of the phase-5 `find` block. Report line numbers. If not, STOP.",
+        "STOP 6: `GIT_PAGER=cat git diff --quiet HEAD -- frontend-react-js/src/components/ProfileAvatar.js && echo UNCHANGED` prints UNCHANGED, and the file contains the phase-7 `src_find` string exactly once. ActivityContent.js contains the phase-8 `find` line exactly once. If not, STOP.",
+        "STOP 7: backend-flask/db/schema.sql contains `  reply_to_activity_uuid integer,` exactly once. If not, STOP."
+      ]
+    },
+    {
+      "phase": 2,
+      "name": "lib/db.py",
+      "file": "backend-flask/lib/db.py",
+      "mode": "Two edits with the IDE file-edit tool. Nothing else in the file changes.",
+      "edits": [
+        {
+          "what": "Replace the whole try/except block inside query_commit (from `    try:` through `      self.print_sql_err(err)`, using the file's actual bytes as the find string, including any trailing space after conn.commit()) with this block:",
+          "replace_with": "    try:\n      with self.pool.connection() as conn:\n        cur =  conn.cursor()\n        cur.execute(sql,params)\n        returning_id = None\n        if is_returning_id:\n          # A RETURNING statement that affected zero rows yields no row at\n          # all, so fetchone() is None. Return None (the caller's failure\n          # signal) instead of crashing on None[0].\n          row = cur.fetchone()\n          returning_id = row[0] if row is not None else None\n        conn.commit()\n        if is_returning_id:\n          return returning_id\n        # Statements without RETURNING used to return None on success AND\n        # on failure, so callers could not tell them apart. Success is now\n        # True; failure (the except branch below) is still None.\n        return True\n    except Exception as err:\n      self.print_sql_err(err)\n      return None\n"
+        },
+        {
+          "what": "In print_sql_err, replace the line `    print (\"pgerror:\", err.pgerror)` with `    print (\"pgerror:\", getattr(err, 'pgerror', None))` and the line `    print (\"pgcode:\", err.pgcode, \"\\n\")` with `    print (\"pgcode:\", getattr(err, 'pgcode', None), \"\\n\")`."
+        }
+      ]
+    },
+    {
+      "phase": 3,
+      "name": "bin/db/migrate",
+      "file": "backend-flask/bin/db/migrate",
+      "mode": "One edit with the IDE file-edit tool.",
+      "find": "        print(migration_class.migrate_sql())\n        migration_class.migrate()\n        break\n",
+      "replace_with": "        sql = migration_class.migrate_sql()\n        print(sql)\n        # Call query_commit directly so the result can be checked; the\n        # migrate() helper in each migration file discards it. None means\n        # the SQL failed (the psycopg error is printed above). Stop WITHOUT\n        # advancing last_successful_run so the migration is retried.\n        result = db.query_commit(sql, {})\n        if result is None:\n          print(f\"!!! Migration FAILED: {module_name} -- not recorded, stopping.\")\n          sys.exit(1)\n        break\n"
+    },
+    {
+      "phase": 4,
+      "name": "Reply target check",
+      "edits": [
+        {
+          "file": "backend-flask/db/sql/activities/exists.sql",
+          "mode": "create, byte for byte. No comments, no semicolon, single trailing newline. Always returns exactly one row (true/false), so query_value cannot hit an empty result.",
+          "content": "SELECT EXISTS (\n  SELECT 1\n  FROM public.activities\n  WHERE activities.uuid = %(activity_uuid)s::uuid\n)\n"
+        },
+        {
+          "file": "backend-flask/services/create_reply.py",
+          "what": "Insert the line `import uuid as uuid_lib` on a new line immediately AFTER `from lib.db import db`."
+        },
+        {
+          "file": "backend-flask/services/create_reply.py",
+          "what": "Insert the block below immediately BEFORE the `    # ============================================================` line that opens the `# PERSIST` banner (i.e. after the validation block's `return model` and its following blank line).",
+          "insert": "    # ============================================================\n    # TARGET CHECK\n    # ============================================================\n    # Reject a malformed or nonexistent target with a specific error that\n    # the route maps to 400 / 404, instead of reaching the insert.\n    try:\n      uuid_lib.UUID(activity_uuid)\n    except ValueError:\n      model['errors'] = ['invalid_activity_uuid']\n      return model\n\n    sql = db.template('activities', 'exists')\n    if not db.query_value(sql, {'activity_uuid': activity_uuid}):\n      model['errors'] = ['activity_not_found']\n      return model\n\n"
+        }
+      ]
+    },
+    {
+      "phase": 5,
+      "name": "app.py reply route status codes",
+      "file": "backend-flask/app.py",
+      "mode": "One edit with the IDE file-edit tool.",
+      "find": "    model = CreateReply.run(message, cognito_user_id, activity_uuid)\n    if model['errors'] is not None:\n        return model['errors'], 422\n",
+      "replace_with": "    model = CreateReply.run(message, cognito_user_id, activity_uuid)\n    if model['errors'] is not None:\n        # 400 malformed id, 404 unknown target, 422 anything else\n        # (validation or a failed write).\n        if 'invalid_activity_uuid' in model['errors']:\n            return {'errors': model['errors']}, 400\n        if 'activity_not_found' in model['errors']:\n            return {'errors': model['errors']}, 404\n        return model['errors'], 422\n"
+    },
+    {
+      "phase": 6,
+      "name": "app.py request log level",
+      "file": "backend-flask/app.py",
+      "mode": "One edit. Only the word error becomes info on this one line.",
+      "log_find": "    LOGGER.error('%s %s %s %s %s %s', timestamp, request.remote_addr, request.method, request.scheme, request.full_path, response.status)",
+      "log_replace_with": "    LOGGER.info('%s %s %s %s %s %s', timestamp, request.remote_addr, request.method, request.scheme, request.full_path, response.status)"
+    },
+    {
+      "phase": 7,
+      "name": "ProfileAvatar stable cache key",
+      "file": "frontend-react-js/src/components/ProfileAvatar.js",
+      "mode": "Two edits with the IDE file-edit tool.",
+      "edits": [
+        {
+          "what": "Insert the block below immediately AFTER the line `import { useState } from 'react';`.",
+          "insert": "\n// One cache key per page load. Date.now() inside render produced a new URL\n// on every re-render, so the browser re-downloaded every avatar each time\n// (the (canceled) jpg rows in DevTools). A new upload shows after a reload.\nconst AVATAR_VERSION = Date.now();\n"
+        },
+        {
+          "what": "Replace src_find with src_replace_with.",
+          "src_find": "src={`https://assets.fentoncruddur.com/avatars/processed/${id}.jpg?v=${Date.now()}`}",
+          "src_replace_with": "src={`https://assets.fentoncruddur.com/avatars/processed/${id}.jpg?v=${AVATAR_VERSION}`}"
+        }
+      ]
+    },
+    {
+      "phase": 8,
+      "name": "ActivityContent passes the name",
+      "file": "frontend-react-js/src/components/ActivityContent.js",
+      "mode": "One edit.",
+      "find": "  <ProfileAvatar id={props.activity.cognito_user_id} />",
+      "replace_with": "  <ProfileAvatar id={props.activity.cognito_user_id} name={props.activity.display_name} />"
+    },
+    {
+      "phase": 9,
+      "name": "schema.sql drift",
+      "file": "backend-flask/db/schema.sql",
+      "mode": "One edit.",
+      "find": "  reply_to_activity_uuid integer,",
+      "replace_with": "  reply_to_activity_uuid UUID,"
+    },
+    {
+      "phase": 10,
+      "name": "Syntax checks",
+      "actions": [
+        "python3 -c \"import ast; [ast.parse(open(p).read()) for p in ('backend-flask/lib/db.py','backend-flask/bin/db/migrate','backend-flask/services/create_reply.py','backend-flask/app.py')]; print('python syntax ok')\"",
+        "(cd frontend-react-js && ./node_modules/.bin/eslint --no-color --format json src/components/ProfileAvatar.js src/components/ActivityContent.js; echo ESLINT_EXIT=$?) \u2014 run in the background if slow. Report errorCount and warningCount per file. Zero errors required."
+      ]
+    },
+    {
+      "phase": 11,
+      "name": "Verification gates (repo root; paste raw output of every command)",
+      "commands": [
+        {
+          "cmd": "grep -cF 'return True' backend-flask/lib/db.py",
+          "expect": "1"
+        },
+        {
+          "cmd": "grep -cF 'returning_id = row[0] if row is not None else None' backend-flask/lib/db.py",
+          "expect": "1"
+        },
+        {
+          "cmd": "grep -cF 'cur.fetchone()[0]' backend-flask/lib/db.py",
+          "expect": "0 inside query_commit. query_value and query_array_json use `json = cur.fetchone()` then `json[0]`, so the whole-file count must be 0."
+        },
+        {
+          "cmd": "grep -cF \"getattr(err, 'pgerror', None)\" backend-flask/lib/db.py",
+          "expect": "1"
+        },
+        {
+          "cmd": "grep -cF \"getattr(err, 'pgcode', None)\" backend-flask/lib/db.py",
+          "expect": "1"
+        },
+        {
+          "cmd": "grep -cF 'result = db.query_commit(sql, {})' backend-flask/bin/db/migrate",
+          "expect": "1"
+        },
+        {
+          "cmd": "grep -cF 'migration_class.migrate()' backend-flask/bin/db/migrate",
+          "expect": "0"
+        },
+        {
+          "cmd": "grep -c ';' backend-flask/db/sql/activities/exists.sql",
+          "expect": "0"
+        },
+        {
+          "cmd": "grep -c -- '--' backend-flask/db/sql/activities/exists.sql",
+          "expect": "0"
+        },
+        {
+          "cmd": "grep -cF 'import uuid as uuid_lib' backend-flask/services/create_reply.py",
+          "expect": "1"
+        },
+        {
+          "cmd": "grep -cF \"model['errors'] = ['activity_not_found']\" backend-flask/services/create_reply.py",
+          "expect": "1"
+        },
+        {
+          "cmd": "grep -n \"TARGET CHECK\\|# PERSIST\" backend-flask/services/create_reply.py",
+          "expect": "TARGET CHECK on a lower line number than PERSIST."
+        },
+        {
+          "cmd": "grep -cF \"if 'activity_not_found' in model['errors']:\" backend-flask/app.py",
+          "expect": "1"
+        },
+        {
+          "cmd": "grep -cF \"LOGGER.info('%s %s %s %s %s %s', timestamp\" backend-flask/app.py",
+          "expect": "1"
+        },
+        {
+          "cmd": "grep -cF \"LOGGER.error('%s %s %s %s %s %s', timestamp\" backend-flask/app.py",
+          "expect": "0"
+        },
+        {
+          "cmd": "grep -cF 'const AVATAR_VERSION = Date.now();' frontend-react-js/src/components/ProfileAvatar.js",
+          "expect": "1"
+        },
+        {
+          "cmd": "grep -cF '?v=${Date.now()}' frontend-react-js/src/components/ProfileAvatar.js",
+          "expect": "0"
+        },
+        {
+          "cmd": "grep -cF '?v=${AVATAR_VERSION}' frontend-react-js/src/components/ProfileAvatar.js",
+          "expect": "1"
+        },
+        {
+          "cmd": "grep -cF 'name={props.activity.display_name}' frontend-react-js/src/components/ActivityContent.js",
+          "expect": "1"
+        },
+        {
+          "cmd": "grep -cF 'reply_to_activity_uuid UUID,' backend-flask/db/schema.sql",
+          "expect": "1"
+        },
+        {
+          "cmd": "grep -cF 'reply_to_activity_uuid integer' backend-flask/db/schema.sql",
+          "expect": "0"
+        },
+        {
+          "cmd": "GIT_PAGER=cat git status --short",
+          "expect": "M backend-flask/app.py, backend-flask/bin/db/migrate, backend-flask/db/schema.sql, backend-flask/lib/db.py, backend-flask/services/create_reply.py, frontend-react-js/src/components/ActivityContent.js, frontend-react-js/src/components/ProfileAvatar.js; ?? backend-flask/db/sql/activities/exists.sql; ?? this spec (and any later untracked specs). Nothing else."
+        },
+        {
+          "cmd": "GIT_PAGER=cat git diff --numstat",
+          "expect": "Report real numbers. app.py deletions should be 2 (the 422-only line block replaced and the one LOGGER line)."
+        }
+      ]
+    },
+    {
+      "phase": 12,
+      "name": "Report",
+      "actions": [
+        "Paste the STOP 1 cat -A block and the STOP 2 call-site table.",
+        "Paste raw output of phase 10 and every phase-11 command, and the full GIT_PAGER=cat git diff of backend-flask/lib/db.py and backend-flask/bin/db/migrate.",
+        "State any deviation and why. Do not report a pass you did not observe.",
+        "State explicitly that no database, AWS, docker, or package-manager command was run."
+      ]
+    }
+  ],
+  "must_not": [
+    "Do not change query_value, query_array_json, query_object_json, or the wrap functions in lib/db.py.",
+    "Do not change bin/db/rollback, any migration file, or the dir() class-selection loop in bin/db/migrate beyond the phase-3 edit.",
+    "Do not change the LOGGER.error call on the CloudWatch-setup failure path.",
+    "Do not change any route other than data_activities_reply and after_request in app.py.",
+    "Do not run git add, git commit, git push, or any history-rewriting command. The operator commits.",
+    "Do not write files via shell redirection, python, sed, tee, or any command. Use the IDE file-edit tool for every write so the operator reviews each diff.",
+    "Prefix every git command with GIT_PAGER=cat (or pipe to cat). A bare git diff opens a pager that swallows the next command.",
+    "Do not run npm install, npx (it may try to download), pip install, bin/db/*, psql, docker, flask, or any aws command. For eslint use ./node_modules/.bin/eslint directly, run in the background if it is slow.",
+    "Do not modify any file not named in this spec. Do not reformat, rename, or tidy anything outside the exact edits listed.",
+    "Do not invent content if a phase-1 STOP condition fails; stop and report.",
+    "If a gate returns an unexpected count, report it plainly. Do NOT edit comments or content to make a gate pass."
+  ],
+  "verify_next_deploy": [
+    "curl -X POST .../api/activities/00000000-0000-4000-8000-000000000000/reply with a JWT and a message -> HTTP 404 JSON {\"errors\": [\"activity_not_found\"]} (was an HTML 500).",
+    "Same with not-a-uuid -> HTTP 400 {\"errors\": [\"invalid_activity_uuid\"]}.",
+    "A normal reply from the UI still works (200) and still resolves to the root.",
+    "Backend log lines for normal requests show `- INFO -`, not `- ERROR -`.",
+    "Running bin/db/migrate with the new likes migration prints its SQL, then 'Migration complete'. (Deliberately failing a migration is not required.)",
+    "DevTools Network on the home feed: avatar jpgs are requested once per page load, with no (canceled) duplicates on re-render."
+  ]
+}

@@ -62,8 +62,16 @@ for migration_file in migration_files:
     for attr_name in dir(mod):
       if attr_name.endswith('Migration') and attr_name != 'Migration':
         migration_class = getattr(mod, attr_name)
-        print(migration_class.migrate_sql())
-        migration_class.migrate()
+        sql = migration_class.migrate_sql()
+        print(sql)
+        # Call query_commit directly so the result can be checked; the
+        # migrate() helper in each migration file discards it. None means
+        # the SQL failed (the psycopg error is printed above). Stop WITHOUT
+        # advancing last_successful_run so the migration is retried.
+        result = db.query_commit(sql, {})
+        if result is None:
+          print(f"!!! Migration FAILED: {module_name} -- not recorded, stopping.")
+          sys.exit(1)
         break
 
     # Record the migration's OWN prefix, not a wall-clock stamp.
