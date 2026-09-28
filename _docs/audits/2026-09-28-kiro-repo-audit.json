@@ -1,0 +1,933 @@
+{
+  "report_meta": {
+    "repo": "aws-bootcamp-cruddur-2023",
+    "path": "/home/fento01/aws-bootcamp-cruddur-2023",
+    "head_commit": "cebcc3e View N more replies: public /replies endpoint and in-place toggle",
+    "audit_date": "2026-09-28",
+    "mode": "Read-only. No repo files were created, edited or deleted. No git write commands and no AWS CLI commands were run.",
+    "working_tree_at_start": "clean (git status --short printed nothing)",
+    "live_environment": "Not reachable. fentoncruddur.com and api.fentoncruddur.com both returned DNS ENOTFOUND on 2026-09-28, which fits the stacks being torn down. Nothing was verified against running AWS resources.",
+    "evidence_levels": {
+      "RAN": "Backed by a command or search whose output I saw",
+      "READ": "Concluded by reading the code myself",
+      "READ_SUBAGENT": "Read by a sub-agent that used cat -n; line numbers come from that read",
+      "INFERRED": "Reasoned from code and library behaviour, not executed",
+      "UNVERIFIED": "Needs runtime or AWS confirmation"
+    },
+    "tooling_limitations": [
+      "The shell stopped returning output after my second command (even 'echo alive' came back empty, exit -1), and a background terminal also produced nothing. After that I used only file-read and ripgrep-based search tools.",
+      "So I could NOT run cfn-lint, python ast.parse, the babel parse or bash -n myself.",
+      "Before their shells hung, sub-agents RAN: ast.parse on all backend Python (all OK); a @babel/parser pass over 48 frontend src files (0 failures); eslint 8.57.1 (0 errors, 29 warnings); bash -n on every bash script (OK); a CR count on 46 bin/ and backend-flask/bin files (0 in every file); a simulation of migration timestamp widths; a luxon format test.",
+      "cfn-lint 1.49.3 is installed, but no lint output was obtained for any template.",
+      "Side effects outside the repo, disclosed: one sub-agent created /tmp/null_err_unused and did not delete it. Another may have written and then deleted /tmp/.cr_audit_bundle.txt."
+    ]
+  },
+  "severity_counts": { "critical": 1, "high": 8, "medium": 22, "low": 18 },
+  "findings": [
+    {
+      "id": "CRIT-01",
+      "severity": "critical",
+      "category": "data-durability / ops",
+      "title": "teardown-all destroys the RDS instance with --skip-final-snapshot, with no automatic snapshot and no check that dependent stacks were actually deleted",
+      "locations": [
+        "bin/cfn/teardown-all:25-31 (delete_stack only echoes on failure)",
+        "bin/cfn/teardown-all:39-43 (CrdAuth, CrdFrontend, CrdService deletes)",
+        "bin/cfn/teardown-all:47-58 (rds delete-db-instance --skip-final-snapshot)",
+        "aws/cfn/db/template.yaml:66-72 (instance restored from DBSnapshotIdentifier)",
+        "aws/cfn/db/config.toml (gitignored, local): DBSnapshotIdentifier = 'cruddur-crddb-2026-09-26-pilot2'"
+      ],
+      "evidence": "The script has no set -e on purpose. If CrdAuth or CrdService fails to delete, it prints a message and keeps going, then runs delete-db-instance --skip-final-snapshot. A search for create-db-snapshot or final-db-snapshot across bin/, aws/cfn/ and backend-flask/bin/ found zero hits. Every deploy restores from the pinned snapshot.",
+      "impact": "Every teardown permanently loses everything written since the pinned snapshot (signups, cruds, replies, profile edits) unless someone takes a manual snapshot first. The instance is also deleted even when stacks that import CrdDb exports still exist.",
+      "recommendation": "Before the RDS delete: (1) check with describe-stacks that CrdAuth and CrdService are gone, and abort if not; (2) create a dated cruddur-crddb-* snapshot, wait for it, and print its ID for config.toml. Never delete existing snapshots.",
+      "evidence_level": "READ + RAN (search)"
+    },
+    {
+      "id": "HIGH-01",
+      "severity": "high",
+      "category": "security / authorization",
+      "title": "Direct messages have no membership check (IDOR) on read or write",
+      "locations": [
+        "backend-flask/services/messages.py:13-20 (my_user_uuid is computed, then never used)",
+        "backend-flask/services/create_message.py:70-77 ('update' mode writes to any message_group_uuid the client sends)",
+        "backend-flask/app.py:274-294, 297-332",
+        "backend-flask/lib/ddb.py:53-70 (list_messages queries MSG#<group> with no owner filter)"
+      ],
+      "evidence": "Ddb.list_messages(ddb, message_group_uuid) runs for any authenticated caller. create_message in update mode never checks that the sender is in the group.",
+      "impact": "Any signed-in user who has or guesses a group UUID can read or post into another pair's private conversation. UUIDv4 values are hard to guess, which lowers the risk but does not remove it.",
+      "recommendation": "Before reading or writing, confirm that a GRP#<my_user_uuid> item with that message_group_uuid exists (query the GSI), and return 403 if not.",
+      "evidence_level": "READ"
+    },
+    {
+      "id": "HIGH-02",
+      "severity": "high",
+      "category": "security / logging",
+      "title": "Bearer tokens and PII are written to CloudWatch",
+      "locations": [
+        "backend-flask/app.py:437 print(f'Headers: {dict(request.headers)}') logs the full Authorization header on every POST/OPTIONS to /api/activities",
+        "backend-flask/app.py:199 prints the first 50 chars of the Authorization header on every request",
+        "backend-flask/lib/db.py print_sql/print_params print the full SQL and params (message text, cognito ids) on every query (verbose=True by default)",
+        "aws/lambdas/cruddur-upload-avatar/function.rb:6 (puts event, full headers) and :24 (logs the raw access_token)",
+        "aws/lambdas/lambda-authorizer/index.js:13 logs the full event, including the authorization header",
+        "aws/lambdas/cruddur-post-confirmation/lambda_function.py:42-43 print(user) logs email and name",
+        "aws/cfn/service/template.yaml LogGroup RetentionInDays: 14"
+      ],
+      "evidence": "Stdout goes to the awslogs driver. app.logger.debug(claims) calls (app.py:258, 281, 307, 366) are probably dropped in prod because Flask's logger defaults to WARNING; the print() calls are not.",
+      "impact": "Anyone with CloudWatch Logs read access can replay a still-valid access token. User PII is retained for 14 days.",
+      "recommendation": "Remove the header dumps and the token prints. Log request ID, path and status only. Make SQL logging opt-in.",
+      "evidence_level": "READ"
+    },
+    {
+      "id": "HIGH-03",
+      "severity": "high",
+      "category": "database / schema drift",
+      "title": "schema.sql doesn't match the migrations, and bin/db/setup never runs migrate",
+      "locations": [
+        "backend-flask/db/schema.sql:24 reply_to_activity_uuid integer (the migration changes it to uuid)",
+        "backend-flask/db/schema.sql (no users.bio column; migration 17749981238427508_add_bio_column adds it)",
+        "backend-flask/db/schema.sql:31-39 schema_information uses CREATE IF NOT EXISTS + ON CONFLICT DO NOTHING",
+        "backend-flask/bin/db/setup:12-16 runs drop, create, schema-load, seed, update_cognito_user_ids (no migrate)",
+        "backend-flask/db/sql/activities/home.sql:46 (uuid = integer comparison)",
+        "backend-flask/db/sql/users/show.sql:8, users/update.sql:3 (bio)"
+      ],
+      "evidence": "Fresh setup: tables are created in their pre-migration shape. Profile, update and home queries fail until someone runs migrate by hand. Re-running schema-load on an existing DB is worse: tables are recreated in the old shape, schema_information survives and still claims every migration ran, so migrate silently skips them all.",
+      "impact": "Local and new environments break in ways that look like application bugs.",
+      "recommendation": "Fold all three migrations into schema.sql, or have setup run migrate. Reset schema_information whenever schema-load recreates the tables.",
+      "evidence_level": "READ"
+    },
+    {
+      "id": "HIGH-04",
+      "severity": "high",
+      "category": "database / migrations",
+      "title": "The migration generator emits variable-width timestamp prefixes, so new migrations can be skipped silently",
+      "locations": [
+        "backend-flask/bin/generate/migration:13 timestamp = str(time.time()).replace('.', '')",
+        "backend-flask/bin/db/migrate:42 migration_files.sort() (lexicographic)",
+        "backend-flask/bin/db/migrate:56 int(file_time) > last_successful_run",
+        "backend-flask/bin/db/rollback:42"
+      ],
+      "evidence": "Sub-agent simulation of 20,000 timestamps gave widths {17: 15215, 16: 4309, 15: 428, 14: 40, 13: 5, 12: 3}, so about 24% are shorter than 17 digits. The stored value is 17800000000000001. A 16-digit prefix is roughly 10x smaller and never runs.",
+      "impact": "Future schema changes never reach prod, and nothing reports it.",
+      "recommendation": "Generate a fixed-width prefix (for example time.time_ns() zero-padded, or a YYYYMMDDHHMMSS format that is always larger than the current stored value) and sort numerically.",
+      "evidence_level": "RAN (sub-agent simulation) + READ"
+    },
+    {
+      "id": "HIGH-05",
+      "severity": "high",
+      "category": "backend / error handling",
+      "title": "Failed DB writes are swallowed and can come back as HTTP 200",
+      "locations": [
+        "backend-flask/lib/db.py:59-60 query_commit catches every Exception and only calls print_sql_err",
+        "backend-flask/lib/db.py:125-127 print_sql_err reads err.pgerror / err.pgcode",
+        "backend-flask/lib/db.py:95-96 query_object_json returns the STRING '{}' when there is no row",
+        "backend-flask/services/create_activity.py:105-113 no None check on the returned uuid (create_reply.py has one)"
+      ],
+      "evidence": "Any exception without pgerror (every non-psycopg exception, and probably psycopg3 errors too; not verified because psycopg isn't installed on the host) raises AttributeError inside the except block. Otherwise query_commit returns None, query_object_activity(None) matches no rows, and the route returns 200 with the text '{}'.",
+      "impact": "Posts can appear to succeed without being saved. The error surfaces as a misleading 500 or as nothing at all.",
+      "recommendation": "Log the error and re-raise in query_commit. Use err.diag / err.sqlstate for psycopg3. Return a structured error from services. Return real JSON (or None) instead of the string '{}'.",
+      "evidence_level": "READ; psycopg3 attribute behaviour UNVERIFIED"
+    },
+    {
+      "id": "HIGH-06",
+      "severity": "high",
+      "category": "feature incomplete",
+      "title": "Crud expiry (TTL) is stored but never enforced",
+      "locations": [
+        "backend-flask/services/create_activity.py (computes expires_at from ttl)",
+        "backend-flask/db/sql/activities/home.sql (no expires_at filter)",
+        "backend-flask/db/sql/users/show.sql (no filter)",
+        "frontend-react-js/src/lib/DateTimeFormats.js formatTimeExpires"
+      ],
+      "evidence": "A search for 'expires_at >', 'expires_at <' or now() across backend-flask/db/** found only schema defaults and seed data (RAN). No cleanup job exists.",
+      "impact": "Expired cruds show forever. formatTimeExpires then renders negative values such as '-4320m' (INFERRED from the code path).",
+      "recommendation": "Add 'AND (activities.expires_at IS NULL OR activities.expires_at > now())' to the feed, profile and replies SQL. Optionally add a scheduled purge.",
+      "evidence_level": "RAN (search) + READ"
+    },
+    {
+      "id": "HIGH-07",
+      "severity": "high",
+      "category": "build / deploy",
+      "title": "bin/frontend/build doesn't pass REACT_APP_API_GATEWAY_ENDPOINT_URL",
+      "locations": [
+        "bin/frontend/build:26-34 (5 --build-arg flags; the API gateway one is missing)",
+        "frontend-react-js/Dockerfile.prod:14, :22 (declares the ARG and ENV correctly)",
+        "frontend-react-js/src/components/ProfileForm.js:47"
+      ],
+      "evidence": "journal/week14.md:70 records fixing Dockerfile.prod. The build script was never updated.",
+      "impact": "Any image built by this script bakes an undefined gateway URL. Avatar upload then fails silently: POST to 'undefined/avatars/key_upload', presignedUrl undefined, fetch(undefined).",
+      "recommendation": "Add --build-arg REACT_APP_API_GATEWAY_ENDPOINT_URL. Fail the build if any required REACT_APP_* value is empty.",
+      "evidence_level": "READ"
+    },
+    {
+      "id": "HIGH-08",
+      "severity": "high",
+      "category": "ci/cd",
+      "title": "backend-flask/buildspec.yml builds the DEV Dockerfile",
+      "locations": [
+        "backend-flask/buildspec.yml:14 docker build ... . (no -f Dockerfile.prod)",
+        "backend-flask/Dockerfile:24 ENV FLASK_DEBUG=1, :31 CMD flask run (no entrypoint-prod)",
+        "bin/backend/build (correctly uses -f Dockerfile.prod)"
+      ],
+      "evidence": "journal/week14.md:69 says a CodePipeline Build stage exists and was re-enabled. Nothing in the repo shows which buildspec that pipeline uses.",
+      "impact": "If the pipeline uses this file, it deploys a debug-mode Flask dev server with no CONNECTION_URL assembly. /api/health-check still passes while every DB route fails.",
+      "recommendation": "Use -f Dockerfile.prod in the buildspec, and confirm the CodeBuild project's buildspec source.",
+      "evidence_level": "READ; which buildspec the pipeline uses is UNVERIFIED"
+    },
+    {
+      "id": "MED-01",
+      "severity": "medium",
+      "category": "security / CORS",
+      "title": "Per-route @cross_origin() likely overrides the restricted CORS origin list",
+      "locations": [
+        "backend-flask/app.py:166-176 CORS(resources origins=[FRONTEND_URL, BACKEND_URL])",
+        "backend-flask/app.py:274, 297, 339, 430, 489, 501, 535, 546 bare @cross_origin()"
+      ],
+      "evidence": "Bare @cross_origin() uses flask-cors defaults (origins '*'). If either env var is unset, origins also contains None.",
+      "impact": "Most API routes probably accept any origin. Auth is a bearer header, not cookies, which limits the damage.",
+      "recommendation": "Remove the decorators and rely on the app-level config, or pass origins explicitly.",
+      "evidence_level": "READ; flask-cors precedence UNVERIFIED (library not installed on host)"
+    },
+    {
+      "id": "MED-02",
+      "severity": "medium",
+      "category": "security / network",
+      "title": "Frontend tasks share the service SG that RDS allows on 5432",
+      "locations": [
+        "aws/cfn/cluster/template.yaml ServiceSecurityGroup (shared)",
+        "aws/cfn/frontend/template.yaml:148 imports ServiceSGId",
+        "aws/cfn/db/template.yaml:55-61 ingress 5432 from ServiceSGId"
+      ],
+      "impact": "The nginx frontend tasks have network access to the database, which isn't least privilege.",
+      "recommendation": "Give the frontend its own SG, or give the backend a dedicated SG and reference only that one from the DB SG.",
+      "evidence_level": "READ"
+    },
+    {
+      "id": "MED-03",
+      "severity": "medium",
+      "category": "frontend / props",
+      "title": "UserFeedPage passes incomplete props: Reply on the profile page throws, and posting from the profile throws after the save",
+      "locations": [
+        "frontend-react-js/src/pages/UserFeedPage.js:73 <ActivityForm popped setActivities> (no setPopped)",
+        "frontend-react-js/src/pages/UserFeedPage.js:82 <ActivityFeed activities> (no setReplyActivity, setPopped or title)",
+        "frontend-react-js/src/components/ActivityForm.js:44 props.setPopped(false)",
+        "frontend-react-js/src/components/ActivityActionReply.js:5 props.setReplyActivity(...)",
+        "frontend-react-js/src/pages/UserFeedPage.js:62-68 dataFetchedRef with [] deps"
+      ],
+      "evidence": "The page renders no ReplyForm. The effect doesn't re-run when params.handle changes, so navigating from /@a to /@b keeps showing the old profile.",
+      "impact": "Reply on the profile page is broken. After a successful profile post the form stays open and a TypeError is logged. Profile-to-profile navigation shows stale data.",
+      "recommendation": "Copy the HomeFeedPage wiring (setPopped, ReplyForm, setReplyActivity) and key the effect on params.handle. MessageGroupPage.js:97-107 already does this correctly.",
+      "evidence_level": "READ"
+    },
+    {
+      "id": "MED-04",
+      "severity": "medium",
+      "category": "frontend / routing",
+      "title": "MessageItem links to a route that doesn't exist",
+      "locations": [
+        "frontend-react-js/src/components/MessageItem.js:8 to={`/messages/@`+props.message.handle}"
+      ],
+      "evidence": "That URL matches /messages/:message_group_uuid with '@handle' as the uuid, so the page calls GET /api/messages/@handle and DynamoDB returns nothing.",
+      "recommendation": "Link to /@handle (the profile) or drop the link.",
+      "evidence_level": "READ"
+    },
+    {
+      "id": "MED-05",
+      "severity": "medium",
+      "category": "frontend / display bug",
+      "title": "Dates older than 24h show the month number instead of the day",
+      "locations": ["frontend-react-js/src/lib/DateTimeFormats.js:5, :15 toFormat('LLL L')"],
+      "evidence": "In luxon, 'L' is the month number. The sub-agent's test printed 'Dec 12' for 2024-12-25; 'LLL d' gives 'Dec 25'.",
+      "impact": "Every timestamp older than a day is wrong in the feed, message groups and messages.",
+      "recommendation": "Use 'LLL d'.",
+      "evidence_level": "READ + RAN (sub-agent luxon test)"
+    },
+    {
+      "id": "MED-06",
+      "severity": "medium",
+      "category": "backend / DynamoDB",
+      "title": "Inbox and thread queries filter by the current year, so conversations vanish on Jan 1",
+      "locations": ["backend-flask/lib/ddb.py:22-25, :54-57 begins_with(sk, str(datetime.now().year))"],
+      "evidence": "The year comes from local time while sk is UTC ISO-8601. Limit 20, no pagination.",
+      "impact": "On 2027-01-01, every 2026 conversation drops out of the inbox and threads.",
+      "recommendation": "Drop the year condition, or use sk > a cutoff. Add pagination with LastEvaluatedKey.",
+      "evidence_level": "READ"
+    },
+    {
+      "id": "MED-07",
+      "severity": "medium",
+      "category": "backend / error handling",
+      "title": "DynamoDB and query_value failure paths return None and end as opaque 500s",
+      "locations": [
+        "backend-flask/lib/ddb.py create_message_group except ClientError: prints and returns None",
+        "backend-flask/lib/ddb.py batch_write_item: UnprocessedItems never checked",
+        "backend-flask/lib/ddb.py create_message returns 'uuid': my_user_uuid instead of message_uuid",
+        "backend-flask/lib/db.py query_value: json[0] on None raises TypeError",
+        "backend-flask/services/message_groups.py:14, messages.py:13 (a user missing from public.users gives a 500)"
+      ],
+      "impact": "DM failures show up as 'view function did not return a valid response'. This is the incident class described in backlog 2.8.",
+      "recommendation": "Return structured errors. Retry UnprocessedItems. Guard the None user.",
+      "evidence_level": "READ"
+    },
+    {
+      "id": "MED-08",
+      "severity": "medium",
+      "category": "frontend / build fragility",
+      "title": "import process from 'process' in four forms changes how REACT_APP_* values resolve",
+      "locations": [
+        "frontend-react-js/src/components/ActivityForm.js:3",
+        "frontend-react-js/src/components/MessageForm.js:3",
+        "frontend-react-js/src/components/ReplyForm.js:3",
+        "frontend-react-js/src/components/ProfileForm.js:3"
+      ],
+      "evidence": "In the local bundle build/static/js/main.9dedd425.js (RAN search), ActivityForm compiles to wd().env.REACT_APP_BACKEND_URL, where wd = module 285 = the npm process polyfill with r.env={}. HomeFeedPage, which has no import, gets the inlined env object instead. That local bundle was built without REACT_APP_BACKEND_URL. journal/week14.md:73, :79 reports posting, DMs and avatar upload (all four affected forms) working in prod, so webpack most likely inlines the full key when the variable is defined.",
+      "impact": "Works in prod according to the journal, but it's fragile. Any missing variable falls through to undefined with no build-time signal. The deployed bundle couldn't be checked (DNS down).",
+      "recommendation": "Delete the four import lines. CRA injects process.env itself.",
+      "evidence_level": "RAN (bundle search) + INFERRED; prod impact UNVERIFIED"
+    },
+    {
+      "id": "MED-09",
+      "severity": "medium",
+      "category": "frontend / UX",
+      "title": "The compose (ActivityForm) modal can't be dismissed",
+      "locations": ["frontend-react-js/src/components/ActivityForm.js (no close control, Escape handler or backdrop click)"],
+      "evidence": "ReplyForm.js has all three (lines 22-43). Backlog 1.2 is only half done.",
+      "recommendation": "Copy ReplyForm's close/Escape/backdrop pattern and reset state on close.",
+      "evidence_level": "READ"
+    },
+    {
+      "id": "MED-10",
+      "severity": "medium",
+      "category": "telemetry / Honeycomb-OTEL",
+      "title": "The OTEL pipeline is plumbed end to end but emits almost no spans",
+      "locations": [
+        "backend-flask/app.py:158 FlaskInstrumentor disabled",
+        "backend-flask/app.py:132 tracer created, never used",
+        "backend-flask/app.py:143 vs :160 the only requests call (JWKS fetch in CognitoJwtToken.__init__) runs BEFORE RequestsInstrumentor().instrument()",
+        "backend-flask/services/home_activities.py:16, :51-54 spans commented out"
+      ],
+      "impact": "Honeycomb receives almost nothing from local or prod.",
+      "recommendation": "See telemetry.honeycomb_otel.gaps.",
+      "evidence_level": "READ; runtime span count UNVERIFIED"
+    },
+    {
+      "id": "MED-11",
+      "severity": "medium",
+      "category": "telemetry / CloudWatch",
+      "title": "The watchtower CloudWatch handler has no IAM permissions in ECS, and its env vars are never set",
+      "locations": [
+        "backend-flask/app.py:94-105 (create_log_group=True, create_log_stream=True)",
+        "backend-flask/app.py:75-77 CLOUDWATCH_LOG_GROUP / CLOUDWATCH_LOG_STREAM (not set in any env file or template)",
+        "aws/cfn/service/template.yaml TaskRole (no logs:* actions)"
+      ],
+      "impact": "Probably fails in ECS; the except branch logs 'Failed to configure CloudWatch logging'. Locally it would write to a real 'cruddur' log group using static keys (INFERRED).",
+      "recommendation": "Either remove watchtower (awslogs already ships stdout) or add scoped logs:CreateLogStream/PutLogEvents on a CFN-owned log group.",
+      "evidence_level": "READ; runtime UNVERIFIED"
+    },
+    {
+      "id": "MED-12",
+      "severity": "medium",
+      "category": "avatar pipeline",
+      "title": "Avatar upload path: PNG key mismatch, unverified JWT decode, repo authorizer not matching the header format, nothing in IaC",
+      "locations": [
+        "frontend-react-js/src/components/ProfileForm.js accept='image/jpeg,image/png'; upload key keeps the file extension",
+        "aws/lambdas/process-images/index.js:25-26 keeps the extension; :44-56 sets ContentType image/jpeg without converting",
+        "frontend-react-js/src/components/ProfileAvatar.js:21 always requests <id>.jpg",
+        "aws/lambdas/cruddur-upload-avatar/function.rb:24 split(' ')[1]; :29 JWT.decode token, nil, false",
+        "aws/lambdas/lambda-authorizer/index.js:14-17 passes the raw 'Bearer <jwt>' header to aws-jwt-verify"
+      ],
+      "evidence": "A PNG upload produces processed/<sub>.png, but the UI only asks for .jpg, so the fallback initial shows. The journal says upload works in prod, so the deployed authorizer may differ from the repo copy. The upload Lambda relies entirely on API Gateway for authentication.",
+      "recommendation": "Convert to JPEG in sharp (.jpeg()) and write <sub>.jpg. Strip 'Bearer ' in the authorizer. Verify the JWT in the upload Lambda, or treat API Gateway as the only gate and document it. Codify the API GW, both Lambdas and CORS (backlog 3.2).",
+      "evidence_level": "READ + INFERRED; deployed authorizer code UNVERIFIED"
+    },
+    {
+      "id": "MED-13",
+      "severity": "medium",
+      "category": "IaC gaps",
+      "title": "Several production resources exist only as click-ops",
+      "locations": [
+        "DynamoDB cruddur-messages table + stream (created by backend-flask/bin/ddb/schema-load prod; the stream was enabled by hand per journal/week5.md)",
+        "aws:json/lambdas/cruddur-messaging-stream.py (STALE/UNVERIFIED copy; processes only Records[0]; delete+put is not atomic)",
+        "API Gateway HTTP API (ID only in frontend-react-js.env.template:6)",
+        "cruddur-upload-avatar and lambda-authorizer Lambdas",
+        "CI/CD pipeline (no aws/cfn/cicd)",
+        "Cognito user pool, PostConfirmation trigger attachment, psycopg2-py13:2 layer source"
+      ],
+      "impact": "A rebuild of the account silently loses these, the same class of problem as the old post-confirmation Lambda.",
+      "recommendation": "Add them to CFN/CDK incrementally, starting with the DynamoDB table and stream (it holds data).",
+      "evidence_level": "READ + RAN (git ls-files)"
+    },
+    {
+      "id": "MED-14",
+      "severity": "medium",
+      "category": "CDK",
+      "title": "thumbnail-serverless-cdk isn't portable and carries risky settings",
+      "locations": [
+        "thumbnail-serverless-cdk/.env (TRACKED) THUMBING_FUNCTION_PATH=/workspaces/aws-bootcamp-cruddur-2023/... (Codespaces path)",
+        "thumbnail-serverless-cdk/cdk.json:74 '@aws-cdk/aws-s3:keepNotificationInImportedBucket': false while adding a notification to the imported assets bucket",
+        "bin/cdk/deploy:9 --require-approval never; bin/cdk/destroy:8 --force",
+        "thumbnail-serverless-cdk/lib/...-stack.ts:43-44 SNS webhook subscription TODO",
+        "thumbnail-serverless-cdk/test/*.test.ts placeholder with its whole body commented out"
+      ],
+      "impact": "synth/deploy fails from WSL. It may overwrite notification config on the assets bucket that this stack doesn't own (UNVERIFIED). IAM changes deploy with no approval.",
+      "recommendation": "Use a relative function path. Set keepNotificationInImportedBucket true. Remove --require-approval never.",
+      "evidence_level": "READ + RAN (ls-files)"
+    },
+    {
+      "id": "MED-15",
+      "severity": "medium",
+      "category": "dependencies",
+      "title": "Unpinned, transitive-only and end-of-life dependencies",
+      "locations": [
+        "backend-flask/requirements.txt (only gunicorn==23.0.0 is pinned)",
+        "backend-flask/lib/cognito_jwt_token.py imports python-jose and requests, which arrive only transitively through Flask-AWSCognito (that package itself is never imported)",
+        "requirements.txt: rollbar listed but unused; opentelemetry-instrumentation-flask imported but unused",
+        "backend Dockerfile(s) FROM cruddur-python:3.10-slim-buster (Debian 10, EOL)",
+        "frontend Dockerfile(s) node:16.18 (EOL); react-scripts 5.0.1 (CRA deprecated)",
+        "Untagged images: public.ecr.aws/xray/aws-xray-daemon, otel-collector-contrib:latest, dynamodb-local:latest"
+      ],
+      "impact": "Builds aren't reproducible. Removing the 'unused' Flask-AWSCognito would break auth.",
+      "recommendation": "Pin versions (pip-compile). List python-jose and requests explicitly. Move to supported base images. Pin sidecar image tags or digests.",
+      "evidence_level": "READ"
+    },
+    {
+      "id": "MED-16",
+      "severity": "medium",
+      "category": "build hygiene",
+      "title": "No .dockerignore anywhere",
+      "locations": [
+        "frontend-react-js/Dockerfile.prod:28 npm ci then :31 COPY . . (host node_modules and stale build/ overwrite the clean install)",
+        "backend-flask/Dockerfile.prod COPY . . (copies root-owned __pycache__ and local artifacts)"
+      ],
+      "recommendation": "Add .dockerignore files excluding node_modules, build, __pycache__, .env*.",
+      "evidence_level": "RAN (file search found none) + READ"
+    },
+    {
+      "id": "MED-17",
+      "severity": "medium",
+      "category": "frontend / error handling",
+      "title": "Most fetches parse JSON before checking the status, and errors go only to the console",
+      "locations": [
+        "HomeFeedPage.js:38, NotificationsFeedPage.js:35, UserFeedPage.js:39, PeoplePage.js:32, MessageGroupsPage.js:32, MessageGroupNewPage.js:27/:51, ActivityForm.js:36, ProfileForm.js:34/:59",
+        "MessageForm.js:61-67 TODO: failures are silent"
+      ],
+      "recommendation": "Check res.ok first. Add a small shared inline-error component.",
+      "evidence_level": "READ_SUBAGENT + READ"
+    },
+    {
+      "id": "MED-18",
+      "severity": "medium",
+      "category": "frontend / auth flows",
+      "title": "The sign-in and confirm flows for unconfirmed users are broken",
+      "locations": [
+        "SigninPage.js:38-58 only handles nextStep 'DONE'; the UserNotConfirmedException branch at :66 is effectively dead in Amplify v6",
+        "SigninPage.js:67 redirects to /confirm without ?email=, and ConfirmationPage.js:104-108 has the email input disabled",
+        "SignupPage.js:65 email isn't encodeURIComponent'd ('+' becomes a space)",
+        "SignupPage.js:57 autoSignIn: true, but autoSignIn() is never called after confirm"
+      ],
+      "evidence_level": "READ_SUBAGENT; Amplify v6 behaviour INFERRED"
+    },
+    {
+      "id": "MED-19",
+      "severity": "medium",
+      "category": "performance",
+      "title": "Unbounded feed, double fetch and avatar cache-busting",
+      "locations": [
+        "backend-flask/db/sql/activities/home.sql (no LIMIT on roots)",
+        "frontend-react-js/src/pages/HomeFeedPage.js:58-71 two effects both call loadData",
+        "frontend-react-js/src/components/ProfileAvatar.js:21 ?v=${Date.now()} changes on every render, so every avatar re-downloads"
+      ],
+      "recommendation": "Paginate the feed. Merge the effects. Use a stable version key (upload timestamp).",
+      "evidence_level": "READ"
+    },
+    {
+      "id": "MED-20",
+      "severity": "medium",
+      "category": "testing",
+      "title": "No meaningful automated tests",
+      "locations": [
+        "frontend-react-js/src/App.test.js:6 looks for 'learn react' (fails)",
+        "thumbnail-serverless-cdk/test placeholder",
+        "backend-flask has no tests",
+        "bin/smoke-test is the only verification (post-deploy, AWS-dependent)"
+      ],
+      "evidence_level": "READ"
+    },
+    {
+      "id": "MED-21",
+      "severity": "medium",
+      "category": "security headers",
+      "title": "nginx sends no security headers",
+      "locations": ["frontend-react-js/nginx.conf (no CSP, X-Frame-Options, X-Content-Type-Options, Referrer-Policy or HSTS; server_tokens on)"],
+      "evidence": "Amplify v6 keeps tokens in localStorage, so an XSS would be high impact. Whether the ALB adds headers was not checked.",
+      "evidence_level": "READ_SUBAGENT"
+    },
+    {
+      "id": "MED-22",
+      "severity": "medium",
+      "category": "telemetry / X-Ray",
+      "title": "X-Ray works but is thin and noisy",
+      "locations": [
+        "aws:json/xray.json sampling rule 'Cruddur' is never applied (zero references, RAN)",
+        "backend-flask/app.py no patch_all/patch(); boto3 and DB calls produce no subsegments",
+        "ALB (30s) and container health checks are traced",
+        "aws/cfn/service/template.yaml xray sidecar: Essential: true, untagged image, no LogConfiguration"
+      ],
+      "evidence_level": "READ + RAN (search)"
+    },
+    {
+      "id": "LOW-01",
+      "severity": "low",
+      "category": "auth",
+      "title": "JWT verifier edge cases",
+      "locations": [
+        "backend-flask/lib/cognito_jwt_token.py:13-18 split() raises ValueError (500) on a header with 3+ parts; scheme 'Bearer' not checked",
+        "cognito_jwt_token.py _find_pkey headers['kid'] and _check_expiration claims['exp'] raise KeyError (500, not 401)",
+        "cognito_jwt_token.py no token_use or iss check (ID tokens are accepted too)",
+        "cognito_jwt_token.py JWKS fetched once at import, no timeout, no key-rotation refresh"
+      ],
+      "evidence_level": "READ"
+    },
+    {
+      "id": "LOW-02",
+      "severity": "low",
+      "category": "privacy",
+      "title": "GET /api/users is unauthenticated and returns every user's cognito_user_id",
+      "locations": ["backend-flask/app.py:535-540", "backend-flask/db/sql/users/index.sql"],
+      "evidence_level": "READ"
+    },
+    {
+      "id": "LOW-03",
+      "severity": "low",
+      "category": "API consistency",
+      "title": "Error and response shapes differ across routes",
+      "locations": [
+        "401: {} in most routes vs {'errors':['not_authenticated']} in the reply route",
+        "Validation: 422 bare list vs 400 {'errors':[...]} in /replies",
+        "app.py:477 500 {'error': str(e)} leaks exception text",
+        "users_short / update_profile can return the STRING '{}' with 200",
+        "update_profile response omits bio (uses the users/short shape)",
+        "request.json read before auth in /api/messages and /api/profile/update (400/415 instead of 401)"
+      ],
+      "evidence_level": "READ"
+    },
+    {
+      "id": "LOW-04",
+      "severity": "low",
+      "category": "invocation mismatch",
+      "title": "The home route passes claims['username'] as cognito_user_id, and the service ignores it",
+      "locations": ["backend-flask/app.py:369", "backend-flask/services/home_activities.py (run parameter unused)"],
+      "evidence": "Every other route uses claims['sub']. HomeActivities is also the only service that is instantiated; all others are called on the class.",
+      "evidence_level": "READ"
+    },
+    {
+      "id": "LOW-05",
+      "severity": "low",
+      "category": "logging",
+      "title": "Every request logs at ERROR level, and logging is print-based",
+      "locations": ["backend-flask/app.py:245 LOGGER.error for every request", "app.py:191-201 before_request prints", "create_activity.py emoji prints"],
+      "impact": "Any future ERROR-rate alarm would be pure noise.",
+      "evidence_level": "READ"
+    },
+    {
+      "id": "LOW-06",
+      "severity": "low",
+      "category": "validation consistency",
+      "title": "Frontend and backend character limits disagree; validation reports only the last error",
+      "locations": [
+        "ActivityForm.js counter 240 vs create_activity.py limit 280",
+        "ReplyForm.js counter 240 vs backend reply limit 1024 (per sub-agent)",
+        "create_message.py / create_activity.py overwrite model['errors'], so only the last error is returned",
+        "create_message.py:24 typo 'user_reciever_handle_blank'",
+        "create_activity.py:91 'handle' key holds cognito_user_id (backlog 3.6)"
+      ],
+      "evidence_level": "READ"
+    },
+    {
+      "id": "LOW-07",
+      "severity": "low",
+      "category": "line endings",
+      "title": "CRLF files in the working tree violate the LF-only rule",
+      "locations": [
+        "frontend-react-js/src/components/ActivityForm.js",
+        "frontend-react-js/src/components/svg/more.svg, elipses.svg, messages.svg",
+        "aws/cfn/frontend/config.toml.example",
+        "aws/cfn/service/config.toml.example",
+        ".gitattributes covers *.sh, bin/**, yaml, yml, json only; not *.js, *.svg, *.toml or backend-flask/bin/**"
+      ],
+      "evidence": "RAN: a carriage-return search matched every line of ActivityForm.js and none in the control files (ReplyForm.js, MessageForm.js, ProfileForm.js). Whether the committed blobs also contain CR could not be checked (shell down).",
+      "evidence_level": "RAN (search)"
+    },
+    {
+      "id": "LOW-08",
+      "severity": "low",
+      "category": "hardcoding",
+      "title": "Identifiers hardcoded across many files",
+      "locations": [
+        "Account 931637612335: backend-flask/Dockerfile:1, Dockerfile.prod:1, bin/backend/build:12, bin/frontend/build:41/:52, aws:json/*",
+        "Cognito pool/client IDs: aws/cfn/service/template.yaml (TaskRole ARN + env), bin/frontend/build:16-17, bin/smoke-test:30-31, both env templates",
+        "Domains: cluster template record sets and host rule, service env, ProfileAvatar.js:21, ProfileHeading banner",
+        "Table 'cruddur-messages': lib/ddb.py:22/54/96/114, bin/ddb/*, service IAM (the stale Lambda reads DDB_TABLE_NAME instead)",
+        "Buckets: bin/serverless/clear, upload"
+      ],
+      "recommendation": "Use parameters and exports. Add a DDB_MESSAGE_TABLE env var with a single name everywhere.",
+      "evidence_level": "READ"
+    },
+    {
+      "id": "LOW-09",
+      "severity": "low",
+      "category": "config drift",
+      "title": "Stale config examples and template defaults",
+      "locations": [
+        "aws/cfn/service/config.toml.example:4 stack_name 'CrdSrvBackendFlask' (local config and teardown-all use 'CrdService')",
+        "aws/cfn/service/config.toml.example:14 AssignPublicIp 'ENABLED' (template default DISABLED, private subnets)",
+        "aws/cfn/db/config.toml.example is not tracked (only the ignored config.toml and .bak exist)",
+        "aws/cfn/db/template.yaml:21 default snapshot 'cruddur-crddb-post-rotation-20260713' vs local 'cruddur-crddb-2026-09-26-pilot2'",
+        "aws/cfn/auth/config.toml.example PsycopgLayerArn placeholder; psycopg2-py13:2 is named nowhere in tracked files"
+      ],
+      "evidence_level": "RAN (search) + READ"
+    },
+    {
+      "id": "LOW-10",
+      "severity": "low",
+      "category": "post-confirmation Lambda",
+      "title": "Minor robustness gaps in the authoritative Lambda",
+      "locations": [
+        "aws/lambdas/cruddur-post-confirmation/lambda_function.py:53-63 INSERT has no ON CONFLICT, so a Cognito retry can fail or duplicate",
+        "aws/cfn/auth/template.yaml no TracingConfig",
+        "Cognito trigger attachment is a manual one-time step (spec D4)"
+      ],
+      "evidence": "Otherwise sound: parameterized SQL, secret read at runtime and cached, errors re-raised, own SG, no CONNECTION_URL env var.",
+      "evidence_level": "READ"
+    },
+    {
+      "id": "LOW-11",
+      "severity": "low",
+      "category": "migrations",
+      "title": "Rollback is destructive and migrate records success unconditionally",
+      "locations": [
+        "db/migrations/17800000000000000_alter_reply_to_activity_uuid.py (migrate AND rollback use USING NULL, which wipes reply links)",
+        "bin/db/migrate:75 records success even when query_commit swallowed an error"
+      ],
+      "evidence_level": "READ_SUBAGENT + READ"
+    },
+    {
+      "id": "LOW-12",
+      "severity": "low",
+      "category": "frontend polish",
+      "title": "Small frontend defects",
+      "locations": [
+        "classsName typos: MessageItem.js:11, MessageGroupNewItem.js:10",
+        "Misnamed functions: Search.js exports 'ActivityFeed', ActivityActionShare.js exports 'ActivityActionRepost', SuggestedUserItem 'SugestedUserItem', MessageGroupNewPage 'MessageGroupPage'",
+        "active={'home'} on MessageGroupPage.js:111 and MessageGroupNewPage.js:74",
+        "TrendItem.js:15 stray '#'",
+        "ReplyForm doesn't bump replies_count, so the 'View N more' count drifts",
+        "Page-level handleSignOut is dead; ProfileInfo uses its own global signOut",
+        "No catch-all route or errorElement; an unknown /@handle returns {'profile': null} and UserFeedPage.js:43 throws (caught, console only)",
+        "eslint: 29 warnings (eqeqeq, no-unreachable in DesktopNavigationLink, unused vars)"
+      ],
+      "evidence_level": "READ + RAN (sub-agent eslint)"
+    },
+    {
+      "id": "LOW-13",
+      "severity": "low",
+      "category": "repo hygiene",
+      "title": "4.1 MB vendored binary is tracked",
+      "locations": ["session-manager-plugin.deb (tracked, not gitignored; .devcontainer/post-create.sh downloads it anyway)"],
+      "evidence_level": "RAN (sub-agent ls-files)"
+    },
+    {
+      "id": "LOW-14",
+      "severity": "low",
+      "category": "local/prod parity",
+      "title": "docker-compose diverges from prod",
+      "locations": [
+        "docker-compose.yml db postgres:13-alpine vs RDS EngineVersion 17.4",
+        "docker-compose.yml:1 obsolete 'version' key",
+        "xray-daemon and backend use static AWS keys locally; prod uses the TaskRole",
+        "Dev Dockerfile (flask run) vs prod gunicorn"
+      ],
+      "evidence_level": "READ"
+    },
+    {
+      "id": "LOW-15",
+      "severity": "low",
+      "category": "env templates",
+      "title": "Env templates only work in Codespaces",
+      "locations": [
+        "backend-flask.env.template:3-4, :7 use CODESPACE_NAME / GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN",
+        "bin/backend/generate-env, bin/frontend/generate-env on WSL produce URLs like https://-4567.",
+        "backend-flask/.env.example and frontend-react-js/.env.example are stale (Gitpod era)",
+        "backend-flask.env.template:15 AWS_ENDPOINT_URL may redirect ALL boto3 clients (watchtower, Cognito) to dynamodb-local on botocore >= 1.31 (UNVERIFIED); AWS_ENDPOINT_URL_DYNAMODB would scope it"
+      ],
+      "evidence_level": "READ; boto3 behaviour UNVERIFIED"
+    },
+    {
+      "id": "LOW-16",
+      "severity": "low",
+      "category": "API docs",
+      "title": "openapi-3.0.yml is stale",
+      "locations": ["backend-flask/openapi-3.0.yml"],
+      "evidence": "Documents /api/messages/@{handle} (real route: /api/messages/{message_group_uuid}) and a user_receiver_handle body key (real: handle). Missing: /api/health-check, /api/activities/{uuid}, /replies, /reply, /api/users, /api/users/@{handle}/short, /api/profile/update. No securitySchemes. Examples use 'andrewbrown'.",
+      "evidence_level": "RAN (search) + READ_SUBAGENT"
+    },
+    {
+      "id": "LOW-17",
+      "severity": "low",
+      "category": "deploy orchestration",
+      "title": "deploy-all doesn't include CrdAuth",
+      "locations": ["bin/cfn/deploy-all:10 (5 stacks)", "_docs/specs/lambda-post-confirmation-cfn.md acceptance criterion 'deploy-all ... NO manual Lambda step'"],
+      "evidence": "This matches the steering rule ('...CrdFrontend, then CrdAuth'), but auth-deploy has to be run separately.",
+      "evidence_level": "READ"
+    },
+    {
+      "id": "LOW-18",
+      "severity": "low",
+      "category": "scripts",
+      "title": "Script robustness",
+      "locations": [
+        "bin/ecs/connect-to-service offers frontend-react-js, but that service has no EnableExecuteCommand or ssmmessages permissions; no JMESPath 'None' check on CLUSTER_NAME",
+        "Missing set -e: bin/backend/generate-env, run; bin/cdk/*; bin/frontend/generate-env, run; bin/serverless/*; most backend-flask/bin/db/*",
+        "Unquoted variables in bin/cfn/*-deploy and connect-to-service",
+        "bin/frontend/build pipes get-login-password into docker login without pipefail",
+        "backend-flask/bin/db/sessions:16 ignores 'prod'; drop/create use a global sed"
+      ],
+      "evidence_level": "READ_SUBAGENT"
+    }
+  ],
+  "invocation_and_api_consistency": {
+    "route_to_service_signatures": {
+      "checked": 15,
+      "mismatches": 0,
+      "notes": [
+        "All 15 routes pass the arguments their service run() expects (READ_SUBAGENT; I spot-checked CreateActivity.run(message, cognito_user_id, ttl), CreateMessage.run kwargs, Messages.run kwargs, MessageGroups.run, UpdateProfile.run).",
+        "Messages.run is defined as (message_group_uuid, cognito_user_id) but called with kwargs in the other order, which is harmless.",
+        "Several run() methods have neither self nor @staticmethod and only work because they're called on the class. HomeActivities is the only one instantiated with ().",
+        "Imported but unused in app.py: FlaskInstrumentor, ConsoleSpanExporter, SimpleSpanProcessor, tracer."
+      ]
+    },
+    "sql_template_calls": {
+      "checked": 15,
+      "mismatches": 0,
+      "notes": "Every db.template() call resolves to an existing .sql file, and every %(name)s placeholder matches its params dict (RAN by sub-agent). No SQL injection found."
+    },
+    "frontend_to_backend_matrix": [
+      { "caller": "HomeFeedPage.js:30-36", "call": "GET /api/activities/home", "auth": "conditional Bearer", "backend": "app.py:339", "status": "match (array)" },
+      { "caller": "NotificationsFeedPage.js:30-34", "call": "GET /api/activities/notifications", "auth": "conditional Bearer (ignored)", "backend": "app.py:394", "status": "match, backend returns MOCK data" },
+      { "caller": "UserFeedPage.js:34-43", "call": "GET /api/activities/@{handle}", "reads": "profile, profile.activities", "backend": "app.py:404 -> users/show.sql", "status": "match; unknown handle returns {profile:null} and the frontend throws" },
+      { "caller": "PeoplePage.js:27-31", "call": "GET /api/users", "backend": "app.py:535", "status": "match" },
+      { "caller": "MessageGroupsPage.js / MessageGroupPage.js / MessageGroupNewPage.js", "call": "GET /api/message_groups", "backend": "app.py:251", "status": "match; MessageGroupNewPage sends an unconditional Bearer" },
+      { "caller": "MessageGroupPage.js:59-71", "call": "GET /api/messages/{message_group_uuid}", "backend": "app.py:274", "status": "match; no membership check (HIGH-01)" },
+      { "caller": "MessageItem.js:8", "call": "Link /messages/@{handle}", "backend": "none", "status": "MISMATCH (MED-04)" },
+      { "caller": "MessageForm.js:34-49", "call": "POST /api/messages {message, handle | message_group_uuid}", "backend": "app.py:297-301 .get('message_group_uuid'), .get('handle'), ['message']", "status": "match" },
+      { "caller": "MessageGroupNewPage.js:23-26", "call": "GET /api/users/@{handle}/short (no headers)", "backend": "app.py:526", "status": "match; returns the string '{}' on a miss" },
+      { "caller": "ActivityForm.js:21-35", "call": "POST /api/activities {message, ttl}", "auth": "unconditional Bearer (sends 'Bearer undefined' when signed out)", "backend": "app.py:430-459 ['message'], ['ttl']", "status": "match" },
+      { "caller": "ReplyForm.js:61-66", "call": "POST /api/activities/{uuid}/reply {message}", "backend": "app.py:501-515 .get('message')", "status": "match" },
+      { "caller": "ActivityItem.js:31-37", "call": "GET /api/activities/{uuid}/replies (no headers)", "backend": "app.py:489", "status": "match" },
+      { "caller": "ProfileForm.js:21-37", "call": "POST /api/profile/update {bio, display_name}", "auth": "unconditional Bearer", "backend": "app.py:546-550", "status": "match; response is ignored and it calls loadData()" },
+      { "caller": "ProfileForm.js:47-60", "call": "POST {REACT_APP_API_GATEWAY_ENDPOINT_URL}/avatars/key_upload {extension}", "auth": "Bearer", "backend": "API GW -> cruddur-upload-avatar (not in IaC)", "status": "works per journal; the repo authorizer doesn't strip 'Bearer '; the build script omits the URL (HIGH-07)" },
+      { "caller": "ProfileForm.js:75-81", "call": "PUT presigned S3 URL", "status": "PNG output key mismatch (MED-12)" }
+    ],
+    "backend_routes_not_called_by_frontend": [
+      "GET /api/activities/search (mock)",
+      "GET /api/activities/{uuid} (mock; no /@handle/status/:uuid route in App.js)"
+    ],
+    "env_var_inconsistencies": [
+      "AWS_XRAY_URL: read at app.py:119, set only in backend-flask.env.template:7, not set in the CFN task definition",
+      "CLOUDWATCH_LOG_GROUP / CLOUDWATCH_LOG_STREAM: read at app.py:75-77, set nowhere",
+      "AWS_REGION: required by CognitoJwtToken (app.py:146, raises if missing); CFN sets only AWS_DEFAULT_REGION, so prod relies on Fargate injecting AWS_REGION (UNVERIFIED)",
+      "PROD_CONNECTION_URL (bin/db/connect, kill-all, schema-load, sessions) and DB_SG_ID/DB_SG_RULE_ID (bin/rds/update-sg-rule): defined nowhere",
+      "PORT: used in EXPOSE ${PORT} in both backend Dockerfiles, never defined",
+      "REACT_APP_AWS_COGNITO_REGION: passed by Dockerfile.prod and bin/frontend/build, only referenced in an App.js comment",
+      "REACT_APP_AWS_PROJECT_REGION: passed as Cognito 'region', which Amplify v6 likely ignores (INFERRED)",
+      "DynamoDB table: hardcoded in the backend, DDB_TABLE_NAME in the stale Lambda, DDB_TABLE literal in smoke-test",
+      "PG_HOST: confirmed NOT read by backend Python (RAN search); only entrypoint-prod:14-19 and the Lambda use it. CONNECTION_URL is assembled by entrypoint-prod:19 and read at lib/db.py:27. Matches the project rule."
+    ],
+    "prop_inconsistencies": [
+      "UserFeedPage -> ActivityForm is missing setPopped; UserFeedPage -> ActivityFeed is missing setReplyActivity, setPopped and title (MED-03)",
+      "ActivityItem passes activity_uuid to Like/Repost/Share; none of them read it",
+      "MessageGroupNewPage otherUser starts as [] (truthy), so MessageGroupNewItem renders with an empty user and links to /messages/new/undefined",
+      "HomeFeedPage.js:69 loadData(user) passes an argument that is ignored"
+    ]
+  },
+  "telemetry": {
+    "honeycomb_otel": {
+      "verdict": "PARTIALLY WIRED, effectively inert. The export path is complete; instrumentation is missing.",
+      "backend_code": [
+        "backend-flask/app.py:38-44 imports (trace, FlaskInstrumentor, RequestsInstrumentor, OTLPSpanExporter, TracerProvider, BatchSpanProcessor, ConsoleSpanExporter/SimpleSpanProcessor)",
+        "backend-flask/app.py:112-114 ACTIVE: TracerProvider + BatchSpanProcessor(OTLPSpanExporter())",
+        "backend-flask/app.py:127-128 COMMENTED: console exporter",
+        "backend-flask/app.py:132 ACTIVE: set_tracer_provider; tracer created but never used",
+        "backend-flask/app.py:158 DISABLED: FlaskInstrumentor().instrument_app(app) (comment: to avoid an X-Ray conflict)",
+        "backend-flask/app.py:160 ACTIVE: RequestsInstrumentor().instrument(), which runs AFTER the only requests call (the JWKS fetch at app.py:143)",
+        "backend-flask/services/home_activities.py:4 unused import; :16 tracer commented; :51-54 span 'home-activites-mock-data' commented"
+      ],
+      "dependencies": "backend-flask/requirements.txt:5-9 (opentelemetry-api, -sdk, -instrumentation-flask, -instrumentation-requests, -exporter-otlp-proto-http), all unpinned",
+      "local": [
+        "docker-compose.yml:30-43 otel-collector (otel/opentelemetry-collector-contrib:latest) mounts ./otel-collector/config.yaml; backend depends_on it; HONEYCOMB_API_KEY comes from the host shell",
+        "otel-collector/config.yaml:3-8 OTLP receivers on 4318 (HTTP) and 4317 (gRPC); :17-20 exporter otlp/honeycomb -> https://api.honeycomb.io:443 with header x-honeycomb-team ${env:HONEYCOMB_API_KEY}; :26-37 traces, metrics and logs pipelines",
+        "backend-flask.env.template:5 OTEL_SERVICE_NAME=backend-flask, :6 OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318",
+        ".devcontainer/devcontainer.json:27 HONEYCOMB_API_KEY defaults to an empty string"
+      ],
+      "prod": [
+        "aws/cfn/service/template.yaml Environment: OTEL_SERVICE_NAME=backend-flask, OTEL_EXPORTER_OTLP_ENDPOINT=https://api.honeycomb.io (direct; there is no collector in prod)",
+        "aws/cfn/service/template.yaml Secrets: OTEL_EXPORTER_OTLP_HEADERS from SSM /cruddur/backend-flask/OTEL_EXPORTER_OTLP_HEADERS",
+        "aws/cfn/service/template.yaml ExecutionRole SsmParameterRead on parameter/cruddur/backend-flask/*"
+      ],
+      "frontend": "None. No browser OTEL or Honeycomb SDK.",
+      "lambdas": "None.",
+      "gaps": [
+        "No server spans: enable FlaskInstrumentor (test alongside XRayMiddleware) or add manual spans per route",
+        "Move RequestsInstrumentor().instrument() above the CognitoJwtToken construction",
+        "Add DB and AWS SDK instrumentation (opentelemetry-instrumentation-psycopg, -botocore)",
+        "Add resource attributes (deployment.environment, service.version)",
+        "Confirm the SSM parameter exists and holds x-honeycomb-team=<key> (UNVERIFIED)",
+        "_docs/session-summary.json:50/:135 says the collector is commented out; it is active"
+      ]
+    },
+    "aws_xray": {
+      "verdict": "MOSTLY WIRED in prod (middleware, sidecar, IAM) with minimal custom instrumentation. Not verified for the CFN deploy; the last evidence is journal/week7 for the old click-ops task definition.",
+      "backend_code": [
+        "backend-flask/app.py:50-51 imports xray_recorder, XRayMiddleware",
+        "backend-flask/app.py:120 xray_recorder.configure(service='backend-flask', dynamic_naming=AWS_XRAY_URL)",
+        "backend-flask/app.py:153 XRayMiddleware(app, xray_recorder) (one segment per request, health checks included)",
+        "backend-flask/app.py:340 @xray_recorder.capture('activities_home')",
+        "backend-flask/app.py:394 @xray_recorder.capture('notifications_api_call')",
+        "backend-flask/app.py:404 @xray_recorder.capture('user_api_call')",
+        "backend-flask/services/notifications_activities.py:2, :7 in_subsegment('notifications_activities'), :12 placeholder annotation custom_key=custom_value"
+      ],
+      "dependencies": "backend-flask/requirements.txt:11 aws-xray-sdk (unpinned)",
+      "local": [
+        "docker-compose.yml:68-77 xray-daemon (amazon/aws-xray-daemon, static AWS keys from host env, 2000/udp)",
+        "backend-flask.env.template:7 AWS_XRAY_URL (Codespaces pattern), :8 AWS_XRAY_DAEMON_ADDRESS=xray-daemon:2000",
+        ".gitpod.yml:39-42 and devcontainer.json forward port 2000, which doesn't help a UDP port"
+      ],
+      "prod": [
+        "aws/cfn/service/template.yaml TaskDefinition sidecar 'xray' (public.ecr.aws/xray/aws-xray-daemon, untagged, Essential true, User 1337, 2000/udp, no LogConfiguration)",
+        "aws/cfn/service/template.yaml TaskRole XRayWrite: PutTraceSegments, PutTelemetryRecords, GetSamplingRules, GetSamplingTargets on *",
+        "AWS_XRAY_DAEMON_ADDRESS is unset; the SDK default 127.0.0.1:2000 reaches the sidecar under awsvpc",
+        "AWS_XRAY_URL is unset, so segments are named 'backend-flask'"
+      ],
+      "stale": [
+        "aws:json/task-definitions/backend-flask.json (xray sidecar, AWS_XRAY_URL '*fentoncruddur.com*')",
+        "aws:json/task-definitions/frontend-react-js.json (pointless xray sidecar)",
+        "aws:json/xray.json sampling rule 'Cruddur' (FixedRate 0.1, Reservoir 5), never applied by any script (RAN search)"
+      ],
+      "gaps": [
+        "No patch_all()/patch(), so no boto3/DynamoDB/Cognito subsegments (psycopg3 patching support UNVERIFIED)",
+        "Sampling rule and X-Ray group not in IaC, so health checks consume the sample budget",
+        "No TracingConfig on any Lambda",
+        "Sidecar marked Essential: a daemon crash stops the backend task"
+      ]
+    },
+    "cloudwatch_logs": {
+      "verdict": "awslogs is FULLY WIRED. watchtower is PARTIALLY WIRED and probably failing in ECS.",
+      "locations": [
+        "aws/cfn/service/template.yaml LogGroup /cruddur/${AWS::StackName} (14d) + awslogs driver, prefix backend-flask",
+        "aws/cfn/frontend/template.yaml awslogs driver",
+        "aws/cfn/auth/template.yaml LogGroup /aws/lambda/${FunctionName} (LogRetentionDays, default 7)",
+        "aws/cfn/db/template.yaml EnableCloudwatchLogsExports: postgresql (teardown-all deletes that log group)",
+        "backend-flask/buildspec.yml logs group /cruddur/codebuild",
+        "backend-flask/app.py:57, :75-77, :94-105 watchtower handler (no logs:* in TaskRole; env vars unset)",
+        "backend-flask/bin/docker/entrypoint-prod:22 gunicorn --access-logfile - --error-logfile -"
+      ]
+    },
+    "rollbar": {
+      "verdict": "NOT WIRED",
+      "locations": [
+        "backend-flask/app.py:67-69 imports (commented)",
+        "backend-flask/app.py:215-227 init (commented)",
+        "backend-flask/app.py:232-236 /rollbar/test route (commented)",
+        "backend-flask/requirements.txt:16 rollbar (dependency only)",
+        "backend-flask.env.template:12 ROLLBAR_ACCESS_TOKEN; .devcontainer/devcontainer.json:26 empty"
+      ]
+    },
+    "frontend_web_vitals": {
+      "verdict": "NO-OP",
+      "locations": [
+        "frontend-react-js/src/index.js:18 reportWebVitals() called with no callback",
+        "frontend-react-js/src/reportWebVitals.js:2 guard skips everything; web-vitals ^2.1.4 is loaded only via a dynamic import"
+      ]
+    }
+  },
+  "incomplete_features": [
+    { "feature": "Crud expiry (TTL) enforcement", "status": "not implemented", "ref": "HIGH-06" },
+    { "feature": "Notifications", "status": "mock", "evidence": "backend-flask/services/notifications_activities.py:18-37 hardcoded 'Antwuan Jacobs' / 'Worf' with fixed UUIDs" },
+    { "feature": "Search", "status": "stub on both sides", "evidence": "services/search_activities.py returns hardcoded 'Chris Fenton' and ignores the term; Search.js input has no state or handler; component is misnamed 'ActivityFeed'" },
+    { "feature": "Single activity view", "status": "mock, not routed", "evidence": "services/show_activity.py ignores activity_uuid; no frontend route" },
+    { "feature": "Like / Repost / Share", "status": "dead controls", "evidence": "ActivityActionLike.js, ActivityActionRepost.js, ActivityActionShare.js only console.log; no endpoints; counts never change" },
+    { "feature": "Trending / Suggested users", "status": "hardcoded", "evidence": "DesktopSidebar.js:8-17 fixed hashtags and 'Andrew Brown'" },
+    { "feature": "DM list refresh after send", "status": "partial (backlog 2.1)", "evidence": "setMessageGroups is never passed to MessageForm" },
+    { "feature": "DM avatars", "status": "partial (backlog 2.6)", "evidence": "MessageGroupItem done; MessageGroupNewItem.js:9 and MessageItem.js:10 still empty divs" },
+    { "feature": "Modal dismissal", "status": "partial (backlog 1.2)", "evidence": "ReplyForm and ProfileForm done; ActivityForm not" },
+    { "feature": "User-facing errors", "status": "partial (backlog 2.8)", "evidence": "only ReplyForm, ActivityItem and auth pages; MessageForm.js:61-67 TODO" },
+    { "feature": "Empty and loading states", "status": "mostly missing (backlog 2.7)", "evidence": "only ActivityItem has 'Loading replies...'; not checked across all pages" },
+    { "feature": "Mobile responsiveness", "status": "likely missing (backlog 1.4)", "evidence": "no @media in App.css/index.css per sub-agent; other CSS not fully checked" },
+    { "feature": "Ops readiness", "status": "open (backlog 1.5)", "evidence": "no AWS::CloudWatch::Alarm in any template; no explicit BackupRetentionPeriod; budget/billing JSON not applied by IaC" },
+    { "feature": "Avatar upload UX", "status": "partial", "evidence": "success is console-only; avatar doesn't refresh; PNG mismatch (MED-12)" },
+    { "feature": "Per-user banners", "status": "not started (backlog 3.1)", "evidence": "ProfileHeading uses a single hardcoded banner.jpg" },
+    { "feature": "API GW / S3 CORS in IaC", "status": "open (backlog 3.2)" },
+    { "feature": "Config into SSM", "status": "open (backlog 3.5)" },
+    { "feature": "SNS webhook for processed avatars", "status": "TODO", "evidence": "thumbnail-serverless-cdk stack :43-44" },
+    { "feature": "Footer links (About / Terms / Privacy) and 'More' nav", "status": "placeholders", "evidence": "DesktopSidebar.js footer href='#'; DesktopNavigation.js:51 url='/#'" },
+    { "feature": "Route guards / 404 page", "status": "missing", "evidence": "App.js has no catch-all or errorElement" },
+    { "feature": "Rollbar error tracking", "status": "not wired" },
+    { "feature": "Automated tests / CI quality gates", "status": "missing", "ref": "MED-20" },
+    { "feature": "IaC for DynamoDB, stream Lambda, avatar Lambdas, API GW, CI/CD, Cognito", "status": "missing", "ref": "MED-13" }
+  ],
+  "stale_docs_and_references": [
+    "_docs/specs/lambda-post-confirmation-cfn.md:3 says 'Status: DESIGN. Not implemented.' aws/cfn/auth/template.yaml implements it.",
+    "_docs/specs/lambda-post-confirmation-cfn.md:11 and :94 reference bin/fix-post-confirmation, which has been deleted. Stale reference, reported and not acted on.",
+    ".kiro/steering/cruddur-constraints.md mentions aws:json/lambdas/cruddur-post-confirmation.py, but only cruddur-messaging-stream.py is tracked in aws:json/lambdas/ (RAN git ls-files). Flagged for human review; I did not edit steering.",
+    "_docs/session-summary.json:50/:135 (collector commented out), :154 (PublicSubnetIds), :160 (TaskRole X-Ray only), :170 (AssignPublicIp defaults ENABLED): all contradicted by current code",
+    "aws/cfn/service/template.yaml:11 description says PublicSubnetIds; the template imports PrivateSubnetIds",
+    "aws/cfn/service/template.yaml TaskDefinition comment says it 'mirrors aws:json/task-definitions/backend-flask.json' (that file is stale)",
+    "_docs/week12-13-gameplan.md: teardown order omits CrdAuth; 'until gunicorn lands' is outdated (entrypoint-prod:22 runs gunicorn); snapshot ID is outdated",
+    "README.md:17-31 checklist stale (weeks 8-13 unchecked; week14 and week11-session-a not listed); frontend-react-js/README.md just says 'Update me!'",
+    "journal/week4.md:524, :787, :1397 reference backend-flask/lambdas/cruddur-post-confirmation.py (doesn't exist)",
+    "journal/week6.md and week6.5.md use the path aws/json/... (actual: aws:json/)",
+    ".devcontainer/post-start.sh:151 references ./backend-flask/bin/db-connect (actual: backend-flask/bin/db/connect)",
+    "bin/backend/build:41-44 mentions the deleted bin/ecs/deploy-backend",
+    "journal/week14.md:70 says the build-arg gap was fixed; true for Dockerfile.prod, not for bin/frontend/build (HIGH-07)",
+    "backend-flask/openapi-3.0.yml (LOW-16)"
+  ],
+  "corrections_to_intermediate_subagent_claims": [
+    {
+      "claim": "teardown-all deletes 'CrdService', but the stack is named 'CrdSrvBackendFlask', so the backend is never deleted (HIGH)",
+      "correction": "Downgraded to LOW-09. The local aws/cfn/service/config.toml has stack_name = 'CrdService', which matches teardown-all. Only the .example is stale.",
+      "evidence_level": "RAN (search)"
+    },
+    {
+      "claim": "import process from 'process' breaks every POST in production (CRITICAL)",
+      "correction": "Downgraded to MED-08. The bundle evidence comes from a local build that had no REACT_APP_BACKEND_URL, and the journal reports all four affected forms working in prod.",
+      "evidence_level": "RAN (bundle search) + READ (journal)"
+    },
+    {
+      "claim": "No CRLF anywhere (bin scripts 0)",
+      "correction": "The bin scripts are LF, but six other working-tree files contain CR (LOW-07).",
+      "evidence_level": "RAN (search)"
+    }
+  ],
+  "needs_human_verification": [
+    "Which buildspec the CodePipeline/CodeBuild project actually uses (HIGH-08)",
+    "Whether the deployed lambda-authorizer and upload-avatar code match the repo (MED-12)",
+    "Whether SSM /cruddur/backend-flask/OTEL_EXPORTER_OTLP_HEADERS exists, and whether spans or segments arrive from the CFN-deployed backend",
+    "Whether watchtower errors at startup in ECS (search the CloudWatch logs for 'Failed to configure CloudWatch logging')",
+    "Whether Fargate injects AWS_REGION (required at app.py:146)",
+    "The committed line endings of the CRLF files (git ls-files --eol)",
+    "cfn-lint on networking, cluster, db, service and frontend templates (not run)",
+    "The deployed frontend bundle, to settle MED-08 (DNS was down)",
+    "RDS automated-backup retention on the restored instance",
+    "flask-cors precedence between the app-level config and @cross_origin() (MED-01)"
+  ],
+  "suggested_fix_order": [
+    "1. CRIT-01: add a pre-teardown snapshot and a dependent-stack gate to teardown-all",
+    "2. HIGH-02: stop logging bearer tokens and headers (app.py:437, :199; function.rb:6, :24; authorizer:13)",
+    "3. HIGH-01: add a DM membership check on read and write",
+    "4. HIGH-07 + HIGH-08: fix the build script's API GW arg and the buildspec Dockerfile",
+    "5. HIGH-05: make DB write failures loud and structured",
+    "6. HIGH-03 + HIGH-04: reconcile schema.sql, have setup run migrate, fix the migration prefix width",
+    "7. HIGH-06: enforce expires_at in the feed, profile and replies SQL",
+    "8. Quick frontend wins: MED-05 date format, MED-04 link, MED-03 profile page props, MED-09 compose modal close, MED-08 remove the process imports",
+    "9. Telemetry: MED-10 (OTEL spans), MED-22 (X-Ray sampling and patching), MED-11 (watchtower decision)",
+    "10. IaC backlog: MED-13, MED-14, then the dependency pinning in MED-15"
+  ]
+}
