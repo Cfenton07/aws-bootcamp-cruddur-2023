@@ -82,3 +82,36 @@
   padding-left: 52px;
   padding-top: 8px;
 }
+
+/* ---- "View N more replies" toggle (backlog #9) ---- */
+
+/* 72px = 29 (rule offset) + 2 (rule) + 41 (child inset), so the toggle
+   lines up with the reply avatars above it. */
+.activity_item .replies_toggle {
+  display: block;
+  margin: 8px 0 0 72px;
+  padding: 4px 0;
+  background: none;
+  border: none;
+  color: rgb(149,0,255);
+  font-size: 14px;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+
+.activity_item .replies_toggle:hover {
+  text-decoration: underline;
+}
+
+.activity_item .replies_toggle:disabled {
+  color: rgba(255,255,255,0.5);
+  cursor: default;
+  text-decoration: none;
+}
+
+.activity_item .replies_error {
+  margin: 4px 0 0 72px;
+  color: rgb(255,99,99);
+  font-size: 14px;
+}
