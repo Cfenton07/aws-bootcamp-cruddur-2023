@@ -1,0 +1,285 @@
+{
+  "task": "Security: stop logging bearer tokens and PII (audit HIGH-02); require message-group membership to read or post a DM (audit HIGH-01)",
+  "branch": "kiro-dev",
+  "working_directory": "repo root (~/aws-bootcamp-cruddur-2023)",
+  "context": {
+    "why_logging": "Container stdout goes to CloudWatch (/cruddur/CrdService, 14-day retention). Before this spec, app.py printed 50 characters of every Authorization header and, on /api/activities, every header in full; lib/db.py printed every SQL statement with its params (message text, Cognito IDs); messages.py printed whole conversations; the post-confirmation Lambda printed email and name; the upload-avatar and authorizer Lambdas printed the full event including the token. Anyone with log read access could replay a live token for up to an hour.",
+    "why_membership": "GET /api/messages/<uuid> and POST /api/messages (update mode) served any message_group_uuid to any signed-in user. messages.py already looked up my_user_uuid and then never used it. The fix: Ddb.is_member queries the caller's own GRP#<uuid> partition for a row with that message_group_uuid. It uses the base table with ConsistentRead (not the GSI, which is eventually consistent and could wrongly reject a just-created group), sets no Limit (Limit is applied before FilterExpression and could hide the match), and paginates.",
+    "status_code": "Non-members get 404 message_group_not_found rather than 403, so the API does not confirm that a given group exists.",
+    "sql_debug": "print_sql and print_params now print only when the env var CRUDDUR_SQL_DEBUG=1. It is not set in ECS. Set it locally when you need SQL traces. print_sql_err is unchanged: errors still print.",
+    "lambdas": "The three Lambda edits change repo source ONLY. Nothing is redeployed by this spec. How each Lambda is packaged (CrdAuth for post-confirmation; manual zips with gem/node dependencies for upload-avatar and the authorizer) must be checked before redeploying, because uploading a bare file without its dependencies would break it.",
+    "tested": "Claude applied these exact edits to reconstructions of the files and ran them. The membership check allows a member found on the second page of results, rejects non-members on both read and post, sets ConsistentRead with no Limit, and passes ExclusiveStartKey when paginating. Python ast.parse, node --check and ruby -c all pass on the edited snippets.",
+    "overlap": "The later kiro-spec-hardening.json edits query_commit and print_sql_err in lib/db.py and the LOGGER line in app.py. This spec touches none of those lines, so hardening's anchors remain valid.",
+    "edit_method": "Every change is an exact find-and-replace. 'old' must occur EXACTLY ONCE in the named file and is replaced by 'new'. Indentation is significant: app.py mixes 4-space routes (data_messages) and 2-space routes (data_create_message). Use the IDE file-edit tool."
+  },
+  "phases": [
+    {
+      "phase": 1,
+      "name": "Read before writing (STOP conditions)",
+      "actions": [
+        "STOP 0: GIT_PAGER=cat git status --short must show NO modified files (untracked _docs/specs/*.json files are acceptable). GIT_PAGER=cat git log -1 --format=%s must start with 'Ops safety:' (the previous spec is committed). If either fails, STOP and report.",
+        "Read in full: backend-flask/services/messages.py, backend-flask/services/create_message.py, backend-flask/lib/ddb.py, backend-flask/lib/db.py, backend-flask/services/create_activity.py, the three Lambda sources below, and backend-flask/app.py (log_request_info, data_messages, data_create_message, data_activities).",
+        "STOP 1: For EVERY edit in phases 2-8, confirm its 'old' string occurs EXACTLY ONCE in its file (whitespace-exact). Report a table: edit id, file, count, line number. If any count is not 1, STOP and paste the surrounding 10 lines of the real file.",
+        "STOP 2: services/create_message.py must define `ddb = Ddb.client()` BEFORE the `if (mode == \"update\"):` block that the CM-A edit changes, and `my_user['uuid']` must be available there (the sender_not_found guard returns earlier when my_user is None). If not, STOP.",
+        "Report (no stop): run `grep -rn \"list_messages\\|create_message(\" backend-flask --include=*.py` and list every call site, so the operator can confirm no other path reads or writes a group without the new check.",
+        "Report (no stop): run `grep -n \"cross_origin\" backend-flask/app.py` and list the lines. Do NOT change them in this spec (audit MED-01 is verified live in pilot #3 first)."
+      ]
+    },
+    {
+      "phase": 2,
+      "name": "Edit app.py",
+      "edits": [
+        {
+          "id": "APP_A: before_request: stop printing 50 chars of the Authorization header",
+          "file": "backend-flask/app.py",
+          "old": "    print(f'   Authorization header present: {\"Authorization\" in request.headers}')\n    if \"Authorization\" in request.headers:\n        auth_header = request.headers.get(\"Authorization\")\n        print(f'   Auth header (first 50 chars): {auth_header[:50]}...')\n",
+          "new": "    # Audit HIGH-02: never log any part of the bearer token. Presence only.\n    print(f'   Authorization header present: {\"Authorization\" in request.headers}')\n"
+        },
+        {
+          "id": "APP_B: data_activities: stop dumping all request headers",
+          "file": "backend-flask/app.py",
+          "old": "    print(f'   Headers: {dict(request.headers)}')\n",
+          "new": "    # Audit HIGH-02: the full header dump logged the bearer token. Removed.\n"
+        },
+        {
+          "id": "APP_C: GET /api/messages/<uuid>: map message_group_not_found to 404",
+          "file": "backend-flask/app.py",
+          "old": "            message_group_uuid=message_group_uuid\n          )\n        if model['errors'] is not None:\n            return model['errors'], 422\n",
+          "new": "            message_group_uuid=message_group_uuid\n          )\n        # Audit HIGH-01: not a participant (or no such group). 404, not 403,\n        # so the response does not reveal whether the group exists.\n        if model['errors'] == ['message_group_not_found']:\n            return model['errors'], 404\n        if model['errors'] is not None:\n            return model['errors'], 422\n"
+        },
+        {
+          "id": "APP_D: POST /api/messages (update mode): map message_group_not_found to 404",
+          "file": "backend-flask/app.py",
+          "old": "        cognito_user_id=cognito_user_id\n      )\n    if model['errors'] is not None:\n      return model['errors'], 422\n",
+          "new": "        cognito_user_id=cognito_user_id\n      )\n    # Audit HIGH-01: posting into a group you are not in.\n    if model['errors'] == ['message_group_not_found']:\n      return model['errors'], 404\n    if model['errors'] is not None:\n      return model['errors'], 422\n"
+        }
+      ]
+    },
+    {
+      "phase": 3,
+      "name": "Edit lib/ddb.py",
+      "edits": [
+        {
+          "id": "DDB_A: new Ddb.is_member, inserted immediately BEFORE create_message",
+          "file": "backend-flask/lib/ddb.py",
+          "old": "  @staticmethod\n  def create_message(client,message_group_uuid, message, my_user_uuid, my_user_display_name, my_user_handle):\n",
+          "new": "  @staticmethod\n  def is_member(client, message_group_uuid, my_user_uuid):\n    # Audit HIGH-01 (IDOR). A caller may read or post to a message group only\n    # if the GRP#<caller uuid> partition holds a row for that group.\n    # Base table with ConsistentRead, NOT the message-group-sk-index GSI: a GSI\n    # is eventually consistent, so a group created a moment ago could be\n    # missing from it and its creator would get a false 404.\n    # No Limit: DynamoDB applies Limit BEFORE FilterExpression, so a limit\n    # could hide the matching row. Paginate instead (groups per user are few).\n    query_params = {\n      'TableName': 'cruddur-messages',\n      'KeyConditionExpression': 'pk = :pkey',\n      'FilterExpression': 'message_group_uuid = :group',\n      'ProjectionExpression': 'message_group_uuid',\n      'ConsistentRead': True,\n      'ExpressionAttributeValues': {\n        ':pkey': {'S': f\"GRP#{my_user_uuid}\"},\n        ':group': {'S': str(message_group_uuid)}\n      }\n    }\n    while True:\n      response = client.query(**query_params)\n      if response.get('Items'):\n        return True\n      last_key = response.get('LastEvaluatedKey')\n      if not last_key:\n        return False\n      query_params['ExclusiveStartKey'] = last_key\n  @staticmethod\n  def create_message(client,message_group_uuid, message, my_user_uuid, my_user_display_name, my_user_handle):\n"
+        }
+      ]
+    },
+    {
+      "phase": 4,
+      "name": "Edit services/messages.py",
+      "edits": [
+        {
+          "id": "MSG_A: membership check before list_messages; stop printing message bodies",
+          "file": "backend-flask/services/messages.py",
+          "old": "    ddb = Ddb.client()\n    data = Ddb.list_messages(ddb, message_group_uuid)\n    print(\"list_messages\")\n    print(data)\n",
+          "new": "    ddb = Ddb.client()\n    # Audit HIGH-01: only a participant may read this conversation.\n    # my_user_uuid was already looked up above but was never used.\n    if my_user_uuid is None or not Ddb.is_member(ddb, message_group_uuid, my_user_uuid):\n      model['errors'] = ['message_group_not_found']\n      return model\n    data = Ddb.list_messages(ddb, message_group_uuid)\n    # Audit HIGH-02: print a count, not the private message bodies.\n    print(f\"list_messages: {len(data)} items\")\n"
+        }
+      ]
+    },
+    {
+      "phase": 5,
+      "name": "Edit services/create_message.py",
+      "edits": [
+        {
+          "id": "CM_A: membership check before posting into an existing group",
+          "file": "backend-flask/services/create_message.py",
+          "old": "      if (mode == \"update\"):\n        data = Ddb.create_message(\n",
+          "new": "      if (mode == \"update\"):\n        # Audit HIGH-01: only a participant may post into an existing group.\n        if not Ddb.is_member(ddb, message_group_uuid, my_user['uuid']):\n          model['errors'] = ['message_group_not_found']\n          return model\n        data = Ddb.create_message(\n"
+        }
+      ]
+    },
+    {
+      "phase": 6,
+      "name": "Edit lib/db.py",
+      "edits": [
+        {
+          "id": "DB_A: print_params opt-in",
+          "file": "backend-flask/lib/db.py",
+          "old": "  def print_params(self,params):\n    blue = '\\033[94m'\n",
+          "new": "  def print_params(self,params):\n    # Audit HIGH-02: params carry message text and Cognito IDs, and stdout goes\n    # to CloudWatch. Print only when CRUDDUR_SQL_DEBUG=1 (local debugging).\n    if os.getenv('CRUDDUR_SQL_DEBUG') != '1':\n      return\n    blue = '\\033[94m'\n"
+        },
+        {
+          "id": "DB_B: print_sql opt-in",
+          "file": "backend-flask/lib/db.py",
+          "old": "  def print_sql(self,title,sql, params={}):\n    cyan = '\\033[96m'\n",
+          "new": "  def print_sql(self,title,sql, params={}):\n    # Audit HIGH-02: same rule as print_params (this also prints params).\n    if os.getenv('CRUDDUR_SQL_DEBUG') != '1':\n      return\n    cyan = '\\033[96m'\n"
+        }
+      ]
+    },
+    {
+      "phase": 7,
+      "name": "Edit services/create_activity.py",
+      "edits": [
+        {
+          "id": "CA_A: stop logging message text and cognito_user_id",
+          "file": "backend-flask/services/create_activity.py",
+          "old": "    print(f'   message: {message}')\n    print(f'   cognito_user_id: {cognito_user_id}')\n",
+          "new": "    # Audit HIGH-02: no message text or Cognito ID in the logs.\n    print(f'   message length: {len(message) if message else 0}')\n"
+        },
+        {
+          "id": "CA_B: stop logging the created activity JSON",
+          "file": "backend-flask/services/create_activity.py",
+          "old": "      print(f'✅ Activity data retrieved: {object_json}')\n",
+          "new": "      print('✅ Activity data retrieved')\n"
+        }
+      ]
+    },
+    {
+      "phase": 8,
+      "name": "Edit Lambdas (repo source only)",
+      "edits": [
+        {
+          "id": "PC_A: post-confirmation: stop logging email/name",
+          "file": "aws/lambdas/cruddur-post-confirmation/lambda_function.py",
+          "old": "    user = event['request']['userAttributes']\n    print('userAttributes')\n    print(user)\n",
+          "new": "    user = event['request']['userAttributes']\n    # Audit HIGH-02: userAttributes holds email and name. Log the sub only.\n    print(f\"PostConfirmation for sub={user.get('sub')}\")\n"
+        },
+        {
+          "id": "RB_A: upload-avatar: stop logging the full event",
+          "file": "aws/lambdas/cruddur-upload-avatar/function.rb",
+          "old": "def handler(event:, context:)\n  puts event\n",
+          "new": "def handler(event:, context:)\n  # Audit HIGH-02: the full event includes the Authorization header.\n  puts({step: 'request', routeKey: event['routeKey']}.to_json)\n"
+        },
+        {
+          "id": "RB_B: upload-avatar: stop logging the raw access token",
+          "file": "aws/lambdas/cruddur-upload-avatar/function.rb",
+          "old": "  puts({step: 'presignedurl', access_token: token}.to_json)\n",
+          "new": "  puts({step: 'presignedurl'}.to_json)\n"
+        },
+        {
+          "id": "JS_A: authorizer: stop logging the full event",
+          "file": "aws/lambdas/lambda-authorizer/index.js",
+          "old": "  console.log(\"request:\", JSON.stringify(event, undefined, 2));\n",
+          "new": "  // Audit HIGH-02: the full event includes the Authorization header.\n  console.log(\"request:\", event.routeKey);\n"
+        },
+        {
+          "id": "JS_B: authorizer: log sub only",
+          "file": "aws/lambdas/lambda-authorizer/index.js",
+          "old": "    console.log(\"Access allowed. JWT payload:\", payload);\n",
+          "new": "    console.log(\"Access allowed for sub:\", payload.sub);\n"
+        },
+        {
+          "id": "JS_C: authorizer: log error name/message only",
+          "file": "aws/lambdas/lambda-authorizer/index.js",
+          "old": "    console.error(\"Access denied:\", err);\n",
+          "new": "    console.error(\"Access denied:\", err.name, err.message);\n"
+        }
+      ]
+    },
+    {
+      "phase": 9,
+      "name": "Verification gates (repo root; paste raw output of every command)",
+      "commands": [
+        {
+          "cmd": "python3 -c \"import ast; [ast.parse(open(p).read()) for p in ('backend-flask/app.py','backend-flask/lib/ddb.py','backend-flask/lib/db.py','backend-flask/services/messages.py','backend-flask/services/create_message.py','backend-flask/services/create_activity.py','aws/lambdas/cruddur-post-confirmation/lambda_function.py')]; print('python syntax ok')\"",
+          "expect": "python syntax ok"
+        },
+        {
+          "cmd": "(command -v node >/dev/null && node --check aws/lambdas/lambda-authorizer/index.js && echo js-ok) || echo 'node absent: js check skipped'",
+          "expect": "js-ok (or the skipped message)"
+        },
+        {
+          "cmd": "(command -v ruby >/dev/null && ruby -c aws/lambdas/cruddur-upload-avatar/function.rb) || echo 'ruby absent: rb check skipped'",
+          "expect": "Syntax OK (or the skipped message)"
+        },
+        {
+          "cmd": "grep -cF 'auth_header[:50]' backend-flask/app.py",
+          "expect": "0"
+        },
+        {
+          "cmd": "grep -cF 'dict(request.headers)' backend-flask/app.py",
+          "expect": "0"
+        },
+        {
+          "cmd": "grep -cF \"if model['errors'] == ['message_group_not_found']:\" backend-flask/app.py",
+          "expect": "2"
+        },
+        {
+          "cmd": "grep -cF 'def is_member(client, message_group_uuid, my_user_uuid):' backend-flask/lib/ddb.py",
+          "expect": "1"
+        },
+        {
+          "cmd": "grep -cF \"'ConsistentRead': True\" backend-flask/lib/ddb.py",
+          "expect": "1"
+        },
+        {
+          "cmd": "grep -n -A1 -F \"query_params['ExclusiveStartKey'] = last_key\" backend-flask/lib/ddb.py; grep -n -F 'def create_message(client,message_group_uuid' backend-flask/lib/ddb.py",
+          "expect": "The ExclusiveStartKey line, followed by the line '  @staticmethod'; create_message is defined immediately after is_member."
+        },
+        {
+          "cmd": "grep -cF 'Ddb.is_member(' backend-flask/services/messages.py backend-flask/services/create_message.py",
+          "expect": "1 for each file"
+        },
+        {
+          "cmd": "grep -cxF '    print(data)' backend-flask/services/messages.py",
+          "expect": "0"
+        },
+        {
+          "cmd": "grep -cF \"os.getenv('CRUDDUR_SQL_DEBUG') != '1'\" backend-flask/lib/db.py",
+          "expect": "2"
+        },
+        {
+          "cmd": "grep -cF \"print(f'   message: {message}')\" backend-flask/services/create_activity.py; grep -cF 'Activity data retrieved: {object_json}' backend-flask/services/create_activity.py",
+          "expect": "0 and 0"
+        },
+        {
+          "cmd": "grep -cxF '    print(user)' aws/lambdas/cruddur-post-confirmation/lambda_function.py",
+          "expect": "0"
+        },
+        {
+          "cmd": "grep -cF 'access_token: token' aws/lambdas/cruddur-upload-avatar/function.rb; grep -cxF '  puts event' aws/lambdas/cruddur-upload-avatar/function.rb",
+          "expect": "0 and 0"
+        },
+        {
+          "cmd": "grep -cF 'JSON.stringify(event' aws/lambdas/lambda-authorizer/index.js; grep -cF 'JWT payload:' aws/lambdas/lambda-authorizer/index.js",
+          "expect": "0 and 0"
+        },
+        {
+          "cmd": "grep -nE 'print|logger|LOGGER' backend-flask/app.py | grep -iE 'authorization|header|token'",
+          "expect": "Exactly one line: the 'Authorization header present' boolean print. Report every line if more."
+        },
+        {
+          "cmd": "grep -c $'\\r' backend-flask/app.py backend-flask/lib/ddb.py backend-flask/lib/db.py backend-flask/services/messages.py backend-flask/services/create_message.py backend-flask/services/create_activity.py aws/lambdas/cruddur-post-confirmation/lambda_function.py aws/lambdas/cruddur-upload-avatar/function.rb aws/lambdas/lambda-authorizer/index.js",
+          "expect": "0 for every file"
+        },
+        {
+          "cmd": "GIT_PAGER=cat git status --short",
+          "expect": "Exactly nine modified files: backend-flask/app.py, backend-flask/lib/db.py, backend-flask/lib/ddb.py, backend-flask/services/create_activity.py, backend-flask/services/create_message.py, backend-flask/services/messages.py, aws/lambdas/cruddur-post-confirmation/lambda_function.py, aws/lambdas/cruddur-upload-avatar/function.rb, aws/lambdas/lambda-authorizer/index.js. Untracked _docs/specs/*.json are acceptable. Nothing else."
+        },
+        {
+          "cmd": "GIT_PAGER=cat git diff --numstat",
+          "expect": "Report the real numbers. Expected deletions: app.py 4, messages.py 2, create_activity.py 3, lambda_function.py 2, function.rb 2, index.js 3, and 0 for lib/db.py, lib/ddb.py, create_message.py (pure insertions). A file whose last line was edited may show one extra deletion if it has no trailing newline."
+        }
+      ]
+    },
+    {
+      "phase": 10,
+      "name": "Report",
+      "actions": [
+        "Paste the phase-1 tables and reports, and the raw output of every gate.",
+        "State any deviation from this spec and why. If any gate did not match, say so plainly. Do not report a pass you did not observe.",
+        "State explicitly that you ran no AWS command, no docker command, no database command, and did not deploy or package any Lambda."
+      ]
+    }
+  ],
+  "must_not": [
+    "Do not run git add, git commit, git push, or any history-rewriting command. The operator commits.",
+    "Do not run any aws, docker, psql, bin/db/*, or bin/ddb/* command, and do not package, zip or deploy any Lambda.",
+    "Do not write files via shell redirection, python, sed, or any command. Use the IDE file-edit tool.",
+    "Do not modify any file other than the nine listed. In particular, do not touch query_commit, print_sql_err, the LOGGER line, @cross_origin decorators, ddb.py list_message_groups/list_messages/create_message_group, or the year-prefix logic (all belong to other specs).",
+    "Do not remove app.logger.debug calls or any other print not named in an edit. Report further suggestions instead.",
+    "Do not invent content if a phase-1 check fails; stop and report."
+  ],
+  "verify_next_deploy": [
+    "Logs: after exercising the app in pilot #3, run the three commands below. Each prints only a COUNT, never the log text, and each should be 0: `aws logs filter-log-events --log-group-name /cruddur/CrdService --filter-pattern '\"Auth header\"' --query 'length(events)'`, the same with '\"Headers:\"', and the same with '\"SQL Params\"'.",
+    "DM read, own conversation: signed in as user A, open a conversation from the Messages page. It loads (200).",
+    "DM read, someone else's: take a message_group_uuid that A belongs to (it is in the URL). Signed in as a DIFFERENT account B that is not in that conversation, GET /api/messages/<that uuid> with B's token. Expect 404 ['message_group_not_found']. Load tokens with read -s TOKEN and unset TOKEN afterwards; never paste a token into chat.",
+    "DM post, someone else's: as B, POST /api/messages {message_group_uuid: <A's uuid>, message: 'x'}. Expect 404, and A's conversation shows no new message.",
+    "New conversation: A starts a NEW conversation from the Messages page. It opens immediately with the first message (no 404). This proves ConsistentRead covers the just-created case.",
+    "Random uuid: GET /api/messages/00000000-0000-0000-0000-000000000000 with A's token. Expect 404.",
+    "Lambdas: still running their OLD code (they log tokens) until redeployed. Redeployment is a separate backlog item. First inspect packaging, read-only: `aws lambda get-function --function-name <name> --query 'Configuration.[Runtime,Handler,CodeSize,Layers]'`. Never run get-function-configuration without --query."
+  ]
+}

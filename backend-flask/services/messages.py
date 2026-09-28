@@ -17,9 +17,14 @@ class Messages:
     print(f"UUID: {my_user_uuid}")
 
     ddb = Ddb.client()
+    # Audit HIGH-01: only a participant may read this conversation.
+    # my_user_uuid was already looked up above but was never used.
+    if my_user_uuid is None or not Ddb.is_member(ddb, message_group_uuid, my_user_uuid):
+      model['errors'] = ['message_group_not_found']
+      return model
     data = Ddb.list_messages(ddb, message_group_uuid)
-    print("list_messages")
-    print(data)
+    # Audit HIGH-02: print a count, not the private message bodies.
+    print(f"list_messages: {len(data)} items")
 
     model['data'] = data
     return model

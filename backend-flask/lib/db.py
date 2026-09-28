@@ -29,6 +29,10 @@ class Db:
   # we want to commit data such as an insert
   # be sure to check for RETURNING in all uppercases
   def print_params(self,params):
+    # Audit HIGH-02: params carry message text and Cognito IDs, and stdout goes
+    # to CloudWatch. Print only when CRUDDUR_SQL_DEBUG=1 (local debugging).
+    if os.getenv('CRUDDUR_SQL_DEBUG') != '1':
+      return
     blue = '\033[94m'
     no_color = '\033[0m'
     print(f'{blue} SQL Params:{no_color}')
@@ -36,6 +40,9 @@ class Db:
       print(key, ":", value)
 
   def print_sql(self,title,sql, params={}):
+    # Audit HIGH-02: same rule as print_params (this also prints params).
+    if os.getenv('CRUDDUR_SQL_DEBUG') != '1':
+      return
     cyan = '\033[96m'
     no_color = '\033[0m'
     print(f'{cyan} SQL STATEMENT-[{title}]------{no_color}')

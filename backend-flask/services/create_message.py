@@ -67,6 +67,10 @@ class CreateMessage:
       ddb = Ddb.client()
 
       if (mode == "update"):
+        # Audit HIGH-01: only a participant may post into an existing group.
+        if not Ddb.is_member(ddb, message_group_uuid, my_user['uuid']):
+          model['errors'] = ['message_group_not_found']
+          return model
         data = Ddb.create_message(
           client=ddb,
           message_group_uuid=message_group_uuid,

@@ -193,10 +193,8 @@ def log_request_info():
     print(f'   Method: {request.method}')
     print(f'   Path: {request.path}')
     print(f'   Origin: {request.headers.get("Origin", "NO ORIGIN")}')
+    # Audit HIGH-02: never log any part of the bearer token. Presence only.
     print(f'   Authorization header present: {"Authorization" in request.headers}')
-    if "Authorization" in request.headers:
-        auth_header = request.headers.get("Authorization")
-        print(f'   Auth header (first 50 chars): {auth_header[:50]}...')
     print('='*70)
 
 # =============================================================
@@ -284,6 +282,10 @@ def data_messages(message_group_uuid):
             cognito_user_id=cognito_user_id, 
             message_group_uuid=message_group_uuid
           )
+        # Audit HIGH-01: not a participant (or no such group). 404, not 403,
+        # so the response does not reveal whether the group exists.
+        if model['errors'] == ['message_group_not_found']:
+            return model['errors'], 404
         if model['errors'] is not None:
             return model['errors'], 422
         else:
@@ -322,6 +324,9 @@ def data_create_message():
         message_group_uuid=message_group_uuid,
         cognito_user_id=cognito_user_id
       )
+    # Audit HIGH-01: posting into a group you are not in.
+    if model['errors'] == ['message_group_not_found']:
+      return model['errors'], 404
     if model['errors'] is not None:
       return model['errors'], 422
     else:
@@ -434,7 +439,7 @@ def data_activities():
     print('='*60)
     print('🔍 /api/activities endpoint hit!')
     print(f'   Method: {request.method}')
-    print(f'   Headers: {dict(request.headers)}')
+    # Audit HIGH-02: the full header dump logged the bearer token. Removed.
     print(f'   Origin: {request.headers.get("Origin")}')
     print('='*60)
     

@@ -78,6 +78,34 @@ class Ddb:
       })
     return results
   @staticmethod
+  def is_member(client, message_group_uuid, my_user_uuid):
+    # Audit HIGH-01 (IDOR). A caller may read or post to a message group only
+    # if the GRP#<caller uuid> partition holds a row for that group.
+    # Base table with ConsistentRead, NOT the message-group-sk-index GSI: a GSI
+    # is eventually consistent, so a group created a moment ago could be
+    # missing from it and its creator would get a false 404.
+    # No Limit: DynamoDB applies Limit BEFORE FilterExpression, so a limit
+    # could hide the matching row. Paginate instead (groups per user are few).
+    query_params = {
+      'TableName': 'cruddur-messages',
+      'KeyConditionExpression': 'pk = :pkey',
+      'FilterExpression': 'message_group_uuid = :group',
+      'ProjectionExpression': 'message_group_uuid',
+      'ConsistentRead': True,
+      'ExpressionAttributeValues': {
+        ':pkey': {'S': f"GRP#{my_user_uuid}"},
+        ':group': {'S': str(message_group_uuid)}
+      }
+    }
+    while True:
+      response = client.query(**query_params)
+      if response.get('Items'):
+        return True
+      last_key = response.get('LastEvaluatedKey')
+      if not last_key:
+        return False
+      query_params['ExclusiveStartKey'] = last_key
+  @staticmethod
   def create_message(client,message_group_uuid, message, my_user_uuid, my_user_display_name, my_user_handle):
     now = datetime.now(timezone.utc).isoformat()
     created_at = now
