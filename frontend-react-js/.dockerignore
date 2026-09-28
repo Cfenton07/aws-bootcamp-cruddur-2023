@@ -1,0 +1,8 @@
+# Build context hygiene (audit MED-16). Dockerfile.prod runs `npm ci` and then
+# `COPY . .`; without this file the host's node_modules and a stale build/
+# would be copied over the clean install.
+node_modules
+build
+.env
+.env.*
+npm-debug.log*

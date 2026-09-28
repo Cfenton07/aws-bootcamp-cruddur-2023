@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -e
+set -eo pipefail
 
 echo "🔨 Building Frontend Docker Image..."
 
@@ -17,6 +17,22 @@ USER_POOL_ID="us-east-1_wAg3Cr3Px"
 CLIENT_ID="12va2n69rq2of98ivm60b9625v"
 
 # ========================================
+# API GATEWAY (avatar upload)
+# ========================================
+# Audit HIGH-07: without this build-arg the bundle bakes "undefined" into the
+# avatar upload URL (ProfileForm.js). Public value: it ships to every browser.
+API_GATEWAY_URL="https://rtvb6kbife.execute-api.us-east-1.amazonaws.com"
+
+# An empty REACT_APP_* value does not fail the build; it silently produces a
+# broken bundle. Refuse to build instead.
+for v in BACKEND_URL AWS_REGION USER_POOL_ID CLIENT_ID API_GATEWAY_URL; do
+  if [ -z "${!v}" ]; then
+    echo "ERROR: required build value ${v} is empty. Aborting." >&2
+    exit 1
+  fi
+done
+
+# ========================================
 # BUILD THE IMAGE
 # ========================================
 echo "🐳 Building Docker image..."
@@ -29,6 +45,7 @@ docker build \
   --build-arg REACT_APP_AWS_COGNITO_REGION="$AWS_REGION" \
   --build-arg REACT_APP_AWS_USER_POOLS_ID="$USER_POOL_ID" \
   --build-arg REACT_APP_CLIENT_ID="$CLIENT_ID" \
+  --build-arg REACT_APP_API_GATEWAY_ENDPOINT_URL="$API_GATEWAY_URL" \
   -t frontend-react-js \
   -f Dockerfile.prod \
   .
@@ -59,3 +76,4 @@ echo "✅ Frontend build complete!"
 echo "   Image: $ECR_URL:latest"
 echo "   Image: $ECR_URL:$DATE_TAG"
 echo "   Backend URL: $BACKEND_URL"
+echo "   API Gateway URL: $API_GATEWAY_URL"
