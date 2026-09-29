@@ -39,7 +39,12 @@ sys.path.insert(0, migrations_path)
 
 # Find all migration files
 migration_files = glob.glob(os.path.join(migrations_path, '*.py'))
-migration_files.sort()
+# Sort by the numeric prefix, not as text (audit HIGH-04): text order and
+# numeric order agree only while every prefix has the same width.
+def _prefix(path):
+  m = re.match(r'^(\d+)_', os.path.basename(path))
+  return int(m.group(1)) if m else -1
+migration_files.sort(key=_prefix)
 
 for migration_file in migration_files:
   filename = os.path.basename(migration_file)

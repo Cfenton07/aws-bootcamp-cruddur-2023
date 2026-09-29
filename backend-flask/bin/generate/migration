@@ -10,7 +10,11 @@ else:
   print("pass a filename: eg. ./bin/generate/migration add_bio_column")
   exit(1)
 
-timestamp = str(time.time()).replace(".", "")
+# Fixed width (audit HIGH-04). str(time.time()) drops trailing zeros, so about
+# 24% of prefixes came out shorter than 17 digits, compared SMALLER than the
+# newest applied migration, and were silently skipped by bin/db/migrate.
+# time.time_ns() // 100 (units of 100 ns) is always 17 digits until the year 2286.
+timestamp = str(time.time_ns() // 100)
 
 filename = f"{timestamp}_{name}.py"
 
@@ -43,6 +47,13 @@ class {klass}Migration:
 script_dir = os.path.dirname(os.path.abspath(__file__))
 backend_dir = os.path.join(script_dir, '..', '..')
 migrations_path = os.path.abspath(os.path.join(backend_dir, 'db', 'migrations', filename))
+
+# Refuse to create a migration that would not run AFTER every existing one
+# (for example after a hand-picked prefix such as 17800000000000002).
+existing = [int(f.split('_', 1)[0]) for f in os.listdir(os.path.dirname(migrations_path)) if f.split('_', 1)[0].isdigit()]
+if existing and int(timestamp) <= max(existing):
+  print(f"ERROR: new prefix {timestamp} is not greater than the newest existing prefix {max(existing)}.")
+  exit(1)
 
 print(f"Creating migration: {migrations_path}")
 

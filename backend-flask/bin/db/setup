@@ -12,5 +12,8 @@ bin_path="$(realpath .)/bin"
 source "$bin_path/db/drop"
 source "$bin_path/db/create"
 source "$bin_path/db/schema-load"
+# Apply any migration newer than the stamp schema.sql just set (audit HIGH-03).
+# A no-op today; it matters once a migration exists that is not yet folded in.
+"$bin_path/db/migrate"
 source "$bin_path/db/seed"
 "$bin_path/db/update_cognito_user_ids"

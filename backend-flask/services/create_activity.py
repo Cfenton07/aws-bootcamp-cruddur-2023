@@ -103,6 +103,14 @@ class CreateActivity:
       
       # Insert the activity into the database and get back its UUID
       uuid = CreateActivity.create_activity(cognito_user_id, message, expires_at)
+      # Audit HIGH-05: query_commit returns None when the insert fails (for
+      # example, a Cognito user with no public.users row); print_sql_err has
+      # already printed the psycopg error. Without this check the route
+      # answered 200 with '{}' and the post was silently lost.
+      if uuid is None:
+        print('❌ Activity insert failed; nothing was saved')
+        model['errors'] = ['activity_not_saved']
+        return model
       print(f'✅ Activity created with UUID: {uuid}')
       
       # Retrieve the complete activity object from the database
