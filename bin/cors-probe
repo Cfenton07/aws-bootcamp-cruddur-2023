@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+# bin/cors-probe — run the WORKING-TREE backend-flask/app.py inside the pinned
+# backend image (network off) and send a CORS preflight to every browser-called
+# /api route, from the real site and from https://evil.example.
+#   PASS = real site gets a 2xx with its own origin and "authorization" allowed;
+#          evil.example gets no Access-Control-Allow-Origin header at all.
+# Read-only: the source is mounted :ro and the container is removed afterwards.
+# Usage: ./bin/cors-probe [image]
+#   default image = EcrImage in aws/cfn/service/config.toml
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+IMAGE="${1:-$(sed -n "s/^[[:space:]]*EcrImage[[:space:]]*=[[:space:]]*['\"]\([^'\"]*\)['\"].*/\1/p" aws/cfn/service/config.toml 2>/dev/null)}"
+if [ -z "$IMAGE" ]; then
+  echo "No image given and no EcrImage line in aws/cfn/service/config.toml" >&2
+  exit 2
+fi
+echo "Image: $IMAGE"
+
+LOG="$(mktemp)"
+trap 'rm -f "$LOG"' EXIT
+
+set +e
+docker run --rm -i --network none -e PYTHONDONTWRITEBYTECODE=1 \
+  -e FRONTEND_URL=https://fentoncruddur.com -e BACKEND_URL=https://api.fentoncruddur.com \
+  -e AWS_REGION=us-east-1 -e AWS_DEFAULT_REGION=us-east-1 \
+  -e CONNECTION_URL=postgresql://x:x@127.0.0.1:5432/x \
+  -e AWS_COGNITO_USER_POOL_ID=us-east-1_dummy -e AWS_COGNITO_USER_POOL_CLIENT_ID=dummy \
+  -v "$PWD/backend-flask:/backend-flask:ro" -w /backend-flask \
+  --entrypoint python3 "$IMAGE" - > "$LOG" 2>&1 <<'PY'
+import sys, importlib.metadata as m, requests
+
+class FakeResp:
+    status_code = 200
+    def json(self): return {"keys": []}
+    def raise_for_status(self): pass
+# Network is off. The token checker downloads Cognito's JWKS at import time;
+# give it an empty key list. Preflights never verify a token.
+requests.get = lambda *a, **k: FakeResp()
+
+sys.path.insert(0, "/backend-flask")
+import app as real
+c = real.app.test_client()
+GOOD, EVIL = "https://fentoncruddur.com", "https://evil.example"
+routes = [("/api/message_groups", "GET"), ("/api/messages/abc", "GET"), ("/api/messages", "POST"),
+          ("/api/activities/home", "GET"), ("/api/activities", "POST"),
+          ("/api/activities/abc/replies", "GET"), ("/api/activities/abc/reply", "POST"),
+          ("/api/users", "GET"), ("/api/profile/update", "POST")]
+print("PROBE flask", m.version("flask"), "flask-cors", m.version("flask-cors"))
+ok = True
+for path, meth in routes:
+    for origin in (GOOD, EVIL):
+        r = c.open(path, method="OPTIONS", headers={
+            "Origin": origin, "Access-Control-Request-Method": meth,
+            "Access-Control-Request-Headers": "authorization,content-type"})
+        acao = r.headers.get("Access-Control-Allow-Origin")
+        acah = (r.headers.get("Access-Control-Allow-Headers") or "").lower()
+        if origin == GOOD:
+            good = 200 <= r.status_code < 300 and acao == GOOD and "authorization" in acah
+        else:
+            good = acao is None
+        ok = ok and good
+        print(f"PROBE {'ok  ' if good else 'FAIL'} {meth:4} {path:28} {origin:26} {r.status_code} ACAO={acao}")
+r = c.get("/api/activities/home", headers={"Origin": EVIL})
+good = r.headers.get("Access-Control-Allow-Origin") is None
+ok = ok and good
+print(f"PROBE {'ok  ' if good else 'FAIL'} GET  /api/activities/home (simple) {EVIL:26} {r.status_code} ACAO={r.headers.get('Access-Control-Allow-Origin')}")
+print("PROBE RESULT:", "PASS" if ok else "FAIL")
+sys.exit(0 if ok else 1)
+PY
+rc=$?
+set -e
+
+grep '^PROBE' "$LOG" || true
+if ! grep -q '^PROBE RESULT' "$LOG"; then
+  echo "--- the probe did not finish; last lines of output:"
+  tail -20 "$LOG"
+  exit 2
+fi
+exit $rc

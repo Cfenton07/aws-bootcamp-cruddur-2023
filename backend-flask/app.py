@@ -3,7 +3,7 @@
 # ============================================================
 from flask import Flask
 from flask import request
-from flask_cors import CORS, cross_origin
+from flask_cors import CORS
 import os
 
 # ============================================================
@@ -163,6 +163,10 @@ RequestsInstrumentor().instrument()
 # CORS CONFIGURATION
 # ============================================================
 # Allow frontend (port 3000) to make requests to backend API (port 4567)
+# Pilot #3 finding: per-route decorators overrode this allow-list with flask-cors
+# defaults and echoed ANY Origin. They were removed, so this block governs every
+# /api/* route. Do not list 'OPTIONS' in a route's methods unless the view returns
+# early for OPTIONS: Flask then answers preflights itself. Check with bin/cors-probe.
 frontend = os.getenv('FRONTEND_URL')
 backend = os.getenv('BACKEND_URL')
 origins = [frontend, backend]
@@ -268,8 +272,7 @@ def data_message_groups():
 # ============================================================
 # API ENDPOINTS - DIRECT MESSAGES
 # ============================================================
-@app.route("/api/messages/<string:message_group_uuid>", methods=['GET', 'OPTIONS'])
-@cross_origin()
+@app.route("/api/messages/<string:message_group_uuid>", methods=['GET'])
 def data_messages(message_group_uuid):
     access_token = extract_access_token(request.headers)
     try:
@@ -295,8 +298,7 @@ def data_messages(message_group_uuid):
         app.logger.debug(e)
         return {}, 401 
 
-@app.route("/api/messages", methods=['POST','OPTIONS'])
-@cross_origin()
+@app.route("/api/messages", methods=['POST'])
 def data_create_message():
   message_group_uuid   = request.json.get('message_group_uuid',None)
   user_receiver_handle = request.json.get('handle',None)
@@ -340,8 +342,7 @@ def data_create_message():
 # ============================================================
 # API ENDPOINTS - HOME FEED
 # ============================================================
-@app.route("/api/activities/home", methods=['GET', 'OPTIONS'])
-@cross_origin()
+@app.route("/api/activities/home", methods=['GET'])
 @xray_recorder.capture('activities_home')
 def data_home():
     """
@@ -432,7 +433,6 @@ def data_search():
 # API ENDPOINTS - CREATE ACTIVITY (CRUD POST)
 # ============================================================
 @app.route("/api/activities", methods=['POST','OPTIONS'])
-@cross_origin()
 def data_activities():
     """Create a new activity/post"""
     # Debug logging for troubleshooting
@@ -491,7 +491,6 @@ def data_show_activity(activity_uuid):
     return data, 200
 
 @app.route("/api/activities/<string:activity_uuid>/replies", methods=['GET'])
-@cross_origin()
 def data_activity_replies(activity_uuid):
     """All direct replies to one root activity, oldest first (backs "View N more replies")."""
     model = ActivityReplies.run(activity_uuid)
@@ -502,8 +501,7 @@ def data_activity_replies(activity_uuid):
 # ============================================================
 # API ENDPOINTS - REPLY TO ACTIVITY
 # ============================================================
-@app.route("/api/activities/<string:activity_uuid>/reply", methods=['POST','OPTIONS'])
-@cross_origin()
+@app.route("/api/activities/<string:activity_uuid>/reply", methods=['POST'])
 def data_activities_reply(activity_uuid):
     """Create a reply to an existing activity"""
     # Verify the caller's identity from the JWT. The handle used to be
@@ -543,7 +541,6 @@ def data_users_short(handle):
 # API ENDPOINTS - USERS DIRECTORY (PEOPLE)
 # ============================================================
 @app.route("/api/users", methods=['GET','OPTIONS'])
-@cross_origin()
 def data_users_index():
   # OPTIONS preflight handled the same way as data_activities
   if request.method == 'OPTIONS':
@@ -553,8 +550,7 @@ def data_users_index():
 # ============================================================
 # API ENDPOINTS - UPDATE PROFILE
 # ============================================================
-@app.route("/api/profile/update", methods=['POST','OPTIONS'])
-@cross_origin()
+@app.route("/api/profile/update", methods=['POST'])
 def data_update_profile():
     """Update user profile bio and display name"""
     bio = request.json.get('bio', None)
