@@ -11,7 +11,8 @@ CREATE TABLE public.users (
   email text NOT NULL,
   handle text NOT NULL,
   cognito_user_id text NOT NULL,
-  created_at TIMESTAMP default current_timestamp NOT NULL
+  created_at TIMESTAMP default current_timestamp NOT NULL,
+  bio text
 );
 
 CREATE TABLE public.activities (
@@ -21,7 +22,7 @@ CREATE TABLE public.activities (
   replies_count integer DEFAULT 0,
   reposts_count integer DEFAULT 0,
   likes_count integer DEFAULT 0,
-  reply_to_activity_uuid integer,
+  reply_to_activity_uuid UUID,
   expires_at TIMESTAMP,
   created_at TIMESTAMP default current_timestamp NOT NULL
 );
@@ -33,7 +34,12 @@ CREATE TABLE IF NOT EXISTS public.schema_information (
   last_successful_run varchar(256)
 );
 
--- Seed the tracking row only if it doesn't already exist
+-- This file creates the tables in their CURRENT shape: every migration up to
+-- and including the prefix below is already folded in (users.bio, uuid
+-- reply_to_activity_uuid). Loading it must therefore RESET the stamp to that
+-- prefix. Otherwise bin/db/migrate would re-run folded migrations and fail
+-- ("column bio already exists"), or a stale stamp would skip real ones.
+-- When you add a migration: fold it in here AND bump this value.
 INSERT INTO public.schema_information (id, last_successful_run)
-VALUES (1, '0')
-ON CONFLICT (id) DO NOTHING;
+VALUES (1, '17800000000000001')
+ON CONFLICT (id) DO UPDATE SET last_successful_run = EXCLUDED.last_successful_run;

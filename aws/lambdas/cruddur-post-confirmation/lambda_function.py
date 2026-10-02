@@ -39,8 +39,8 @@ def _connect():
 
 def lambda_handler(event: dict, context) -> dict:
     user = event['request']['userAttributes']
-    print('userAttributes')
-    print(user)
+    # Audit HIGH-02: userAttributes holds email and name. Log the sub only.
+    print(f"PostConfirmation for sub={user.get('sub')}")
 
     try:
         display_name    = user['name']

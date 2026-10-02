@@ -1,0 +1,288 @@
+{
+  "spec": "kiro-spec-conversation-avatars",
+  "version": "2026-09-29 (rewritten; the 2026-09-26 version was never saved to the repo)",
+  "protocol": "Kiro Supervised. Kiro authors files only. C runs every git and AWS command. Stop and report at any STOP that fails; do not work around it.",
+  "backlog": [
+    "#17 conversation-pane avatars",
+    "audit MED-04 MessageItem link",
+    "MessageItem classsName typo"
+  ],
+  "base_commit": "c1a3dda (subject starts 'Hardening 2:')",
+  "files_in_scope": [
+    "backend-flask/services/messages.py",
+    "frontend-react-js/src/components/MessageItem.js",
+    "frontend-react-js/src/components/MessageItem.css"
+  ],
+  "context": [
+    "The Messages page has two panes. The LEFT pane (message groups) got real avatars in b84a463 via a read-time enrichment in services/message_groups.py: one Postgres query (db/sql/users/cognito_ids_by_handles.sql) maps every handle to its cognito_user_id. That is verified live (pilot #2).",
+    "The RIGHT pane (the conversation, components/MessageItem.js) still shows an empty purple circle, because MessageItem renders an empty .message_avatar div and the messages API returns no cognito_user_id.",
+    "This spec copies the same enrichment into services/messages.py and renders the existing ProfileAvatar component (which already has the name prop and the initial fallback) inside the existing circle.",
+    "services/messages.py was changed by e5f96e1 (Security): the is_member check returns 404 for non-members before list_messages runs. The enrichment MUST go after that check and MUST NOT change it.",
+    "messages.py has NO trailing newline; leave it that way. MessageItem.css also has none today; CSS_A's replacement text ends with a newline, so after CSS_A the file ends with one. That is intended and is why its numstat shows 1 deletion. MessageItem.js has a trailing space after </span> on one line; do not remove it.",
+    "Commits do not deploy. Images are digest-pinned; this change reaches the site only in pilot #3."
+  ],
+  "must_not": [
+    "No git add, commit, push, stash, reset, restore, checkout, rebase, or any history change. C commits.",
+    "No AWS CLI commands of any kind. No running anything under bin/.",
+    "No edits to any file outside files_in_scope. In particular do not touch services/message_groups.py, lib/ddb.py, ProfileAvatar.js or ProfileAvatar.css.",
+    "Use the IDE edit tool for every edit. Do not write files through python3, sed, echo, tee or any other shell command.",
+    "Apply each edit exactly as given: same text, same indentation (2-space Python), no reformatting, no extra lines, no trailing-newline changes beyond what CSS_A's text itself contains.",
+    "Do not refactor the duplicated enrichment into a shared helper. That is a later decision.",
+    "Do not add, remove or change any print/log statement.",
+    "Do not run npm install, npm audit fix, or change package files."
+  ],
+  "phases": [
+    {
+      "phase": 0,
+      "name": "Preflight",
+      "steps": [
+        {
+          "id": "STOP 0a",
+          "command": "GIT_PAGER=cat git log -1 --format=%s",
+          "expect": "starts with 'Hardening 2:'",
+          "on_fail": "STOP. The previous spec is not committed."
+        },
+        {
+          "id": "STOP 0b",
+          "command": "GIT_PAGER=cat git status --short",
+          "expect": "exactly one line: ?? _docs/specs/kiro-spec-conversation-avatars.json",
+          "on_fail": "STOP. The tree is not clean."
+        },
+        {
+          "id": "STOP 0c",
+          "command": "wc -c _docs/specs/kiro-spec-conversation-avatars.json",
+          "expect": "a non-zero byte count (C will compare it with the delivered size)",
+          "on_fail": "STOP. 0 bytes means the editor tab was never saved (Ctrl+S)."
+        }
+      ]
+    },
+    {
+      "phase": 1,
+      "name": "Read-only checks; every anchor must match exactly once",
+      "steps": [
+        {
+          "id": "STOP 1",
+          "command": "grep -c -F 'print(f\"list_messages: {len(data)} items\")' backend-flask/services/messages.py; grep -c -F \"model['data'] = data\" backend-flask/services/messages.py; grep -c -F \"import { timeAgo } from '../lib/DateTimeFormats';\" frontend-react-js/src/components/MessageItem.js; grep -c -F 'to={`/messages/@`+props.message.handle}' frontend-react-js/src/components/MessageItem.js; grep -c -F \"<div className='message_avatar'></div>\" frontend-react-js/src/components/MessageItem.js; grep -c -F \"classsName='message_meta'\" frontend-react-js/src/components/MessageItem.js; grep -c -F '  margin-top: 8px;' frontend-react-js/src/components/MessageItem.css",
+          "expect": "seven lines, each 1",
+          "on_fail": "STOP. Report which count differs. Do not guess a new anchor."
+        },
+        {
+          "id": "STOP 2",
+          "command": "grep -n -F '@:handle' frontend-react-js/src/App.js",
+          "expect": "Quote every line verbatim. Continue only if one route's path is exactly '/@:handle' (the user profile page, NOT under /messages).",
+          "on_fail": "STOP. MED-04's target route must exist before the link points at it."
+        },
+        {
+          "id": "STOP 3",
+          "command": "ls -l backend-flask/db/sql/users/cognito_ids_by_handles.sql; grep -c -F \"db.template('users','cognito_ids_by_handles')\" backend-flask/services/message_groups.py",
+          "expect": "the file is listed, then 1",
+          "on_fail": "STOP. The enrichment query this spec reuses is missing."
+        },
+        {
+          "id": "STOP 4",
+          "command": "grep -n -F -e 'def list_messages' -e 'def ' -e \"'handle': item['user_handle']['S'],\" backend-flask/lib/ddb.py",
+          "expect": "Quote the output. At least one 'handle' line must fall between 'def list_messages' and the next 'def', proving each message dict has a 'handle' key.",
+          "on_fail": "STOP. The enrichment keys on message['handle']."
+        },
+        {
+          "id": "STOP 5",
+          "command": "grep -rn -F 'export default function ProfileAvatar({ id, name })' frontend-react-js/src/components/ProfileAvatar.js",
+          "expect": "one line",
+          "on_fail": "STOP. ProfileAvatar's props differ from what ITEM_C passes."
+        }
+      ]
+    },
+    {
+      "phase": 2,
+      "name": "Apply the edits, in order, with the IDE edit tool",
+      "edits": [
+        {
+          "id": "MSG_A",
+          "file": "backend-flask/services/messages.py",
+          "purpose": "Enrich each message with the sender's cognito_user_id, after the HIGH-01 membership gate, using the same single-query pattern as message_groups.py (b84a463).",
+          "find": "    print(f\"list_messages: {len(data)} items\")\n\n    model['data'] = data",
+          "replace": "    print(f\"list_messages: {len(data)} items\")\n\n    # Backlog #17: DynamoDB message items carry handle and display name but\n    # not the Cognito id the frontend needs to build an avatar URL. Same\n    # read-time enrichment as message_groups.py: ONE Postgres query for every\n    # handle in the conversation. It runs after the membership check above,\n    # so a non-member never triggers it. A handle with no match gets None and\n    # the frontend falls back to an initial.\n    handles = list({message['handle'] for message in data})\n    ids_by_handle = {}\n    if handles:\n      sql = db.template('users','cognito_ids_by_handles')\n      rows = db.query_array_json(sql, {'handles': handles}) or []\n      ids_by_handle = {row['handle']: row['cognito_user_id'] for row in rows}\n    for message in data:\n      message['cognito_user_id'] = ids_by_handle.get(message['handle'])\n\n    model['data'] = data"
+        },
+        {
+          "id": "ITEM_A",
+          "file": "frontend-react-js/src/components/MessageItem.js",
+          "purpose": "Import the shared ProfileAvatar component (default export).",
+          "find": "import { timeAgo } from '../lib/DateTimeFormats';",
+          "replace": "import { timeAgo } from '../lib/DateTimeFormats';\nimport ProfileAvatar from './ProfileAvatar';"
+        },
+        {
+          "id": "ITEM_B",
+          "file": "frontend-react-js/src/components/MessageItem.js",
+          "purpose": "Audit MED-04: the message links to the sender's profile route /@handle, not the non-existent /messages/@handle.",
+          "find": "<Link className='message_item' to={`/messages/@`+props.message.handle}>",
+          "replace": "<Link className='message_item' to={`/@`+props.message.handle}>"
+        },
+        {
+          "id": "ITEM_C",
+          "file": "frontend-react-js/src/components/MessageItem.js",
+          "purpose": "Backlog #17: render the sender's avatar (photo, or initial fallback) inside the existing 50px circle.",
+          "find": "      <div className='message_avatar'></div>",
+          "replace": "      <div className='message_avatar'>\n        <ProfileAvatar id={props.message.cognito_user_id} name={props.message.display_name} />\n      </div>"
+        },
+        {
+          "id": "ITEM_D",
+          "file": "frontend-react-js/src/components/MessageItem.js",
+          "purpose": "Fix the classsName typo (three s's). React ignores the misspelled attribute, so .message_meta styling never applied.",
+          "find": "        <div classsName='message_meta'>",
+          "replace": "        <div className='message_meta'>"
+        },
+        {
+          "id": "CSS_A",
+          "file": "frontend-react-js/src/components/MessageItem.css",
+          "purpose": "Append one rule so the avatar image fills the 50px circle. ProfileAvatar.css sets no size on the img, so the container must. The file has no trailing newline, so this edit removes and re-adds the final '}' line (numstat shows 1 deletion).",
+          "find": ".message_item .message {\n  color: #fff;\n  font-size: 16px;\n  margin-top: 8px;\n}",
+          "replace": ".message_item .message {\n  color: #fff;\n  font-size: 16px;\n  margin-top: 8px;\n}\n\n/* Backlog #17: the avatar image fills the existing 50px circle. The initial\n   fallback already fills it via ProfileAvatar.css. */\n.message_item .message_avatar img {\n  display: block;\n  width: 50px;\n  height: 50px;\n}\n"
+        }
+      ]
+    },
+    {
+      "phase": 3,
+      "name": "Gates. Run each command exactly as written and report actual vs expected.",
+      "gates": [
+        {
+          "gate": 1,
+          "check": "Enrichment query present exactly once",
+          "command": "grep -c -F \"rows = db.query_array_json(sql, {'handles': handles}) or []\" backend-flask/services/messages.py",
+          "expect": "1"
+        },
+        {
+          "gate": 2,
+          "check": "Each message gets cognito_user_id",
+          "command": "grep -c -F \"message['cognito_user_id'] = ids_by_handle.get(message['handle'])\" backend-flask/services/messages.py",
+          "expect": "1"
+        },
+        {
+          "gate": 3,
+          "check": "HIGH-01 membership gate untouched",
+          "command": "grep -c -F \"if my_user_uuid is None or not Ddb.is_member(ddb, message_group_uuid, my_user_uuid):\" backend-flask/services/messages.py",
+          "expect": "1"
+        },
+        {
+          "gate": 4,
+          "check": "Enrichment sits AFTER the membership gate (line of 'handles =' greater than line of 'is_member')",
+          "command": "grep -n -F -e 'Ddb.is_member(' -e \"handles = list({message['handle']\" backend-flask/services/messages.py",
+          "expect": "two lines; the is_member line number is smaller than the handles line number"
+        },
+        {
+          "gate": 5,
+          "check": "No new print of handles or ids",
+          "command": "grep -c -F 'print(' backend-flask/services/messages.py",
+          "expect": "2  (the existing UUID and list_messages count prints only)"
+        },
+        {
+          "gate": 6,
+          "check": "Python parses",
+          "command": "python3 -c \"import ast,sys; ast.parse(open('backend-flask/services/messages.py').read()); print('AST OK')\"",
+          "expect": "AST OK"
+        },
+        {
+          "gate": 7,
+          "check": "ProfileAvatar imported once",
+          "command": "grep -c -F \"import ProfileAvatar from './ProfileAvatar';\" frontend-react-js/src/components/MessageItem.js",
+          "expect": "1"
+        },
+        {
+          "gate": 8,
+          "check": "ProfileAvatar rendered once with id and name",
+          "command": "grep -c -F \"<ProfileAvatar id={props.message.cognito_user_id} name={props.message.display_name} />\" frontend-react-js/src/components/MessageItem.js",
+          "expect": "1"
+        },
+        {
+          "gate": 9,
+          "check": "MED-04: old link gone",
+          "command": "grep -c -F '/messages/@' frontend-react-js/src/components/MessageItem.js",
+          "expect": "0"
+        },
+        {
+          "gate": 10,
+          "check": "MED-04: new link present",
+          "command": "grep -c -F 'to={`/@`+props.message.handle}' frontend-react-js/src/components/MessageItem.js",
+          "expect": "1"
+        },
+        {
+          "gate": 11,
+          "check": "Typo gone",
+          "command": "grep -c -F 'classsName' frontend-react-js/src/components/MessageItem.js",
+          "expect": "0"
+        },
+        {
+          "gate": 12,
+          "check": "Empty avatar div gone",
+          "command": "grep -c -F \"<div className='message_avatar'></div>\" frontend-react-js/src/components/MessageItem.js",
+          "expect": "0"
+        },
+        {
+          "gate": 13,
+          "check": "CSS rule appended once",
+          "command": "grep -c -F '.message_item .message_avatar img {' frontend-react-js/src/components/MessageItem.css",
+          "expect": "1"
+        },
+        {
+          "gate": 14,
+          "check": "Original .message_avatar block untouched (purple circle stays as the loading background)",
+          "command": "grep -c -F '  background: rgb(149,0,255);' frontend-react-js/src/components/MessageItem.css",
+          "expect": "1"
+        },
+        {
+          "gate": 15,
+          "check": "ESLint clean on the edited component",
+          "command": "cd frontend-react-js && npx eslint src/components/MessageItem.js; echo \"exit=$?\"",
+          "expect": "no errors or warnings printed, then exit=0"
+        },
+        {
+          "gate": 16,
+          "check": "Exactly the predicted line counts",
+          "command": "GIT_PAGER=cat git diff --numstat",
+          "expect": "15\t0\tbackend-flask/services/messages.py\n9\t1\tfrontend-react-js/src/components/MessageItem.css\n6\t3\tfrontend-react-js/src/components/MessageItem.js"
+        },
+        {
+          "gate": 17,
+          "check": "Only the three files changed; the spec itself is the only untracked file",
+          "command": "GIT_PAGER=cat git status --short",
+          "expect": " M backend-flask/services/messages.py\n M frontend-react-js/src/components/MessageItem.css\n M frontend-react-js/src/components/MessageItem.js\n?? _docs/specs/kiro-spec-conversation-avatars.json  (order may differ)"
+        },
+        {
+          "gate": 18,
+          "check": "Exec bits and file modes unchanged",
+          "command": "GIT_PAGER=cat git diff --summary",
+          "expect": "no output"
+        }
+      ]
+    },
+    {
+      "phase": 4,
+      "name": "Report",
+      "report_format": [
+        "STOP 0a-0c and STOP 1-5: command output and pass/fail. Quote STOP 2 and STOP 4 output verbatim.",
+        "Each edit id: applied byte-identical, yes/no.",
+        "Each gate: actual output, expected, MATCH or MISMATCH. For any mismatch, explain the cause; do not change files to force a pass.",
+        "Anything you noticed outside scope: report only, do not fix.",
+        "Credits used."
+      ]
+    },
+    {
+      "phase": 5,
+      "name": "Hand back to C",
+      "steps": [
+        "Stop. C reviews the report, runs the gates independently, then commits."
+      ]
+    }
+  ],
+  "operator_after_run": {
+    "commit_command": "cd ~/aws-bootcamp-cruddur-2023 && git add backend-flask/services/messages.py frontend-react-js/src/components/MessageItem.js frontend-react-js/src/components/MessageItem.css _docs/specs/kiro-spec-conversation-avatars.json && git commit -m \"Conversation avatars: messages.py cognito_user_id enrichment, MessageItem ProfileAvatar, /@handle link, className typo (backlog #17, audit MED-04)\" && git push origin kiro-dev",
+    "note": "The commit subject starts with 'Conversation avatars:' so the next spec's STOP 0 can check it."
+  },
+  "verify_next_deploy": [
+    "Open a conversation. Each message shows the sender's real photo if they uploaded one, otherwise a purple circle with their initial. Round, 50px, not overlapping the text.",
+    "The name/handle row looks the same as before (the typo fix turns on display:flex for .message_meta; its only child grows to fill it, so no visual change is expected).",
+    "Click a message: the browser goes to /@handle (that user's profile). Before, it went to /messages/@handle.",
+    "CloudWatch /cruddur/CrdService for one GET /api/messages/<uuid>: no handles or Cognito ids printed. Only the existing 'UUID:' line and the 'list_messages: N items' count.",
+    "DM 404 test still passes: a non-member gets 404 message_group_not_found (the enrichment runs after that check, so it never runs for them).",
+    "Expected, not a bug: a message you JUST sent may show your initial instead of your photo until you reload. The create-message response is not enriched. Backlog item if it bothers you."
+  ]
+}

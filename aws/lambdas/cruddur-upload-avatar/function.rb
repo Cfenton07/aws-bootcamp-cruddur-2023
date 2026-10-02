@@ -3,7 +3,8 @@ require 'json'
 require 'jwt'
 
 def handler(event:, context:)
-  puts event
+  # Audit HIGH-02: the full event includes the Authorization header.
+  puts({step: 'request', routeKey: event['routeKey']}.to_json)
 
   allowed_origin = ENV["FRONTEND_URL"]
 
@@ -21,7 +22,7 @@ def handler(event:, context:)
   end
 
   token = event['headers']['authorization'].split(' ')[1]
-  puts({step: 'presignedurl', access_token: token}.to_json)
+  puts({step: 'presignedurl'}.to_json)
 
   body_hash = JSON.parse(event["body"])
   extension = body_hash["extension"]

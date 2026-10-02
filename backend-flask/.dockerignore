@@ -1,0 +1,7 @@
+# Build context hygiene (audit MED-16). Dockerfile.prod runs `COPY . .`;
+# keep local bytecode caches and env files out of the image.
+**/__pycache__
+**/*.pyc
+.pytest_cache
+.env
+.env.*

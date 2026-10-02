@@ -2,6 +2,7 @@
 from datetime import datetime, timedelta, timezone
 # Import the database utility object for executing SQL queries
 from lib.db import db
+import uuid as uuid_lib
 
 
 class CreateReply:
@@ -32,6 +33,22 @@ class CreateReply:
         'message': message,
         'reply_to_activity_uuid': activity_uuid
       }
+      return model
+
+    # ============================================================
+    # TARGET CHECK
+    # ============================================================
+    # Reject a malformed or nonexistent target with a specific error that
+    # the route maps to 400 / 404, instead of reaching the insert.
+    try:
+      uuid_lib.UUID(activity_uuid)
+    except ValueError:
+      model['errors'] = ['invalid_activity_uuid']
+      return model
+
+    sql = db.template('activities', 'exists')
+    if not db.query_value(sql, {'activity_uuid': activity_uuid}):
+      model['errors'] = ['activity_not_found']
       return model
 
     # ============================================================

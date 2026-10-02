@@ -1,0 +1,201 @@
+{
+  "task": "Hardening 2: fail loudly when a post or profile edit is not saved (HIGH-05); fixed-width migration prefixes + numeric sort (HIGH-04); schema.sql matches production and resets the migration stamp; setup runs migrate (HIGH-03)",
+  "branch": "kiro-dev",
+  "working_directory": "repo root (~/aws-bootcamp-cruddur-2023)",
+  "context": {
+    "create_activity": "If the INSERT fails (for example, the Cognito user has no public.users row, which was the August incident class), query_commit returns None. The code then looked up activity None, got the string '{}', and the route answered 200. The post appeared to succeed but nothing was saved. It now returns errors ['activity_not_saved'], which data_activities in app.py must map to a non-200 status (phase-1 STOP 5 checks this; Claude has not yet seen that part of the route).",
+    "migration_prefix": "str(time.time()).replace('.', '') drops trailing zeros, so about 24% of prefixes were shorter than 17 digits. A 16-digit prefix is roughly 10x SMALLER than the stored stamp 17800000000000001, so bin/db/migrate would skip it with no error. time.time_ns() // 100 always has 17 digits until 2286 (today it is about 1790...e16, above the hand-picked 17800000000000002 reserved for likes). The generator also refuses to create a prefix that is not greater than every existing one. migrate now sorts numerically.",
+    "schema": "schema.sql lacked users.bio. After the hardening spec it already has the uuid reply_to_activity_uuid, so it creates the tables in their CURRENT shape. But its stamp row used ON CONFLICT DO NOTHING with '0', so on a reused database the old stamp survived a reload. migrate would then either re-run folded migrations and fail ('column bio already exists') or skip real ones. Loading schema.sql now sets the stamp to 17800000000000001, the newest migration it contains, and bin/db/setup runs migrate afterwards to apply anything newer. Convention from now on: a new migration is ALSO folded into schema.sql, and the stamp value is bumped (the likes spec will be updated to do this).",
+    "tested": "Claude ran these checks. In a real PostgreSQL 16, the edited schema.sql loads cleanly twice. A deliberately stale stamp ('0') is reset to 17800000000000001 on reload. users gains bio as its last column, matching production's column order. Re-running the bio migration fails with 'column \"bio\" already exists', which proves the stamp must skip it. The edited generator produced a 17-digit prefix above 17800000000000002 and refused when a larger prefix existed. The numeric sort orders 9_ < 1774... < 1780..., where a text sort would not.",
+    "edit_method": "Exact find-and-replace; each 'old' occurs exactly once. Use the IDE file-edit tool.",
+    "update_profile": "Found by Kiro while running the hardening spec. users/update.sql is UPDATE ... RETURNING handle. When it fails or matches no row (a Cognito user with no public.users row), query_commit now returns None. query_users_short(None) then returns '{}' and data_update_profile answered 200, so the profile page would say 'saved' when nothing was saved. The new check returns ['profile_not_updated']. Claude has read data_update_profile: it maps any non-None model['errors'] to 422."
+  },
+  "phases": [
+    {
+      "phase": 1,
+      "name": "Read before writing (STOP conditions)",
+      "actions": [
+        "STOP 0: GIT_PAGER=cat git status --short shows NO modified files (untracked _docs/specs/*.json are acceptable). If any modified file is listed, STOP.",
+        "STOP 1 (kiro-spec-hardening.json must already be committed): backend-flask/db/schema.sql contains the line `  reply_to_activity_uuid UUID,` AND backend-flask/bin/db/migrate contains the line `        result = db.query_commit(sql, {})`. If either is missing, STOP: this spec builds on the hardening spec.",
+        "Read in full: the six files in phases 2-7, plus backend-flask/db/migrations/17749981238427508_add_bio_column.py and backend-flask/bin/db/schema-load.",
+        "STOP 2: for EVERY edit, confirm its 'old' string occurs EXACTLY ONCE in its file (whitespace-exact; schema.sql and bin/db/setup may have no trailing newline). Report a table: id, file, count, line. If any count is not 1, STOP and paste the surrounding lines.",
+        "STOP 3: `ls backend-flask/db/migrations/ | sort` lists exactly 17749981238427508_add_bio_column.py, 17800000000000000_alter_reply_to_activity_uuid.py, 17800000000000001_backfill_replies_count.py (optionally __init__.py or __pycache__). The newest prefix must be 17800000000000001, because schema.sql's new stamp claims everything up to it is folded in. If there is a newer migration, STOP.",
+        "STOP 4: `test -x backend-flask/bin/db/migrate && echo EXECUTABLE` prints EXECUTABLE (bin/db/setup will call it directly). If not, STOP and report `ls -l`.",
+        "STOP 5: in backend-flask/app.py, read the data_activities route (POST /api/activities) after its CreateActivity.run call. Report verbatim how it handles model['errors'] and what status it returns. If a non-None model['errors'] can come back with status 200, STOP (the new error would be invisible). Do not edit app.py in this spec."
+      ]
+    },
+    {
+      "phase": 2,
+      "name": "Edit backend-flask/services/create_activity.py",
+      "edits": [
+        {
+          "id": "CA_A: create_activity: fail loudly when the insert returns None",
+          "file": "backend-flask/services/create_activity.py",
+          "old": "      uuid = CreateActivity.create_activity(cognito_user_id, message, expires_at)\n",
+          "new": "      uuid = CreateActivity.create_activity(cognito_user_id, message, expires_at)\n      # Audit HIGH-05: query_commit returns None when the insert fails (for\n      # example, a Cognito user with no public.users row); print_sql_err has\n      # already printed the psycopg error. Without this check the route\n      # answered 200 with '{}' and the post was silently lost.\n      if uuid is None:\n        print('❌ Activity insert failed; nothing was saved')\n        model['errors'] = ['activity_not_saved']\n        return model\n"
+        }
+      ]
+    },
+    {
+      "phase": 3,
+      "name": "Edit backend-flask/services/update_profile.py",
+      "edits": [
+        {
+          "id": "UP_A: update_profile: fail loudly when the UPDATE returns None",
+          "file": "backend-flask/services/update_profile.py",
+          "old": "      handle = UpdateProfile.update(cognito_user_id, bio, display_name)\n      data = UpdateProfile.query_users_short(handle)\n",
+          "new": "      handle = UpdateProfile.update(cognito_user_id, bio, display_name)\n      # Audit HIGH-05 follow-up: query_commit returns None when the UPDATE\n      # fails or matches no user (no public.users row for this Cognito sub).\n      # Without this check the route answered 200 with '{}' and the edit\n      # was silently lost.\n      if handle is None:\n        model['errors'] = ['profile_not_updated']\n        return model\n      data = UpdateProfile.query_users_short(handle)\n"
+        }
+      ]
+    },
+    {
+      "phase": 4,
+      "name": "Edit backend-flask/bin/generate/migration",
+      "edits": [
+        {
+          "id": "GEN_A: generator: fixed-width 17-digit prefix",
+          "file": "backend-flask/bin/generate/migration",
+          "old": "timestamp = str(time.time()).replace(\".\", \"\")\n",
+          "new": "# Fixed width (audit HIGH-04). str(time.time()) drops trailing zeros, so about\n# 24% of prefixes came out shorter than 17 digits, compared SMALLER than the\n# newest applied migration, and were silently skipped by bin/db/migrate.\n# time.time_ns() // 100 (units of 100 ns) is always 17 digits until the year 2286.\ntimestamp = str(time.time_ns() // 100)\n"
+        },
+        {
+          "id": "GEN_B: generator: refuse a prefix that is not greater than every existing one",
+          "file": "backend-flask/bin/generate/migration",
+          "old": "migrations_path = os.path.abspath(os.path.join(backend_dir, 'db', 'migrations', filename))\n",
+          "new": "migrations_path = os.path.abspath(os.path.join(backend_dir, 'db', 'migrations', filename))\n\n# Refuse to create a migration that would not run AFTER every existing one\n# (for example after a hand-picked prefix such as 17800000000000002).\nexisting = [int(f.split('_', 1)[0]) for f in os.listdir(os.path.dirname(migrations_path)) if f.split('_', 1)[0].isdigit()]\nif existing and int(timestamp) <= max(existing):\n  print(f\"ERROR: new prefix {timestamp} is not greater than the newest existing prefix {max(existing)}.\")\n  exit(1)\n"
+        }
+      ]
+    },
+    {
+      "phase": 5,
+      "name": "Edit backend-flask/bin/db/migrate",
+      "edits": [
+        {
+          "id": "MIG_A: migrate: sort by numeric prefix",
+          "file": "backend-flask/bin/db/migrate",
+          "old": "migration_files = glob.glob(os.path.join(migrations_path, '*.py'))\nmigration_files.sort()\n",
+          "new": "migration_files = glob.glob(os.path.join(migrations_path, '*.py'))\n# Sort by the numeric prefix, not as text (audit HIGH-04): text order and\n# numeric order agree only while every prefix has the same width.\ndef _prefix(path):\n  m = re.match(r'^(\\d+)_', os.path.basename(path))\n  return int(m.group(1)) if m else -1\nmigration_files.sort(key=_prefix)\n"
+        }
+      ]
+    },
+    {
+      "phase": 6,
+      "name": "Edit backend-flask/db/schema.sql",
+      "edits": [
+        {
+          "id": "SCH_A: schema.sql: add users.bio (same column order as production)",
+          "file": "backend-flask/db/schema.sql",
+          "old": "  cognito_user_id text NOT NULL,\n  created_at TIMESTAMP default current_timestamp NOT NULL\n);\n",
+          "new": "  cognito_user_id text NOT NULL,\n  created_at TIMESTAMP default current_timestamp NOT NULL,\n  bio text\n);\n"
+        },
+        {
+          "id": "SCH_B: schema.sql: reset the stamp to the newest folded migration",
+          "file": "backend-flask/db/schema.sql",
+          "old": "-- Seed the tracking row only if it doesn't already exist\nINSERT INTO public.schema_information (id, last_successful_run)\nVALUES (1, '0')\nON CONFLICT (id) DO NOTHING;",
+          "new": "-- This file creates the tables in their CURRENT shape: every migration up to\n-- and including the prefix below is already folded in (users.bio, uuid\n-- reply_to_activity_uuid). Loading it must therefore RESET the stamp to that\n-- prefix. Otherwise bin/db/migrate would re-run folded migrations and fail\n-- (\"column bio already exists\"), or a stale stamp would skip real ones.\n-- When you add a migration: fold it in here AND bump this value.\nINSERT INTO public.schema_information (id, last_successful_run)\nVALUES (1, '17800000000000001')\nON CONFLICT (id) DO UPDATE SET last_successful_run = EXCLUDED.last_successful_run;"
+        }
+      ]
+    },
+    {
+      "phase": 7,
+      "name": "Edit backend-flask/bin/db/setup",
+      "edits": [
+        {
+          "id": "SET_A: setup: run migrate after schema-load",
+          "file": "backend-flask/bin/db/setup",
+          "old": "source \"$bin_path/db/schema-load\"\n",
+          "new": "source \"$bin_path/db/schema-load\"\n# Apply any migration newer than the stamp schema.sql just set (audit HIGH-03).\n# A no-op today; it matters once a migration exists that is not yet folded in.\n\"$bin_path/db/migrate\"\n"
+        }
+      ]
+    },
+    {
+      "phase": 8,
+      "name": "Verification gates (repo root; paste raw output of every command)",
+      "commands": [
+        {
+          "cmd": "python3 -c \"import ast; [ast.parse(open(p).read()) for p in ('backend-flask/services/create_activity.py','backend-flask/services/update_profile.py','backend-flask/bin/generate/migration','backend-flask/bin/db/migrate')]; print('python syntax ok')\"",
+          "expect": "python syntax ok"
+        },
+        {
+          "cmd": "bash -n backend-flask/bin/db/setup && echo setup-syntax-ok",
+          "expect": "setup-syntax-ok"
+        },
+        {
+          "cmd": "grep -cF \"model['errors'] = ['activity_not_saved']\" backend-flask/services/create_activity.py",
+          "expect": "1"
+        },
+        {
+          "cmd": "grep -n -A2 -F 'uuid = CreateActivity.create_activity(cognito_user_id, message, expires_at)' backend-flask/services/create_activity.py",
+          "expect": "The insert line followed by the two first comment lines of the new None check (the check sits BEFORE the '✅ Activity created' print)."
+        },
+        {
+          "cmd": "grep -cF \"model['errors'] = ['profile_not_updated']\" backend-flask/services/update_profile.py; grep -n -A1 -F 'handle = UpdateProfile.update(cognito_user_id, bio, display_name)' backend-flask/services/update_profile.py",
+          "expect": "1, then the update line followed by the first comment line of the new None check (the check sits BEFORE query_users_short)."
+        },
+        {
+          "cmd": "grep -cF 'str(time.time()).replace' backend-flask/bin/generate/migration; grep -cxF 'timestamp = str(time.time_ns() // 100)' backend-flask/bin/generate/migration",
+          "expect": "0 then 1"
+        },
+        {
+          "cmd": "grep -cF 'if existing and int(timestamp) <= max(existing):' backend-flask/bin/generate/migration",
+          "expect": "1"
+        },
+        {
+          "cmd": "grep -cxF 'migration_files.sort()' backend-flask/bin/db/migrate; grep -cxF 'migration_files.sort(key=_prefix)' backend-flask/bin/db/migrate",
+          "expect": "0 then 1"
+        },
+        {
+          "cmd": "grep -cF '        result = db.query_commit(sql, {})' backend-flask/bin/db/migrate",
+          "expect": "1 (the hardening spec's edit is intact)"
+        },
+        {
+          "cmd": "grep -cxF '  bio text' backend-flask/db/schema.sql; grep -cxF '  created_at TIMESTAMP default current_timestamp NOT NULL,' backend-flask/db/schema.sql",
+          "expect": "1 then 1 (only the users table's created_at gained a comma; the activities one is unchanged)"
+        },
+        {
+          "cmd": "grep -cF \"VALUES (1, '17800000000000001')\" backend-flask/db/schema.sql; grep -cF 'DO NOTHING' backend-flask/db/schema.sql; grep -cF 'ON CONFLICT (id) DO UPDATE SET last_successful_run = EXCLUDED.last_successful_run;' backend-flask/db/schema.sql",
+          "expect": "1, 0, 1"
+        },
+        {
+          "cmd": "grep -nF 'db/schema-load' backend-flask/bin/db/setup; grep -nxF '\"$bin_path/db/migrate\"' backend-flask/bin/db/setup; grep -nF 'db/seed' backend-flask/bin/db/setup",
+          "expect": "Three lines with strictly increasing line numbers: schema-load < migrate < seed."
+        },
+        {
+          "cmd": "grep -c $'\\r' backend-flask/services/create_activity.py backend-flask/services/update_profile.py backend-flask/bin/generate/migration backend-flask/bin/db/migrate backend-flask/db/schema.sql backend-flask/bin/db/setup",
+          "expect": "0 for every file"
+        },
+        {
+          "cmd": "GIT_PAGER=cat git status --short",
+          "expect": "Exactly six modified files: backend-flask/bin/db/migrate, backend-flask/bin/db/setup, backend-flask/bin/generate/migration, backend-flask/db/schema.sql, backend-flask/services/create_activity.py, backend-flask/services/update_profile.py. Untracked _docs/specs/*.json acceptable. Nothing else."
+        },
+        {
+          "cmd": "GIT_PAGER=cat git diff --numstat",
+          "expect": "Expected: create_activity.py 8/0, update_profile.py 7/0, bin/generate/migration 12/1, bin/db/migrate 6/1, schema.sql 10/4 (it has no trailing newline; 10/3 if it had one), bin/db/setup 3/0. Report the real numbers either way."
+        }
+      ]
+    },
+    {
+      "phase": 9,
+      "name": "Report",
+      "actions": [
+        "Paste the phase-1 table and the raw output of every gate.",
+        "State any deviation and why. If any gate did not match, say so plainly. Do not report a pass you did not observe.",
+        "State explicitly that no database command was run, bin/generate/migration was NOT executed (it writes a file), and bin/db/setup, schema-load and migrate were NOT executed."
+      ]
+    }
+  ],
+  "must_not": [
+    "Do not run git add, git commit, git push, or any history-rewriting command.",
+    "Do not EXECUTE bin/generate/migration (it creates a migration file), bin/db/setup, bin/db/schema-load, bin/db/migrate, psql, or any database, docker or aws command.",
+    "Do not write files via shell redirection, python, sed, or any command. Use the IDE file-edit tool.",
+    "Do not modify any file other than the six named. Do not touch the hardening spec's migrate block, query_commit, the migration files themselves, or schema-load (its prod mode is a separate backlog item).",
+    "Do not fold anything else into schema.sql (the likes table belongs to the likes spec).",
+    "Do not invent content if a phase-1 check fails; stop and report."
+  ],
+  "verify_next_deploy": [
+    "Pilot #3: create a post normally. It appears and survives a refresh (the happy path is unchanged).",
+    "Pilot #3: edit your bio and display name on the profile page. They save and survive a refresh (the happy path is unchanged).",
+    "Pilot #3, failure path (optional, costs nothing): not easily forced in prod without a user who has no public.users row. The 400/404 reply tests from the hardening spec exercise the same None-handling.",
+    "Local only (whenever docker compose is used again): run ./bin/db/setup from backend-flask. It ends with migrate printing no '=== Running migration' lines, and SELECT last_successful_run FROM schema_information returns 17800000000000001."
+  ]
+}

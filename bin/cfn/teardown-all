@@ -22,6 +22,106 @@ if [ "$CONFIRM" != "DELETE" ]; then
   exit 1
 fi
 
+# ---------------------------------------------------------------- snapshot gate
+# Audit CRIT-01. The RDS delete further down skips the final snapshot, so any
+# write made after the newest manual snapshot would be lost for good. Before
+# deleting ANYTHING, require an available manual snapshot of this instance that
+# is at most MAX_SNAPSHOT_AGE_MIN minutes old, or offer to take one now. Every
+# failure in this block exits before a single stack is touched.
+MAX_SNAPSHOT_AGE_MIN=90
+DB_CONFIG="$(dirname "$(readlink -f "$0")")/../../aws/cfn/db/config.toml"
+SNAP_ID=""
+POINTER_WARNING=""
+
+echo "--- Snapshot gate ---"
+INSTANCE_OUT=$(aws rds describe-db-instances \
+  --db-instance-identifier "$DB_INSTANCE" \
+  --region "$REGION" \
+  --query 'DBInstances[0].DBInstanceStatus' \
+  --output text 2>&1)
+INSTANCE_RC=$?
+
+if [ $INSTANCE_RC -ne 0 ]; then
+  if echo "$INSTANCE_OUT" | grep -q "DBInstanceNotFound"; then
+    echo "RDS instance ${DB_INSTANCE} does not exist; nothing to protect. Gate skipped."
+  else
+    echo "ERROR: could not check the RDS instance (expired SSO session?):" >&2
+    echo "$INSTANCE_OUT" >&2
+    echo "Nothing has been deleted." >&2
+    exit 1
+  fi
+else
+  LATEST=$(aws rds describe-db-snapshots \
+    --db-instance-identifier "$DB_INSTANCE" \
+    --snapshot-type manual \
+    --region "$REGION" \
+    --query 'reverse(sort_by(DBSnapshots[?Status==`available`], &SnapshotCreateTime))[0].[DBSnapshotIdentifier,SnapshotCreateTime]' \
+    --output text 2>&1)
+  if [ $? -ne 0 ]; then
+    echo "ERROR: could not list snapshots:" >&2
+    echo "$LATEST" >&2
+    echo "Nothing has been deleted." >&2
+    exit 1
+  fi
+
+  LATEST_ID=$(echo "$LATEST" | awk '{print $1}')
+  LATEST_TIME=$(echo "$LATEST" | awk '{print $2}')
+  AGE_MIN=""
+  if [ -n "$LATEST_ID" ] && [ "$LATEST_ID" != "None" ]; then
+    LATEST_EPOCH=$(date -u -d "$LATEST_TIME" +%s 2>/dev/null)
+    if [ -n "$LATEST_EPOCH" ]; then
+      AGE_MIN=$(( ( $(date -u +%s) - LATEST_EPOCH ) / 60 ))
+      echo "Newest available manual snapshot: ${LATEST_ID} (${AGE_MIN} min old)"
+    else
+      echo "Newest manual snapshot ${LATEST_ID} has an unreadable timestamp: ${LATEST_TIME}"
+    fi
+  else
+    echo "No available manual snapshot of ${DB_INSTANCE} was found."
+  fi
+
+  if [ -n "$AGE_MIN" ] && [ "$AGE_MIN" -le "$MAX_SNAPSHOT_AGE_MIN" ]; then
+    SNAP_ID="$LATEST_ID"
+    echo "Recent enough (limit ${MAX_SNAPSHOT_AGE_MIN} min). Proceeding."
+  else
+    NEW_SNAP="cruddur-crddb-$(date -u +%Y-%m-%d-%H%M)-teardown"
+    echo "No snapshot from the last ${MAX_SNAPSHOT_AGE_MIN} minutes."
+    read -p "Type SNAPSHOT to create ${NEW_SNAP} now (anything else aborts): " SNAP_CONFIRM
+    if [ "$SNAP_CONFIRM" != "SNAPSHOT" ]; then
+      echo "Aborted. Nothing has been deleted."
+      exit 1
+    fi
+    if ! aws rds create-db-snapshot \
+      --db-instance-identifier "$DB_INSTANCE" \
+      --db-snapshot-identifier "$NEW_SNAP" \
+      --region "$REGION" \
+      --query 'DBSnapshot.DBSnapshotIdentifier' \
+      --output text; then
+      echo "ERROR: create-db-snapshot failed. Nothing has been deleted." >&2
+      exit 1
+    fi
+    echo "Waiting for ${NEW_SNAP} to become available (usually 2-5 minutes)..."
+    if ! aws rds wait db-snapshot-available \
+      --db-snapshot-identifier "$NEW_SNAP" \
+      --region "$REGION"; then
+      echo "ERROR: ${NEW_SNAP} did not become available. Nothing has been deleted." >&2
+      exit 1
+    fi
+    SNAP_ID="$NEW_SNAP"
+    echo "Snapshot ${SNAP_ID} is available."
+  fi
+
+  # The next deploy restores whatever config.toml names. Warn (do not stop) if
+  # it is not the snapshot protecting this teardown: the data is safe either
+  # way, but deploying from an older pointer would silently roll it back.
+  CONFIG_SNAP=$(grep DBSnapshotIdentifier "$DB_CONFIG" 2>/dev/null | grep -o 'cruddur-crddb-[A-Za-z0-9-]*' | head -1)
+  if [ "$CONFIG_SNAP" = "$SNAP_ID" ]; then
+    echo "aws/cfn/db/config.toml already points at ${SNAP_ID}."
+  else
+    POINTER_WARNING="WARNING: aws/cfn/db/config.toml points at '${CONFIG_SNAP:-<not found>}', not '${SNAP_ID}'. Repoint it before the next deploy, or that deploy restores OLDER data."
+    echo "$POINTER_WARNING"
+  fi
+fi
+
 delete_stack() {
   local STACK="$1"
   echo "--- Deleting ${STACK} ---"
@@ -41,6 +141,30 @@ delete_stack CrdAuth
 # 1) Frontend, 2) Backend
 delete_stack CrdFrontend
 delete_stack CrdService
+
+# -------------------------------------------------------------- dependents gate
+# Audit CRIT-01, part 2. delete_stack only prints a message when a delete fails
+# (there is no set -e), so a stuck CrdAuth, CrdFrontend or CrdService would fall
+# straight through to the RDS delete while stacks that import CrdDb exports
+# still exist. Any answer other than "does not exist" (an expired SSO session
+# included) counts as still present: fail safe.
+echo "--- Dependents gate: CrdAuth, CrdFrontend and CrdService must be gone ---"
+STILL_PRESENT=0
+for s in CrdAuth CrdFrontend CrdService; do
+  OUT=$(aws cloudformation describe-stacks --stack-name "$s" --region "$REGION" \
+    --query 'Stacks[0].StackStatus' --output text 2>&1)
+  if echo "$OUT" | grep -q "does not exist"; then
+    echo "  ${s}: gone"
+  else
+    echo "  ${s}: STILL PRESENT (${OUT})" >&2
+    STILL_PRESENT=1
+  fi
+done
+if [ "$STILL_PRESENT" -ne 0 ]; then
+  echo "ERROR: a dependent stack still exists. The RDS instance, CrdDb, CrdCluster" >&2
+  echo "and CrdNet were NOT touched. Fix that stack in the console, then re-run." >&2
+  exit 1
+fi
 
 # 3) CrdDb — retained-instance special handling
 echo "--- Deleting CrdDb (RDS instance is retained by DeletionPolicy: Retain) ---"
@@ -137,4 +261,8 @@ echo "=============================================================="
 echo "NOTE: Route 53 apex/api A-records are managed by CrdCluster and were"
 echo "deleted along with it. No manual repoint is needed — the next"
 echo "'deploy-all' recreates them against the new ALB automatically."
+echo "Snapshot protecting this teardown: ${SNAP_ID:-none (no RDS instance existed at start)}"
+if [ -n "$POINTER_WARNING" ]; then
+  echo "$POINTER_WARNING"
+fi
 echo "=============================================================="

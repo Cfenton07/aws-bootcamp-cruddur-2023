@@ -29,6 +29,10 @@ class Db:
   # we want to commit data such as an insert
   # be sure to check for RETURNING in all uppercases
   def print_params(self,params):
+    # Audit HIGH-02: params carry message text and Cognito IDs, and stdout goes
+    # to CloudWatch. Print only when CRUDDUR_SQL_DEBUG=1 (local debugging).
+    if os.getenv('CRUDDUR_SQL_DEBUG') != '1':
+      return
     blue = '\033[94m'
     no_color = '\033[0m'
     print(f'{blue} SQL Params:{no_color}')
@@ -36,6 +40,9 @@ class Db:
       print(key, ":", value)
 
   def print_sql(self,title,sql, params={}):
+    # Audit HIGH-02: same rule as print_params (this also prints params).
+    if os.getenv('CRUDDUR_SQL_DEBUG') != '1':
+      return
     cyan = '\033[96m'
     no_color = '\033[0m'
     print(f'{cyan} SQL STATEMENT-[{title}]------{no_color}')
@@ -51,13 +58,23 @@ class Db:
       with self.pool.connection() as conn:
         cur =  conn.cursor()
         cur.execute(sql,params)
+        returning_id = None
         if is_returning_id:
-          returning_id = cur.fetchone()[0]
-        conn.commit() 
+          # A RETURNING statement that affected zero rows yields no row at
+          # all, so fetchone() is None. Return None (the caller's failure
+          # signal) instead of crashing on None[0].
+          row = cur.fetchone()
+          returning_id = row[0] if row is not None else None
+        conn.commit()
         if is_returning_id:
           return returning_id
+        # Statements without RETURNING used to return None on success AND
+        # on failure, so callers could not tell them apart. Success is now
+        # True; failure (the except branch below) is still None.
+        return True
     except Exception as err:
       self.print_sql_err(err)
+      return None
 
    # when we want to return a a single value
   def query_value(self,sql,params={},verbose=True):
@@ -122,7 +139,7 @@ class Db:
     print ("psycopg traceback:", traceback, "-- type:", err_type)
 
     # print the pgcode and pgerror exceptions
-    print ("pgerror:", err.pgerror)
-    print ("pgcode:", err.pgcode, "\n")
+    print ("pgerror:", getattr(err, 'pgerror', None))
+    print ("pgcode:", getattr(err, 'pgcode', None), "\n")
 
 db = Db()

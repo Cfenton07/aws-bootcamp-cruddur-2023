@@ -9,14 +9,15 @@ const jwtVerifier = CognitoJwtVerifier.create({
 });
 
 exports.handler = async (event) => {
-  console.log("request:", JSON.stringify(event, undefined, 2));
+  // Audit HIGH-02: the full event includes the Authorization header.
+  console.log("request:", event.routeKey);
 
   const jwt = event.headers.authorization;
   try {
     const payload = await jwtVerifier.verify(jwt);
-    console.log("Access allowed. JWT payload:", payload);
+    console.log("Access allowed for sub:", payload.sub);
   } catch (err) {
-    console.error("Access denied:", err);
+    console.error("Access denied:", err.name, err.message);
     return { isAuthorized: false };
   }
 

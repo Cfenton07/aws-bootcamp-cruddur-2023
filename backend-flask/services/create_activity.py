@@ -13,8 +13,8 @@ class CreateActivity:
     # ============================================================
     print('='*60)
     print('🔍 CreateActivity.run() called!')
-    print(f'   message: {message}')
-    print(f'   cognito_user_id: {cognito_user_id}')
+    # Audit HIGH-02: no message text or Cognito ID in the logs.
+    print(f'   message length: {len(message) if message else 0}')
     print(f'   ttl: {ttl}')
     print('='*60)
     
@@ -103,6 +103,14 @@ class CreateActivity:
       
       # Insert the activity into the database and get back its UUID
       uuid = CreateActivity.create_activity(cognito_user_id, message, expires_at)
+      # Audit HIGH-05: query_commit returns None when the insert fails (for
+      # example, a Cognito user with no public.users row); print_sql_err has
+      # already printed the psycopg error. Without this check the route
+      # answered 200 with '{}' and the post was silently lost.
+      if uuid is None:
+        print('❌ Activity insert failed; nothing was saved')
+        model['errors'] = ['activity_not_saved']
+        return model
       print(f'✅ Activity created with UUID: {uuid}')
       
       # Retrieve the complete activity object from the database
@@ -111,7 +119,7 @@ class CreateActivity:
       
       # Set the retrieved activity as the response data
       model['data'] = object_json
-      print(f'✅ Activity data retrieved: {object_json}')
+      print('✅ Activity data retrieved')
     
     # ============================================================
     # RETURN RESPONSE MODEL

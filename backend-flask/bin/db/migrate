@@ -39,7 +39,12 @@ sys.path.insert(0, migrations_path)
 
 # Find all migration files
 migration_files = glob.glob(os.path.join(migrations_path, '*.py'))
-migration_files.sort()
+# Sort by the numeric prefix, not as text (audit HIGH-04): text order and
+# numeric order agree only while every prefix has the same width.
+def _prefix(path):
+  m = re.match(r'^(\d+)_', os.path.basename(path))
+  return int(m.group(1)) if m else -1
+migration_files.sort(key=_prefix)
 
 for migration_file in migration_files:
   filename = os.path.basename(migration_file)
@@ -62,8 +67,16 @@ for migration_file in migration_files:
     for attr_name in dir(mod):
       if attr_name.endswith('Migration') and attr_name != 'Migration':
         migration_class = getattr(mod, attr_name)
-        print(migration_class.migrate_sql())
-        migration_class.migrate()
+        sql = migration_class.migrate_sql()
+        print(sql)
+        # Call query_commit directly so the result can be checked; the
+        # migrate() helper in each migration file discards it. None means
+        # the SQL failed (the psycopg error is printed above). Stop WITHOUT
+        # advancing last_successful_run so the migration is retried.
+        result = db.query_commit(sql, {})
+        if result is None:
+          print(f"!!! Migration FAILED: {module_name} -- not recorded, stopping.")
+          sys.exit(1)
         break
 
     # Record the migration's OWN prefix, not a wall-clock stamp.

@@ -11,6 +11,13 @@ class UpdateProfile:
       model['errors'] = ['display_name_blank']
     else:
       handle = UpdateProfile.update(cognito_user_id, bio, display_name)
+      # Audit HIGH-05 follow-up: query_commit returns None when the UPDATE
+      # fails or matches no user (no public.users row for this Cognito sub).
+      # Without this check the route answered 200 with '{}' and the edit
+      # was silently lost.
+      if handle is None:
+        model['errors'] = ['profile_not_updated']
+        return model
       data = UpdateProfile.query_users_short(handle)
       model['data'] = data
     return model
