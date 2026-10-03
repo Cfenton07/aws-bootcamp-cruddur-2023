@@ -45,6 +45,7 @@ GOOD, EVIL = "https://fentoncruddur.com", "https://evil.example"
 routes = [("/api/message_groups", "GET"), ("/api/messages/abc", "GET"), ("/api/messages", "POST"),
           ("/api/activities/home", "GET"), ("/api/activities", "POST"),
           ("/api/activities/abc/replies", "GET"), ("/api/activities/abc/reply", "POST"),
+          ("/api/activities/abc/like", "POST"), ("/api/activities/abc/unlike", "POST"),
           ("/api/users", "GET"), ("/api/profile/update", "POST")]
 print("PROBE flask", m.version("flask"), "flask-cors", m.version("flask-cors"))
 ok = True

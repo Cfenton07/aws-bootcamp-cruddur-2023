@@ -75,7 +75,7 @@ export default function ActivityItem(props) {
       <div className="activity_actions">
         <ActivityActionReply setReplyActivity={props.setReplyActivity} activity={replyTarget} setPopped={props.setPopped} activity_uuid={replyTarget.uuid} count={props.activity.replies_count}/>
         {!isReply && <ActivityActionRepost activity_uuid={props.activity.uuid} count={props.activity.reposts_count}/>}
-        <ActivityActionLike activity_uuid={props.activity.uuid} count={props.activity.likes_count}/>
+        <ActivityActionLike activity_uuid={props.activity.uuid} count={props.activity.likes_count} liked={props.activity.liked_by_me}/>
         {!isReply && <ActivityActionShare activity_uuid={props.activity.uuid} />}
       </div>
       {replies}

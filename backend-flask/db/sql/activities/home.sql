@@ -7,6 +7,13 @@ SELECT
   activities.replies_count,
   activities.reposts_count,
   activities.likes_count,
+  EXISTS (
+    SELECT 1
+    FROM public.likes
+    JOIN public.users likers ON likers.uuid = likes.user_uuid
+    WHERE likes.activity_uuid = activities.uuid
+      AND likers.cognito_user_id = %(cognito_user_id)s
+  ) AS liked_by_me,
   activities.reply_to_activity_uuid,
   activities.expires_at,
   activities.created_at,
@@ -24,6 +31,7 @@ LEFT JOIN LATERAL (
       'replies_count', t.replies_count,
       'reposts_count', t.reposts_count,
       'likes_count', t.likes_count,
+      'liked_by_me', t.liked_by_me,
       'reply_to_activity_uuid', t.reply_to_activity_uuid,
       'created_at', t.created_at
     )
@@ -36,6 +44,13 @@ LEFT JOIN LATERAL (
       replies.replies_count,
       replies.reposts_count,
       replies.likes_count,
+      EXISTS (
+        SELECT 1
+        FROM public.likes
+        JOIN public.users likers ON likers.uuid = likes.user_uuid
+        WHERE likes.activity_uuid = replies.uuid
+          AND likers.cognito_user_id = %(cognito_user_id)s
+      ) AS liked_by_me,
       replies.reply_to_activity_uuid,
       replies.created_at,
       reply_users.display_name,

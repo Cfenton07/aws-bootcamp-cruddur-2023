@@ -16,6 +16,7 @@ from services.user_activities import *
 from services.create_activity import *
 from services.create_reply import *
 from services.activity_replies import *
+from services.activity_like import *
 from services.search_activities import *
 from services.message_groups import *
 from services.messages import *
@@ -372,7 +373,9 @@ def data_home():
         app.logger.debug(claims['username'])
 
         # Return personalized feed with user's Cognito ID
-        data = HomeActivities().run(cognito_user_id=claims['username'])
+        # users.cognito_user_id stores the token's 'sub' (the reply route uses
+        # it too), not 'username'. liked_by_me in home.sql depends on this.
+        data = HomeActivities().run(cognito_user_id=claims['sub'])
 
         # COMMENTED OUT: Additional token validation
         #token_type, access_token = auth_header.split()
@@ -528,6 +531,38 @@ def data_activities_reply(activity_uuid):
     else:
         return model['data'], 200
     
+# ============================================================
+# API ENDPOINTS - LIKE / UNLIKE AN ACTIVITY (backlog #18)
+# ============================================================
+# methods=['POST'] only, no 'OPTIONS': Flask answers the CORS preflight itself
+# and the app-wide CORS block adds the headers (see the CORS note above).
+@app.route("/api/activities/<string:activity_uuid>/like", methods=['POST'])
+def data_activities_like(activity_uuid):
+    return like_or_unlike(activity_uuid, like=True)
+
+@app.route("/api/activities/<string:activity_uuid>/unlike", methods=['POST'])
+def data_activities_unlike(activity_uuid):
+    return like_or_unlike(activity_uuid, like=False)
+
+def like_or_unlike(activity_uuid, like):
+    """Shared body for /like and /unlike. Same auth and error mapping as reply."""
+    access_token = extract_access_token(request.headers)
+    try:
+        claims = cognito_jwt_token.verify(access_token)
+        cognito_user_id = claims['sub']
+    except TokenVerifyError as e:
+        app.logger.debug(f'like auth failed: {e}')
+        return {'errors': ['not_authenticated']}, 401
+
+    model = ActivityLike.run(cognito_user_id, activity_uuid, like)
+    if model['errors'] is not None:
+        if 'invalid_activity_uuid' in model['errors']:
+            return {'errors': model['errors']}, 400
+        if 'activity_not_found' in model['errors']:
+            return {'errors': model['errors']}, 404
+        return {'errors': model['errors']}, 422
+    return model['data'], 200
+
 # ============================================================
 # API ENDPOINTS - USERS SHORT INFO
 # ============================================================    

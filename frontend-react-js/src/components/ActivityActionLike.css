@@ -1,0 +1,12 @@
+/* Liked heart (backlog #18): solid heart (heart-filled.svg) in the app's
+   theme purple, rgb(149,0,255), the same as the Crud button and avatar
+   circles. These selectors are more specific than the generic rules in
+   ActivityItem.css (.activity_item .activity_actions .icon and
+   .action .counter), so they win regardless of which file loads last. */
+.activity_item .activity_actions .activity_action_heart.liked .icon {
+  fill: rgb(149,0,255);
+}
+
+.activity_item .activity_actions .activity_action_heart.liked .counter {
+  color: rgb(149,0,255);
+}
