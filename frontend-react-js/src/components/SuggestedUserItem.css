@@ -38,3 +38,14 @@
   flex-shrink: 0;
   margin-right: 12px;
 }
+
+/* Real avatars (#19): the photo fills the existing 36px circle. */
+.suggested_users .avatar {
+  overflow: hidden;
+}
+
+.suggested_users .avatar img {
+  display: block;
+  width: 36px;
+  height: 36px;
+}

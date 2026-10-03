@@ -90,3 +90,11 @@
   border-radius: 999px;
   object-fit: cover;
 }
+
+/* Initial fallback (no photo): pin the same 40px circle as the photo. The
+   generic 100% rule in ProfileAvatar.css has equal specificity and loads later,
+   so it stretched this into a pill across the sidebar row. One more class wins. */
+.profile-info .profile-avatar:has(.avatar-fallback) {
+  width: 40px;
+  height: 40px;
+}

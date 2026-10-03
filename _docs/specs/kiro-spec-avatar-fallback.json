@@ -1,0 +1,241 @@
+{
+  "spec": "kiro-spec-avatar-fallback",
+  "version": "2026-10-02",
+  "protocol": "Kiro Supervised. Kiro authors files only. C runs every git and AWS command. Stop and report at any STOP that fails; do not work around it.",
+  "backlog": [
+    "Pilot #3: initial fallback renders as a pill (sidebar) and a sliver (profile page)",
+    "Pilot #3: name prop missing in ProfileInfo, ProfileHeading, PeoplePage (fallback shows '?')",
+    "Pilot #3: new-conversation entry (/messages/new/<handle>) shows a plain purple circle; classsName typo"
+  ],
+  "base_commit": "the CORS commit (subject starts 'CORS:')",
+  "files_in_scope": [
+    "frontend-react-js/src/components/ProfileInfo.js",
+    "frontend-react-js/src/components/ProfileInfo.css",
+    "frontend-react-js/src/components/ProfileHeading.js",
+    "frontend-react-js/src/components/ProfileHeading.css",
+    "frontend-react-js/src/pages/PeoplePage.js",
+    "frontend-react-js/src/components/MessageGroupNewItem.js"
+  ],
+  "context": [
+    "ProfileAvatar renders <div class='profile-avatar'><img class='avatar-img'></div>, or, with no id or a failed image, <div class='profile-avatar'><div class='avatar-fallback'>{initial}</div></div>.",
+    "ProfileAvatar.css has .profile-avatar:has(.avatar-fallback){width:100%;height:100%} (specificity 0,2,0). Context CSS that sizes .profile-avatar with two classes ties with it, and the later-loaded file wins. That is why the sidebar fallback became a pill. The fix adds a three-class rule per context; ProfileAvatar.css itself is NOT changed, so contexts that already work (feed, message panes, group list, People page) are unaffected.",
+    "index.css sets box-sizing: border-box globally, so the profile photo's 8px border sits inside its 148px; the fallback gets the same box.",
+    "ProfileInfo.css, ProfileHeading.css, ProfileInfo.js, ProfileHeading.js and MessageGroupNewItem.js have no trailing newline. PI_B and PH_B end with a newline (intended: 1 deletion each). Do not add or remove any other trailing newline.",
+    "props.user in MessageGroupNewItem comes from the users 'short' endpoint. If that endpoint does not return cognito_user_id, the avatar shows the initial (still an improvement); STOP 3 reports which. Do not change the backend in this spec.",
+    "Commits do not deploy. This reaches the site in pilot #4."
+  ],
+  "must_not": [
+    "No git add, commit, push, stash, reset, restore, checkout, rebase or any history change. C commits.",
+    "No AWS CLI, no bin/ scripts, no docker, no npm install or package changes.",
+    "No edits outside files_in_scope. In particular do not touch ProfileAvatar.js, ProfileAvatar.css, MessageGroupItem.*, or any backend file.",
+    "Use the IDE edit tool for every edit; never write files through a shell command.",
+    "Apply each edit exactly as given: no reformatting, no other cleanup."
+  ],
+  "phases": [
+    {
+      "phase": 0,
+      "name": "Preflight",
+      "steps": [
+        {
+          "id": "STOP 0a",
+          "command": "GIT_PAGER=cat git log -1 --format=%s",
+          "expect": "starts with 'CORS:'",
+          "on_fail": "STOP. The CORS spec is not committed."
+        },
+        {
+          "id": "STOP 0b",
+          "command": "GIT_PAGER=cat git status --short",
+          "expect": "exactly one line: ?? _docs/specs/kiro-spec-avatar-fallback.json",
+          "on_fail": "STOP."
+        },
+        {
+          "id": "STOP 0c",
+          "command": "wc -c _docs/specs/kiro-spec-avatar-fallback.json",
+          "expect": "non-zero",
+          "on_fail": "STOP. Save the editor tab (Ctrl+S)."
+        }
+      ]
+    },
+    {
+      "phase": 1,
+      "name": "Read-only checks",
+      "steps": [
+        {
+          "id": "STOP 1",
+          "command": "python3 -c \"import json; s=json.load(open('_docs/specs/kiro-spec-avatar-fallback.json')); [print(e['id'], open(e['file']).read().count(e['find'])) for e in s['phases'][2]['edits']]\"",
+          "expect": "eight lines, each ending in 1",
+          "on_fail": "STOP. Report which id differs."
+        },
+        {
+          "id": "STOP 2",
+          "command": "grep -n -F -e '.profile-avatar:has(.avatar-fallback)' -e 'width: 100%;' frontend-react-js/src/components/ProfileAvatar.css; grep -n 'box-sizing' frontend-react-js/src/index.css",
+          "expect": "Quote verbatim. The :has rule exists with width: 100%, and index.css has box-sizing: border-box.",
+          "on_fail": "STOP. The diagnosis assumes both."
+        },
+        {
+          "id": "STOP 3 (report only, never stops)",
+          "command": "grep -rn -F 'cognito_user_id' backend-flask/db/sql/users/ backend-flask/services/users_short.py 2>/dev/null",
+          "expect": "Quote verbatim. State whether the users 'short' query returns cognito_user_id. Continue either way.",
+          "on_fail": "n/a"
+        }
+      ]
+    },
+    {
+      "phase": 2,
+      "name": "Apply the edits in order with the IDE edit tool",
+      "edits": [
+        {
+          "id": "PI_A",
+          "file": "frontend-react-js/src/components/ProfileInfo.js",
+          "purpose": "Pass name so the fallback shows the user's initial instead of '?'.",
+          "find": "<ProfileAvatar id={props.user.cognito_user_id} />",
+          "replace": "<ProfileAvatar id={props.user.cognito_user_id} name={props.user.display_name} />"
+        },
+        {
+          "id": "PI_B",
+          "file": "frontend-react-js/src/components/ProfileInfo.css",
+          "purpose": "Pin the sidebar fallback to the same 40px circle as the photo. ProfileAvatar.css's 100% rule ties on specificity (0,2,0) and loads later, so it stretched the fallback into a pill; this rule is 0,3,0 and wins regardless of load order. The file has no trailing newline today; this edit ends with one (numstat shows 1 deletion).",
+          "find": ".profile-info .profile-avatar img {\n  width: 40px;\n  height: 40px;\n  border-radius: 999px;\n  object-fit: cover;\n}",
+          "replace": ".profile-info .profile-avatar img {\n  width: 40px;\n  height: 40px;\n  border-radius: 999px;\n  object-fit: cover;\n}\n\n/* Initial fallback (no photo): pin the same 40px circle as the photo. The\n   generic 100% rule in ProfileAvatar.css has equal specificity and loads later,\n   so it stretched this into a pill across the sidebar row. One more class wins. */\n.profile-info .profile-avatar:has(.avatar-fallback) {\n  width: 40px;\n  height: 40px;\n}\n"
+        },
+        {
+          "id": "PH_A",
+          "file": "frontend-react-js/src/components/ProfileHeading.js",
+          "purpose": "Pass name so the profile-page fallback shows the initial.",
+          "find": "<ProfileAvatar id={props.profile.cognito_user_id} />",
+          "replace": "<ProfileAvatar id={props.profile.cognito_user_id} name={props.profile.display_name} />"
+        },
+        {
+          "id": "PH_B",
+          "file": "frontend-react-js/src/components/ProfileHeading.css",
+          "purpose": "Give the profile-page fallback the photo's 148px ring (border-box, so the 8px border is inside). Without a size it was 100% of an unsized box and collapsed to a sliver. File has no trailing newline today; this edit ends with one.",
+          "find": ".profile_heading .bio {\n  padding: 16px;\n  color: rgba(255,255,255,0.7);\n}",
+          "replace": ".profile_heading .bio {\n  padding: 16px;\n  color: rgba(255,255,255,0.7);\n}\n\n/* Initial fallback (no photo): the same 148px ring as the photo. Without a size\n   it was 100% of an unsized box and collapsed to a sliver. */\n.profile_heading .avatar .profile-avatar:has(.avatar-fallback) {\n  width: 148px;\n  height: 148px;\n}\n\n.profile_heading .avatar .avatar-fallback {\n  border: solid 8px var(--fg);\n  font-size: 64px;\n}\n"
+        },
+        {
+          "id": "PP_A",
+          "file": "frontend-react-js/src/pages/PeoplePage.js",
+          "purpose": "Pass name so People-page fallbacks show initials.",
+          "find": "<ProfileAvatar id={person.cognito_user_id} />",
+          "replace": "<ProfileAvatar id={person.cognito_user_id} name={person.display_name} />"
+        },
+        {
+          "id": "NG_A",
+          "file": "frontend-react-js/src/components/MessageGroupNewItem.js",
+          "purpose": "Import ProfileAvatar (default export).",
+          "find": "import { Link } from \"react-router-dom\";",
+          "replace": "import { Link } from \"react-router-dom\";\nimport ProfileAvatar from './ProfileAvatar';"
+        },
+        {
+          "id": "NG_B",
+          "file": "frontend-react-js/src/components/MessageGroupNewItem.js",
+          "purpose": "Render the avatar in the new-conversation entry, same as MessageGroupItem (b84a463). MessageGroupItem.css already sizes and clips .message_group_avatar .profile-avatar.",
+          "find": "<div className='message_group_avatar'></div>",
+          "replace": "<div className='message_group_avatar'>\n        <ProfileAvatar id={props.user.cognito_user_id} name={props.user.display_name} />\n      </div>"
+        },
+        {
+          "id": "NG_C",
+          "file": "frontend-react-js/src/components/MessageGroupNewItem.js",
+          "purpose": "Fix the classsName typo (React ignores it, so .message_group_meta never applied).",
+          "find": "classsName='message_group_meta'",
+          "replace": "className='message_group_meta'"
+        }
+      ]
+    },
+    {
+      "phase": 3,
+      "name": "Gates. Run each exactly as written; report actual vs expected.",
+      "gates": [
+        {
+          "gate": 1,
+          "check": "Every replacement present exactly once",
+          "command": "python3 -c \"import json; s=json.load(open('_docs/specs/kiro-spec-avatar-fallback.json')); [print(e['id'], open(e['file']).read().count(e['replace'])) for e in s['phases'][2]['edits']]\"",
+          "expect": "eight lines, each ending in 1"
+        },
+        {
+          "gate": 2,
+          "check": "No ProfileAvatar call left without name in the 4 JS files",
+          "command": "grep -n -F '<ProfileAvatar id=' frontend-react-js/src/components/ProfileInfo.js frontend-react-js/src/components/ProfileHeading.js frontend-react-js/src/pages/PeoplePage.js frontend-react-js/src/components/MessageGroupNewItem.js | grep -v -F 'name='",
+          "expect": "no output"
+        },
+        {
+          "gate": 3,
+          "check": "Typo gone from MessageGroupNewItem",
+          "command": "grep -c -F 'classsName' frontend-react-js/src/components/MessageGroupNewItem.js",
+          "expect": "0"
+        },
+        {
+          "gate": 4,
+          "check": "Empty avatar div gone",
+          "command": "grep -c -F \"<div className='message_group_avatar'></div>\" frontend-react-js/src/components/MessageGroupNewItem.js",
+          "expect": "0"
+        },
+        {
+          "gate": 5,
+          "check": "Existing photo rules untouched",
+          "command": "grep -c -F '  border: solid 8px var(--fg);' frontend-react-js/src/components/ProfileHeading.css; grep -c -F '.profile-info .profile-avatar{' frontend-react-js/src/components/ProfileInfo.css",
+          "expect": "2 (photo img + new fallback) then 1"
+        },
+        {
+          "gate": 6,
+          "check": "ProfileAvatar.css not modified (the fix is context rules, not the shared component)",
+          "command": "GIT_PAGER=cat git diff --stat -- frontend-react-js/src/components/ProfileAvatar.css frontend-react-js/src/components/ProfileAvatar.js",
+          "expect": "no output"
+        },
+        {
+          "gate": 7,
+          "check": "ESLint clean on the 4 JS files (run it as a background process if output is not captured, as last time)",
+          "command": "(cd frontend-react-js && npx eslint src/components/ProfileInfo.js src/components/ProfileHeading.js src/pages/PeoplePage.js src/components/MessageGroupNewItem.js; echo \"exit=$?\")",
+          "expect": "no errors or warnings (a Browserslist staleness notice is fine), then exit=0. If PeoplePage.js shows PRE-EXISTING warnings on lines this spec did not touch, report them verbatim and mark MATCH-WITH-NOTE."
+        },
+        {
+          "gate": 8,
+          "check": "Exact line counts",
+          "command": "GIT_PAGER=cat git diff --numstat",
+          "expect": "5\t2\tfrontend-react-js/src/components/MessageGroupNewItem.js\n13\t1\tfrontend-react-js/src/components/ProfileHeading.css\n1\t1\tfrontend-react-js/src/components/ProfileHeading.js\n9\t1\tfrontend-react-js/src/components/ProfileInfo.css\n1\t1\tfrontend-react-js/src/components/ProfileInfo.js\n1\t1\tfrontend-react-js/src/pages/PeoplePage.js\n(order may differ)"
+        },
+        {
+          "gate": 9,
+          "check": "Only the six files changed; spec is the only untracked file",
+          "command": "GIT_PAGER=cat git status --short",
+          "expect": "six ' M' lines for: frontend-react-js/src/components/ProfileInfo.js, frontend-react-js/src/components/ProfileInfo.css, frontend-react-js/src/components/ProfileHeading.js, frontend-react-js/src/components/ProfileHeading.css, frontend-react-js/src/pages/PeoplePage.js, frontend-react-js/src/components/MessageGroupNewItem.js; plus ?? _docs/specs/kiro-spec-avatar-fallback.json"
+        },
+        {
+          "gate": 10,
+          "check": "No mode changes",
+          "command": "GIT_PAGER=cat git diff --summary",
+          "expect": "no output"
+        }
+      ]
+    },
+    {
+      "phase": 4,
+      "name": "Report",
+      "report_format": [
+        "Every STOP: output and pass/fail; quote STOP 2 and STOP 3 verbatim.",
+        "Each edit id: applied byte-identical yes/no.",
+        "Each gate: actual, expected, MATCH/MISMATCH; explain any mismatch without changing files.",
+        "Out-of-scope observations: report only.",
+        "Credits used."
+      ]
+    },
+    {
+      "phase": 5,
+      "name": "Hand back to C",
+      "steps": [
+        "Stop. C reviews, runs gates, commits."
+      ]
+    }
+  ],
+  "operator_after_run": {
+    "commit_command": "cd ~/aws-bootcamp-cruddur-2023 && git add frontend-react-js/src/components/ProfileInfo.js frontend-react-js/src/components/ProfileInfo.css frontend-react-js/src/components/ProfileHeading.js frontend-react-js/src/components/ProfileHeading.css frontend-react-js/src/pages/PeoplePage.js frontend-react-js/src/components/MessageGroupNewItem.js _docs/specs/kiro-spec-avatar-fallback.json && git commit -m \"Avatar fallback: pin initial circle in sidebar and profile heading, pass name in 3 places, avatar in new-conversation entry, className typo (pilot #3 findings)\" && git push origin kiro-dev",
+    "note": "Subject starts with 'Avatar fallback:' so the next spec's STOP 0 can check it."
+  },
+  "verify_next_deploy": [
+    "Log in as a user with no photo (create one, or use a fresh signup): sidebar bottom-left shows a round 40px purple circle with the initial, name not squeezed.",
+    "That user's profile page: a 148px round initial circle with the dark ring, overlapping the banner like a photo would.",
+    "People page: users without photos show their initial, not '?'.",
+    "From another user's profile, click Message: the new-conversation entry at the top of the list shows their photo (or initial if STOP 3 said the short endpoint lacks cognito_user_id).",
+    "Users WITH photos look exactly as before everywhere."
+  ]
+}

@@ -2,6 +2,8 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- forcefully drop our tables if they already exist
+-- likes first: it references users and activities.
+DROP TABLE IF EXISTS public.likes;
 DROP TABLE IF EXISTS public.users cascade;
 DROP TABLE IF EXISTS public.activities;
 
@@ -27,6 +29,15 @@ CREATE TABLE public.activities (
   created_at TIMESTAMP default current_timestamp NOT NULL
 );
 
+-- One row per (user, activity). The primary key makes a double like
+-- impossible; activities.likes_count is kept in step by like.sql/unlike.sql.
+CREATE TABLE public.likes (
+  user_uuid UUID NOT NULL REFERENCES public.users(uuid) ON DELETE CASCADE,
+  activity_uuid UUID NOT NULL REFERENCES public.activities(uuid) ON DELETE CASCADE,
+  created_at TIMESTAMP default current_timestamp NOT NULL,
+  PRIMARY KEY (user_uuid, activity_uuid)
+);
+
 -- Migration tracking table — DO NOT DROP this table
 -- It persists across schema reloads to track which migrations have run
 CREATE TABLE IF NOT EXISTS public.schema_information (
@@ -36,10 +47,10 @@ CREATE TABLE IF NOT EXISTS public.schema_information (
 
 -- This file creates the tables in their CURRENT shape: every migration up to
 -- and including the prefix below is already folded in (users.bio, uuid
--- reply_to_activity_uuid). Loading it must therefore RESET the stamp to that
+-- reply_to_activity_uuid, likes table). Loading it must therefore RESET the stamp to that
 -- prefix. Otherwise bin/db/migrate would re-run folded migrations and fail
 -- ("column bio already exists"), or a stale stamp would skip real ones.
 -- When you add a migration: fold it in here AND bump this value.
 INSERT INTO public.schema_information (id, last_successful_run)
-VALUES (1, '17800000000000001')
+VALUES (1, '17800000000000002')
 ON CONFLICT (id) DO UPDATE SET last_successful_run = EXCLUDED.last_successful_run;

@@ -28,3 +28,17 @@
   font-size: 13px;
   color: rgba(255,255,255,0.5)
 }
+
+/* Most liked this week (#20): long post text is clamped to two lines. */
+.trendings a span.message {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.trendings .trendings-empty {
+  padding: 16px;
+  font-size: 14px;
+  color: rgba(255,255,255,0.5);
+}

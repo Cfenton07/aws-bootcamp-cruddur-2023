@@ -70,7 +70,7 @@ export default function PeoplePage() {
             {people.map(person => {
               return (
                 <Link className="user" to={'/@' + person.handle} key={person.uuid}>
-                  <ProfileAvatar id={person.cognito_user_id} />
+                  <ProfileAvatar id={person.cognito_user_id} name={person.display_name} />
                   <div className='identity'>
                     <span className="display_name">{person.display_name}</span>
                     <span className="handle">@{person.handle}</span>

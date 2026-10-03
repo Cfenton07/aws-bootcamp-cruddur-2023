@@ -1,0 +1,375 @@
+{
+  "spec": "kiro-spec-likes",
+  "version": "2026-10-03 (rewritten; the 2026-09-26 version was never saved)",
+  "protocol": "Kiro Supervised. Kiro authors files with IDE tools and may run READ-ONLY git (log, status, diff). C runs every mutating git command and all AWS and docker commands, including bin/cors-probe. Stop and report at any failed STOP; never work around it.",
+  "backlog": [
+    "#18 likes"
+  ],
+  "base_commit": "333e977 (subject starts 'Journal: week 15')",
+  "files_in_scope": [
+    "backend-flask/app.py",
+    "backend-flask/services/home_activities.py",
+    "backend-flask/db/schema.sql",
+    "backend-flask/db/sql/activities/home.sql",
+    "frontend-react-js/src/components/ActivityItem.js",
+    "bin/cors-probe",
+    "frontend-react-js/src/components/ActivityActionLike.js",
+    "backend-flask/db/sql/activities/like.sql",
+    "backend-flask/db/sql/activities/unlike.sql",
+    "backend-flask/services/activity_like.py",
+    "backend-flask/db/migrations/17800000000000002_create_likes.py",
+    "frontend-react-js/src/components/ActivityActionLike.css",
+    "frontend-react-js/src/components/svg/heart-filled.svg"
+  ],
+  "context": [
+    "activities.likes_count already exists (0 everywhere). New table likes(user_uuid, activity_uuid, created_at) with PRIMARY KEY (user_uuid, activity_uuid) and foreign keys to users/activities.",
+    "like.sql / unlike.sql change the likes row AND likes_count in ONE statement (CTEs: me -> inserted/deleted -> bumped). ON CONFLICT DO NOTHING makes a double like a no-op; GREATEST(...,0) keeps the count >= 0. They return the new count, or NULL when the caller has no users row. Tested 2026-10-03 in PostgreSQL 16: idempotence, 20 concurrent likes by one user -> 1, 20 by different users -> exact, never negative, unknown caller writes nothing.",
+    "query_commit returns the first RETURNING column (it detects the uppercase word RETURNING in the CTEs) or None on failure. 0 is a valid count, so ActivityLike tests 'is None'.",
+    "home.sql gains liked_by_me for roots and replies via EXISTS on likes joined to users by cognito_user_id = %(cognito_user_id)s. HomeActivities now passes the parameter (None when logged out). The home route switches from claims['username'] to claims['sub'], matching the reply route and what users.cognito_user_id stores.",
+    "schema.sql: drop likes FIRST (the old file would fail with 'cannot drop table activities because other objects depend on it' once likes exists; proven in the test), fold the table in, bump the stamp to 17800000000000002. Migration 17800000000000002_create_likes.py creates the table on existing databases (IF NOT EXISTS) and is data/DDL only in migrate_sql(), per the Sept 28 convention.",
+    "CORS (Oct 2 lesson): new routes are methods=['POST'] with no 'OPTIONS', so Flask answers preflights. bin/cors-probe gets both routes; C runs it as the acceptance test.",
+    "Frontend: ActivityActionLike is overwritten (it was a console.log stub). It POSTs with the same getAccessToken + Bearer pattern as ReplyForm, sends no body, and updates heart/count only from the server's answer. When liked it renders heart-filled.svg (new: heart.svg's outer outline without its cut-out, so same shape and size; heart.svg itself is a ring, so recolouring it would only give a coloured outline). ActivityActionLike.css (new) colours the liked heart and counter in the theme purple rgb(149,0,255) with selectors more specific than ActivityItem.css. ActivityItem passes liked={props.activity.liked_by_me}.",
+    "Known limits (by design, not this spec): profile/search feeds don't return liked_by_me, so hearts start unliked there (clicking is still correct: like is idempotent). Logged-out clicks do nothing.",
+    "Commits do not deploy. In pilot #4, bin/db/migrate must run right after deploy-all, BEFORE any browser test: home.sql references likes and the feed 500s until the table exists."
+  ],
+  "must_not": [
+    "No git add/commit/push/stash/reset/restore/checkout/rebase. C commits.",
+    "No AWS, no docker, no bin/ scripts (including bin/cors-probe and bin/db/*), no psql.",
+    "No npm/npx installs: use 'npx --no-install' exactly as gate 11 is written. Never pass a Windows/UNC working directory; if the frontend path cannot be used, report instead of retrying elsewhere.",
+    "No pip installs, no throwaway venvs.",
+    "Edits only to files_in_scope. Do not touch lib/db.py, CheckAuth, ReplyForm, ActivityItem.css or any other route.",
+    "IDE tools only for edits, creates and the overwrite. Never write files through a shell command. Do not chmod.",
+    "Apply each edit exactly; no reformatting or cleanup."
+  ],
+  "phases": [
+    {
+      "phase": 0,
+      "name": "Preflight",
+      "steps": [
+        {
+          "id": "STOP 0a",
+          "command": "GIT_PAGER=cat git log -1 --format=%s",
+          "expect": "starts with 'Journal: week 15'",
+          "on_fail": "STOP."
+        },
+        {
+          "id": "STOP 0b",
+          "command": "GIT_PAGER=cat git status --short",
+          "expect": "exactly one line: ?? _docs/specs/kiro-spec-likes.json",
+          "on_fail": "STOP."
+        },
+        {
+          "id": "STOP 0c",
+          "command": "wc -c _docs/specs/kiro-spec-likes.json",
+          "expect": "non-zero",
+          "on_fail": "STOP. Save the tab (Ctrl+S)."
+        }
+      ]
+    },
+    {
+      "phase": 1,
+      "name": "Read-only checks",
+      "steps": [
+        {
+          "id": "STOP 1",
+          "command": "python3 -c \"import json; s=json.load(open('_docs/specs/kiro-spec-likes.json')); [print(e['id'], open(e['file']).read().count(e['find'])) for e in s['phases'][2]['edits']]\"",
+          "expect": "13 lines, each ending in 1",
+          "on_fail": "STOP. Report which id differs."
+        },
+        {
+          "id": "STOP 2",
+          "command": "grep -c -F \"console.log('toggle like/unlike')\" frontend-react-js/src/components/ActivityActionLike.js",
+          "expect": "1 (the file is still the stub this spec overwrites)",
+          "on_fail": "STOP."
+        },
+        {
+          "id": "STOP 3",
+          "command": "ls backend-flask/db/sql/activities/like.sql backend-flask/db/sql/activities/unlike.sql backend-flask/services/activity_like.py backend-flask/db/migrations/17800000000000002_create_likes.py frontend-react-js/src/components/ActivityActionLike.css frontend-react-js/src/components/svg/heart-filled.svg 2>&1 | grep -c 'No such file'",
+          "expect": "6",
+          "on_fail": "STOP. One of the new files already exists."
+        },
+        {
+          "id": "STOP 4",
+          "command": "grep -n 'getAccessToken' frontend-react-js/src/components/lib/CheckAuth.js",
+          "expect": "at least one line that exports getAccessToken (ReplyForm imports it from './lib/CheckAuth')",
+          "on_fail": "STOP."
+        },
+        {
+          "id": "STOP 5",
+          "command": "grep -rn -F -e 'HomeActivities' -e \"template('activities','home')\" backend-flask --include=*.py",
+          "expect": "Quote verbatim. Only app.py (two HomeActivities().run calls) and services/home_activities.py. Any other caller of home.sql must also pass cognito_user_id: if one exists, STOP.",
+          "on_fail": "STOP."
+        },
+        {
+          "id": "STOP 6 (report only)",
+          "command": "f=$(git ls-files | grep -E '(^|/)db/migrate$' | head -1); echo \"migrate script: $f\"; grep -n -F 'migrate_sql' \"$f\" | head -3",
+          "expect": "Quote. Confirms migrate runs migrate_sql(). Continue either way.",
+          "on_fail": "n/a"
+        }
+      ]
+    },
+    {
+      "phase": 2,
+      "name": "Apply: edits in order (IDE replace), then the overwrite (IDE write, whole file), then create the 5 new files (IDE create)",
+      "edits": [
+        {
+          "id": "AP_A",
+          "file": "backend-flask/app.py",
+          "purpose": "Import the new service.",
+          "find": "from services.activity_replies import *",
+          "replace": "from services.activity_replies import *\nfrom services.activity_like import *"
+        },
+        {
+          "id": "AP_B",
+          "file": "backend-flask/app.py",
+          "purpose": "Home feed: pass the token's 'sub' (what users.cognito_user_id stores, as the reply route does), not 'username'. liked_by_me depends on it.",
+          "find": "        data = HomeActivities().run(cognito_user_id=claims['username'])",
+          "replace": "        # users.cognito_user_id stores the token's 'sub' (the reply route uses\n        # it too), not 'username'. liked_by_me in home.sql depends on this.\n        data = HomeActivities().run(cognito_user_id=claims['sub'])"
+        },
+        {
+          "id": "AP_C",
+          "file": "backend-flask/app.py",
+          "purpose": "Add POST /like and /unlike just before the users-short section.",
+          "find": "# ============================================================\n# API ENDPOINTS - USERS SHORT INFO",
+          "replace": "# ============================================================\n# API ENDPOINTS - LIKE / UNLIKE AN ACTIVITY (backlog #18)\n# ============================================================\n# methods=['POST'] only, no 'OPTIONS': Flask answers the CORS preflight itself\n# and the app-wide CORS block adds the headers (see the CORS note above).\n@app.route(\"/api/activities/<string:activity_uuid>/like\", methods=['POST'])\ndef data_activities_like(activity_uuid):\n    return like_or_unlike(activity_uuid, like=True)\n\n@app.route(\"/api/activities/<string:activity_uuid>/unlike\", methods=['POST'])\ndef data_activities_unlike(activity_uuid):\n    return like_or_unlike(activity_uuid, like=False)\n\ndef like_or_unlike(activity_uuid, like):\n    \"\"\"Shared body for /like and /unlike. Same auth and error mapping as reply.\"\"\"\n    access_token = extract_access_token(request.headers)\n    try:\n        claims = cognito_jwt_token.verify(access_token)\n        cognito_user_id = claims['sub']\n    except TokenVerifyError as e:\n        app.logger.debug(f'like auth failed: {e}')\n        return {'errors': ['not_authenticated']}, 401\n\n    model = ActivityLike.run(cognito_user_id, activity_uuid, like)\n    if model['errors'] is not None:\n        if 'invalid_activity_uuid' in model['errors']:\n            return {'errors': model['errors']}, 400\n        if 'activity_not_found' in model['errors']:\n            return {'errors': model['errors']}, 404\n        return {'errors': model['errors']}, 422\n    return model['data'], 200\n\n# ============================================================\n# API ENDPOINTS - USERS SHORT INFO"
+        },
+        {
+          "id": "HP_A",
+          "file": "backend-flask/services/home_activities.py",
+          "purpose": "Pass the caller to home.sql (None for logged-out visitors, which makes liked_by_me false everywhere).",
+          "find": "    # NOTE: Currently not passing cognito_user_id as a parameter\n    # If you need to filter activities by user, you would use:\n    # results = db.query_array_json(sql, {'cognito_user_id': cognito_user_id})\n    results = db.query_array_json(sql)",
+          "replace": "    # cognito_user_id (the token's 'sub') is None for logged-out visitors;\n    # home.sql then returns liked_by_me = false for every activity.\n    results = db.query_array_json(sql, {'cognito_user_id': cognito_user_id})"
+        },
+        {
+          "id": "SC_A",
+          "file": "backend-flask/db/schema.sql",
+          "purpose": "Drop likes first: it references users and activities, so 'DROP TABLE public.activities' (no CASCADE) would fail while likes exists.",
+          "find": "-- forcefully drop our tables if they already exist\nDROP TABLE IF EXISTS public.users cascade;",
+          "replace": "-- forcefully drop our tables if they already exist\n-- likes first: it references users and activities.\nDROP TABLE IF EXISTS public.likes;\nDROP TABLE IF EXISTS public.users cascade;"
+        },
+        {
+          "id": "SC_B",
+          "file": "backend-flask/db/schema.sql",
+          "purpose": "Fold migration 17800000000000002 (likes table) into the current-shape schema.",
+          "find": "  expires_at TIMESTAMP,\n  created_at TIMESTAMP default current_timestamp NOT NULL\n);\n\n-- Migration tracking table",
+          "replace": "  expires_at TIMESTAMP,\n  created_at TIMESTAMP default current_timestamp NOT NULL\n);\n\n-- One row per (user, activity). The primary key makes a double like\n-- impossible; activities.likes_count is kept in step by like.sql/unlike.sql.\nCREATE TABLE public.likes (\n  user_uuid UUID NOT NULL REFERENCES public.users(uuid) ON DELETE CASCADE,\n  activity_uuid UUID NOT NULL REFERENCES public.activities(uuid) ON DELETE CASCADE,\n  created_at TIMESTAMP default current_timestamp NOT NULL,\n  PRIMARY KEY (user_uuid, activity_uuid)\n);\n\n-- Migration tracking table"
+        },
+        {
+          "id": "SC_C",
+          "file": "backend-flask/db/schema.sql",
+          "purpose": "Bump the stamp: 17800000000000002 is now folded in.",
+          "find": "-- and including the prefix below is already folded in (users.bio, uuid\n-- reply_to_activity_uuid).",
+          "replace": "-- and including the prefix below is already folded in (users.bio, uuid\n-- reply_to_activity_uuid, likes table)."
+        },
+        {
+          "id": "SC_D",
+          "file": "backend-flask/db/schema.sql",
+          "purpose": "Stamp value.",
+          "find": "VALUES (1, '17800000000000001')",
+          "replace": "VALUES (1, '17800000000000002')"
+        },
+        {
+          "id": "HM_A",
+          "file": "backend-flask/db/sql/activities/home.sql",
+          "purpose": "liked_by_me for each root activity (false for logged-out visitors: cognito_user_id is NULL).",
+          "find": "  activities.likes_count,\n",
+          "replace": "  activities.likes_count,\n  EXISTS (\n    SELECT 1\n    FROM public.likes\n    JOIN public.users likers ON likers.uuid = likes.user_uuid\n    WHERE likes.activity_uuid = activities.uuid\n      AND likers.cognito_user_id = %(cognito_user_id)s\n  ) AS liked_by_me,\n"
+        },
+        {
+          "id": "HM_B",
+          "file": "backend-flask/db/sql/activities/home.sql",
+          "purpose": "liked_by_me inside each reply object.",
+          "find": "      'likes_count', t.likes_count,\n",
+          "replace": "      'likes_count', t.likes_count,\n      'liked_by_me', t.liked_by_me,\n"
+        },
+        {
+          "id": "HM_C",
+          "file": "backend-flask/db/sql/activities/home.sql",
+          "purpose": "Compute liked_by_me for each reply.",
+          "find": "      replies.likes_count,\n",
+          "replace": "      replies.likes_count,\n      EXISTS (\n        SELECT 1\n        FROM public.likes\n        JOIN public.users likers ON likers.uuid = likes.user_uuid\n        WHERE likes.activity_uuid = replies.uuid\n          AND likers.cognito_user_id = %(cognito_user_id)s\n      ) AS liked_by_me,\n"
+        },
+        {
+          "id": "AI_A",
+          "file": "frontend-react-js/src/components/ActivityItem.js",
+          "purpose": "Give the heart its starting state from the feed.",
+          "find": "<ActivityActionLike activity_uuid={props.activity.uuid} count={props.activity.likes_count}/>",
+          "replace": "<ActivityActionLike activity_uuid={props.activity.uuid} count={props.activity.likes_count} liked={props.activity.liked_by_me}/>"
+        },
+        {
+          "id": "PR_A",
+          "file": "bin/cors-probe",
+          "purpose": "Probe the two new routes too (operator gate expects 23 lines).",
+          "find": "(\"/api/activities/abc/reply\", \"POST\"),",
+          "replace": "(\"/api/activities/abc/reply\", \"POST\"),\n          (\"/api/activities/abc/like\", \"POST\"), (\"/api/activities/abc/unlike\", \"POST\"),"
+        }
+      ],
+      "overwrite": [
+        {
+          "id": "OW_HEART",
+          "file": "frontend-react-js/src/components/ActivityActionLike.js",
+          "content": "import './ActivityActionLike.css';\nimport { useState } from 'react';\nimport process from 'process';\nimport {ReactComponent as HeartIcon} from './svg/heart.svg';\nimport {ReactComponent as HeartFilledIcon} from './svg/heart-filled.svg';\nimport { getAccessToken } from './lib/CheckAuth';\n\n// Like / unlike toggle (backlog #18). Outline heart when not liked, solid\n// theme-purple heart when liked (heart-filled.svg is heart.svg's outer\n// outline without the cut-out). The server is the source of truth: the\n// heart and the count change only after the API answers, so a failed request\n// never leaves the UI showing something the database does not have.\nexport default function ActivityActionLike(props) {\n  const [liked, setLiked] = useState(Boolean(props.liked));\n  const [count, setCount] = useState(props.count || 0);\n  const [busy, setBusy] = useState(false);\n\n  const onclick = async (event) => {\n    event.preventDefault();\n    event.stopPropagation();\n    if (busy) return;\n\n    const accessToken = await getAccessToken();\n    if (!accessToken) {\n      console.log('like: not signed in');\n      return;\n    }\n\n    setBusy(true);\n    try {\n      const action = liked ? 'unlike' : 'like';\n      const backend_url = `${process.env.REACT_APP_BACKEND_URL}/api/activities/${props.activity_uuid}/${action}`;\n      const res = await fetch(backend_url, {\n        method: 'POST',\n        headers: {\n          'Accept': 'application/json',\n          'Authorization': `Bearer ${accessToken}`\n        }\n      });\n      if (!res.ok) {\n        console.log('like failed', res.status);\n        return;\n      }\n      const data = await res.json();\n      setLiked(Boolean(data.liked));\n      setCount(data.likes_count);\n    } catch (err) {\n      console.log('like failed', err);\n    } finally {\n      setBusy(false);\n    }\n  };\n\n  let counter;\n  if (count > 0) {\n    counter = <div className=\"counter\">{count}</div>;\n  }\n\n  const classes = ['action', 'activity_action_heart'];\n  if (liked) {\n    classes.push('liked');\n  }\n\n  return (\n    <div onClick={onclick} className={classes.join(' ')} role=\"button\" aria-pressed={liked} aria-label={liked ? 'Unlike' : 'Like'}>\n      {liked ? <HeartFilledIcon className='icon' /> : <HeartIcon className='icon' />}\n      {counter}\n    </div>\n  );\n}\n",
+          "must_contain_before": "console.log('toggle like/unlike')"
+        }
+      ],
+      "create": [
+        {
+          "id": "NEW_LIKE",
+          "file": "backend-flask/db/sql/activities/like.sql",
+          "content": "-- Like an activity: one statement inserts the like (if it is not already\n-- there) and bumps activities.likes_count in the same transaction, so the\n-- count can never drift from the likes table. Liking twice is a no-op.\n-- Returns the activity's likes_count, or NULL when the caller has no users\n-- row (the service turns NULL into an error).\nWITH me AS (\n  SELECT users.uuid\n  FROM public.users\n  WHERE users.cognito_user_id = %(cognito_user_id)s\n  LIMIT 1\n),\ninserted AS (\n  INSERT INTO public.likes (user_uuid, activity_uuid)\n  SELECT me.uuid, %(activity_uuid)s::uuid FROM me\n  ON CONFLICT (user_uuid, activity_uuid) DO NOTHING\n  RETURNING activity_uuid\n),\nbumped AS (\n  UPDATE public.activities\n  SET likes_count = COALESCE(likes_count, 0) + 1\n  WHERE uuid IN (SELECT activity_uuid FROM inserted)\n  RETURNING likes_count\n)\nSELECT CASE WHEN EXISTS (SELECT 1 FROM me) THEN\n  COALESCE(\n    (SELECT likes_count FROM bumped),\n    (SELECT COALESCE(likes_count, 0) FROM public.activities WHERE uuid = %(activity_uuid)s::uuid)\n  )\nEND AS likes_count\n"
+        },
+        {
+          "id": "NEW_UNLIKE",
+          "file": "backend-flask/db/sql/activities/unlike.sql",
+          "content": "-- Unlike an activity: mirror of like.sql. Deletes the caller's like (if any)\n-- and decrements likes_count in the same statement, never below 0.\n-- Unliking something you never liked is a no-op.\nWITH me AS (\n  SELECT users.uuid\n  FROM public.users\n  WHERE users.cognito_user_id = %(cognito_user_id)s\n  LIMIT 1\n),\ndeleted AS (\n  DELETE FROM public.likes\n  USING me\n  WHERE likes.user_uuid = me.uuid\n    AND likes.activity_uuid = %(activity_uuid)s::uuid\n  RETURNING likes.activity_uuid\n),\nbumped AS (\n  UPDATE public.activities\n  SET likes_count = GREATEST(COALESCE(likes_count, 0) - 1, 0)\n  WHERE uuid IN (SELECT activity_uuid FROM deleted)\n  RETURNING likes_count\n)\nSELECT CASE WHEN EXISTS (SELECT 1 FROM me) THEN\n  COALESCE(\n    (SELECT likes_count FROM bumped),\n    (SELECT COALESCE(likes_count, 0) FROM public.activities WHERE uuid = %(activity_uuid)s::uuid)\n  )\nEND AS likes_count\n"
+        },
+        {
+          "id": "NEW_SVC",
+          "file": "backend-flask/services/activity_like.py",
+          "content": "import uuid as uuid_lib\n\nfrom lib.db import db\n\n\nclass ActivityLike:\n  \"\"\"Like or unlike one activity for the signed-in user (backlog #18).\"\"\"\n\n  @staticmethod\n  def run(cognito_user_id, activity_uuid, like=True):\n    model = {\n      'errors': None,\n      'data': None\n    }\n\n    if cognito_user_id is None or len(cognito_user_id) < 1:\n      model['errors'] = ['cognito_user_id_blank']\n      return model\n\n    # Same target checks as CreateReply: the route maps these to 400 / 404.\n    try:\n      uuid_lib.UUID(str(activity_uuid))\n    except ValueError:\n      model['errors'] = ['invalid_activity_uuid']\n      return model\n\n    sql = db.template('activities', 'exists')\n    if not db.query_value(sql, {'activity_uuid': activity_uuid}):\n      model['errors'] = ['activity_not_found']\n      return model\n\n    # like.sql / unlike.sql change the likes row and likes_count in one\n    # statement and return the new count. query_commit returns None on a\n    # failed write AND when the caller has no users row (the SQL returns\n    # NULL). 0 is a valid count after an unlike, so test for None, not\n    # falsiness.\n    sql = db.template('activities', 'like' if like else 'unlike')\n    likes_count = db.query_commit(sql, {\n      'cognito_user_id': cognito_user_id,\n      'activity_uuid': activity_uuid\n    })\n    if likes_count is None:\n      model['errors'] = ['like_not_saved']\n      return model\n\n    model['data'] = {\n      'uuid': activity_uuid,\n      'likes_count': likes_count,\n      'liked': like\n    }\n    return model\n"
+        },
+        {
+          "id": "NEW_MIG",
+          "file": "backend-flask/db/migrations/17800000000000002_create_likes.py",
+          "content": "from lib.db import db\n\n# Likes (backlog #18). Creates the likes table. activities.likes_count already\n# exists and is 0 everywhere, so there is nothing to backfill. Folded into\n# schema.sql with the stamp bumped to this prefix.\nclass CreateLikesMigration:\n  def migrate_sql():\n    data = \"\"\"\n    CREATE TABLE IF NOT EXISTS public.likes (\n      user_uuid UUID NOT NULL REFERENCES public.users(uuid) ON DELETE CASCADE,\n      activity_uuid UUID NOT NULL REFERENCES public.activities(uuid) ON DELETE CASCADE,\n      created_at TIMESTAMP default current_timestamp NOT NULL,\n      PRIMARY KEY (user_uuid, activity_uuid)\n    );\n    \"\"\"\n    return data\n\n  def rollback_sql():\n    data = \"\"\"\n    DROP TABLE IF EXISTS public.likes;\n    UPDATE public.activities SET likes_count = 0;\n    \"\"\"\n    return data\n\n  def migrate():\n    db.query_commit(CreateLikesMigration.migrate_sql(), {})\n\n  def rollback():\n    db.query_commit(CreateLikesMigration.rollback_sql(), {})\n"
+        },
+        {
+          "id": "NEW_CSS",
+          "file": "frontend-react-js/src/components/ActivityActionLike.css",
+          "content": "/* Liked heart (backlog #18): solid heart (heart-filled.svg) in the app's\n   theme purple, rgb(149,0,255), the same as the Crud button and avatar\n   circles. These selectors are more specific than the generic rules in\n   ActivityItem.css (.activity_item .activity_actions .icon and\n   .action .counter), so they win regardless of which file loads last. */\n.activity_item .activity_actions .activity_action_heart.liked .icon {\n  fill: rgb(149,0,255);\n}\n\n.activity_item .activity_actions .activity_action_heart.liked .counter {\n  color: rgb(149,0,255);\n}\n"
+        },
+        {
+          "id": "NEW_SVG",
+          "file": "frontend-react-js/src/components/svg/heart-filled.svg",
+          "content": "<svg viewBox=\"0 -28 512.001 512\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"m256 455.515625c-7.289062 0-14.316406-2.640625-19.792969-7.4375-20.683593-18.085937-40.625-35.082031-58.21875-50.074219l-.089843-.078125c-51.582032-43.957031-96.125-81.917969-127.117188-119.3125-34.644531-41.804687-50.78125-81.441406-50.78125-124.742187 0-42.070313 14.425781-80.882813 40.617188-109.292969 26.503906-28.746094 62.871093-44.578125 102.414062-44.578125 29.554688 0 56.621094 9.34375 80.445312 27.769531 12.023438 9.300781 22.921876 20.683594 32.523438 33.960938 9.605469-13.277344 20.5-24.660157 32.527344-33.960938 23.824218-18.425781 50.890625-27.769531 80.445312-27.769531 39.539063 0 75.910156 15.832031 102.414063 44.578125 26.191406 28.410156 40.613281 67.222656 40.613281 109.292969 0 43.300781-16.132812 82.9375-50.777344 124.738281-30.992187 37.398437-75.53125 75.355469-127.105468 119.308594-17.625 15.015625-37.597657 32.039062-58.328126 50.167969-5.472656 4.789062-12.503906 7.429687-19.789062 7.429687z\"/></svg>\n"
+        }
+      ]
+    },
+    {
+      "phase": 3,
+      "name": "Gates. Run each exactly as written; report actual vs expected.",
+      "gates": [
+        {
+          "gate": 1,
+          "check": "Every edit's replacement present exactly once",
+          "command": "python3 -c \"import json; s=json.load(open('_docs/specs/kiro-spec-likes.json')); [print(e['id'], open(e['file']).read().count(e['replace'])) for e in s['phases'][2]['edits']]\"",
+          "expect": "13 lines, each ending in 1"
+        },
+        {
+          "gate": 2,
+          "check": "New and overwritten files byte-identical to the spec (binary compare, catches CRLF)",
+          "command": "python3 -c \"import json; s=json.load(open('_docs/specs/kiro-spec-likes.json')); [print(c['id'], open(c['file'],'rb').read()==c['content'].encode('utf-8')) for c in s['phases'][2]['create']+s['phases'][2]['overwrite']]\"",
+          "expect": "8 lines, each ending in True"
+        },
+        {
+          "gate": 3,
+          "check": "No carriage returns anywhere touched",
+          "command": "grep -c $'\\r' backend-flask/app.py backend-flask/services/home_activities.py backend-flask/db/schema.sql backend-flask/db/sql/activities/home.sql frontend-react-js/src/components/ActivityItem.js bin/cors-probe frontend-react-js/src/components/ActivityActionLike.js backend-flask/db/sql/activities/like.sql backend-flask/db/sql/activities/unlike.sql backend-flask/services/activity_like.py backend-flask/db/migrations/17800000000000002_create_likes.py frontend-react-js/src/components/ActivityActionLike.css frontend-react-js/src/components/svg/heart-filled.svg",
+          "expect": "every count :0"
+        },
+        {
+          "gate": 4,
+          "check": "New routes are POST only (no 'OPTIONS')",
+          "command": "grep -n -F -e '/like\", methods=' -e '/unlike\", methods=' backend-flask/app.py",
+          "expect": "two lines, each ending methods=['POST'])"
+        },
+        {
+          "gate": 5,
+          "check": "Home route uses sub",
+          "command": "grep -c -F \"HomeActivities().run(cognito_user_id=claims['sub'])\" backend-flask/app.py; grep -c -F \"run(cognito_user_id=claims['username'])\" backend-flask/app.py",
+          "expect": "1 then 0"
+        },
+        {
+          "gate": 6,
+          "check": "Python parses (app, service, home service, migration)",
+          "command": "for f in backend-flask/app.py backend-flask/services/activity_like.py backend-flask/services/home_activities.py backend-flask/db/migrations/17800000000000002_create_likes.py; do python3 -c \"import ast,sys; ast.parse(open(sys.argv[1]).read())\" $f && echo \"AST OK $f\"; done",
+          "expect": "four AST OK lines"
+        },
+        {
+          "gate": 7,
+          "check": "Migration class name ends in Migration and is the only one",
+          "command": "grep -c -E '^class [A-Za-z]+Migration:' backend-flask/db/migrations/17800000000000002_create_likes.py",
+          "expect": "1"
+        },
+        {
+          "gate": 8,
+          "check": "schema.sql: likes dropped first, stamp bumped",
+          "command": "grep -n -F -e 'DROP TABLE IF EXISTS public.likes;' -e 'DROP TABLE IF EXISTS public.users cascade;' -e \"VALUES (1, '17800000000000002')\" backend-flask/db/schema.sql",
+          "expect": "three lines; the likes DROP line number is SMALLER than the users DROP line number"
+        },
+        {
+          "gate": 9,
+          "check": "home.sql still has no trailing semicolon (query_wrap_array embeds it)",
+          "command": "tail -c 2 backend-flask/db/sql/activities/home.sql | od -An -c",
+          "expect": "no ';' in the output"
+        },
+        {
+          "gate": 10,
+          "check": "cors-probe still parses",
+          "command": "bash -n bin/cors-probe && echo 'bash OK'",
+          "expect": "bash OK"
+        },
+        {
+          "gate": 11,
+          "check": "ESLint on the two edited components (background process if output is not captured)",
+          "command": "(cd frontend-react-js && npx --no-install eslint src/components/ActivityActionLike.js src/components/ActivityItem.js; echo \"exit=$?\")",
+          "expect": "0 errors and exit=0. Warnings on lines this spec did not touch are PRE-EXISTING: report verbatim, MATCH-WITH-NOTE. Any warning on a changed line: MISMATCH."
+        },
+        {
+          "gate": 12,
+          "check": "Line counts of tracked files",
+          "command": "GIT_PAGER=cat git diff --numstat",
+          "expect": "36\t1\tbackend-flask/app.py\n13\t2\tbackend-flask/db/schema.sql\n15\t0\tbackend-flask/db/sql/activities/home.sql\n3\t4\tbackend-flask/services/home_activities.py\n1\t0\tbin/cors-probe\n61\t10\tfrontend-react-js/src/components/ActivityActionLike.js\n1\t1\tfrontend-react-js/src/components/ActivityItem.js\n(order may differ)"
+        },
+        {
+          "gate": 13,
+          "check": "Changed and new files",
+          "command": "GIT_PAGER=cat git status --short",
+          "expect": "7 ' M' lines (backend-flask/app.py, backend-flask/services/home_activities.py, backend-flask/db/schema.sql, backend-flask/db/sql/activities/home.sql, frontend-react-js/src/components/ActivityItem.js, bin/cors-probe, frontend-react-js/src/components/ActivityActionLike.js) and 7 '??' lines (backend-flask/db/sql/activities/like.sql, backend-flask/db/sql/activities/unlike.sql, backend-flask/services/activity_like.py, backend-flask/db/migrations/17800000000000002_create_likes.py, frontend-react-js/src/components/ActivityActionLike.css, frontend-react-js/src/components/svg/heart-filled.svg, _docs/specs/kiro-spec-likes.json)"
+        },
+        {
+          "gate": 14,
+          "check": "No mode changes",
+          "command": "GIT_PAGER=cat git diff --summary",
+          "expect": "no output"
+        }
+      ]
+    },
+    {
+      "phase": 4,
+      "name": "Report",
+      "report_format": [
+        "Every STOP with output; quote STOP 5 and 6.",
+        "Each edit/overwrite/create id: applied byte-identical yes/no.",
+        "Each gate: actual, expected, MATCH / MATCH-WITH-NOTE / MISMATCH. Explain mismatches; do not change files to force a pass.",
+        "Out-of-scope observations: report only.",
+        "Credits used."
+      ]
+    },
+    {
+      "phase": 5,
+      "name": "Hand back to C",
+      "steps": [
+        "Stop. C runs the operator gate, then commits."
+      ]
+    }
+  ],
+  "operator_gate_before_commit": {
+    "commands": "cd ~/aws-bootcamp-cruddur-2023 && ./bin/cors-probe; echo \"exit=$?\"",
+    "expect": "23 'PROBE ok' lines (11 routes x 2 origins + 1), including POST /api/activities/abc/like and /unlike with the real site 2xx + its own origin and evil ACAO=None; 'PROBE RESULT: PASS'; exit=0."
+  },
+  "operator_after_run": {
+    "commit_command": "cd ~/aws-bootcamp-cruddur-2023 && git add backend-flask/app.py backend-flask/services/home_activities.py backend-flask/db/schema.sql backend-flask/db/sql/activities/home.sql frontend-react-js/src/components/ActivityItem.js bin/cors-probe frontend-react-js/src/components/ActivityActionLike.js backend-flask/db/sql/activities/like.sql backend-flask/db/sql/activities/unlike.sql backend-flask/services/activity_like.py backend-flask/db/migrations/17800000000000002_create_likes.py frontend-react-js/src/components/ActivityActionLike.css frontend-react-js/src/components/svg/heart-filled.svg _docs/specs/kiro-spec-likes.json && git commit -m \"Likes: likes table + migration 17800000000000002, POST like/unlike, liked_by_me in home feed, heart toggle (backlog #18)\" && git push origin kiro-dev",
+    "note": "Subject starts with 'Likes:'."
+  },
+  "verify_next_deploy": [
+    "Right after deploy-all and BEFORE opening the site: run bin/db/migrate via ECS Exec. Expect '=== Running migration: 17800000000000002_create_likes ===' and no psycopg ERROR. Skipping this makes the home feed 500.",
+    "./bin/cors-probe on the new backend image before deploy: PASS with 23 lines.",
+    "Logged in: tap a heart -> it becomes a SOLID theme-purple heart and the count goes up by 1; tap again -> back to the white outline, count down by 1. Reload: state persists.",
+    "Double-click a heart fast: count changes by at most 1 (busy guard + primary key).",
+    "Second account: likes are per user (account B does not see A's purple hearts; counts include both).",
+    "Hearts on replies work the same way.",
+    "Logged out: hearts show counts, clicking does nothing, feed loads (200).",
+    "curl POST /like without a token -> 401; with a token to not-a-uuid -> 400; to an unknown uuid -> 404."
+  ]
+}

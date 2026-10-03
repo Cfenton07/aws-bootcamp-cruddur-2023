@@ -52,3 +52,15 @@
   padding: 16px;
   color: rgba(255,255,255,0.7);
 }
+
+/* Initial fallback (no photo): the same 148px ring as the photo. Without a size
+   it was 100% of an unsized box and collapsed to a sliver. */
+.profile_heading .avatar .profile-avatar:has(.avatar-fallback) {
+  width: 148px;
+  height: 148px;
+}
+
+.profile_heading .avatar .avatar-fallback {
+  border: solid 8px var(--fg);
+  font-size: 64px;
+}

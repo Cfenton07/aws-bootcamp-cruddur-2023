@@ -1,0 +1,281 @@
+{
+  "spec": "kiro-spec-cors",
+  "version": "2026-10-02 rev 2 (rev 1 stopped by Kiro: removing the decorators alone broke preflights on 4 routes); probe image lookup loosened after run (config.toml has CRLF)",
+  "protocol": "Kiro Supervised. Kiro authors files only. C runs every git, AWS and docker command. Stop and report at any STOP that fails; do not work around it.",
+  "backlog": [
+    "Pilot #3 security finding: API echoed any Origin"
+  ],
+  "base_commit": "d3b09fb (subject starts 'Merge pull request #19')",
+  "files_in_scope": [
+    "backend-flask/app.py",
+    "bin/cors-probe"
+  ],
+  "context": [
+    "Eight routes carry a bare @cross_origin(). In flask-cors 6.0.5 it does two things: it replaces the app-wide origin allow-list with defaults (any origin, echoed) AND it answers OPTIONS preflights before the view runs. Verified 2026-10-02 against the REAL app.py in the real image: all 8 preflights return 200 with ACAO echoing https://evil.example.",
+    "Rev 1 removed only the decorators. Kiro's run showed (flask 3.1.3, flask-cors 6.0.5) that routes listing 'OPTIONS' without an OPTIONS branch then run the view on preflights: messages GET 401, messages POST 415, reply 401, profile update 415. Browsers reject non-2xx preflights. Credit: Kiro, rev 1 report.",
+    "Rev 2: remove all 8 decorators; on the 5 routes whose views have no OPTIONS branch (messages GET, messages POST, home, reply, profile update) also drop 'OPTIONS' from methods so Flask answers OPTIONS itself (the way /api/message_groups already works). /api/activities and /api/users keep 'OPTIONS' because their views return 204 for it. Replies is GET-only already.",
+    "bin/cors-probe is new: it imports the real working-tree app.py inside the pinned backend image with networking off and checks every preflight's STATUS and headers. C runs it as the acceptance test (operator gate) before committing. Kiro must not run it.",
+    "Commits do not deploy. This reaches the site in pilot #4."
+  ],
+  "must_not": [
+    "No git add, commit, push, stash, reset, restore, checkout, rebase or history change. C commits.",
+    "No AWS CLI, no docker, no running anything under bin/ (including the new bin/cors-probe), no pip/npm installs, no throwaway venvs.",
+    "No edits outside files_in_scope. Do not change route bodies, the app-wide CORS(...) block or after_request.",
+    "Use IDE tools for every edit and for creating bin/cors-probe; never write files through a shell command. Do not chmod (C does it).",
+    "Apply each edit exactly as given; no other cleanup."
+  ],
+  "phases": [
+    {
+      "phase": 0,
+      "name": "Preflight",
+      "steps": [
+        {
+          "id": "STOP 0a",
+          "command": "GIT_PAGER=cat git log -1 --format=%s",
+          "expect": "starts with 'Merge pull request #19'",
+          "on_fail": "STOP."
+        },
+        {
+          "id": "STOP 0b",
+          "command": "GIT_PAGER=cat git status --short",
+          "expect": "exactly one line: ?? _docs/specs/kiro-spec-cors.json",
+          "on_fail": "STOP. (C parked the avatar spec outside the repo; if it is back, report it.)"
+        },
+        {
+          "id": "STOP 0c",
+          "command": "wc -c _docs/specs/kiro-spec-cors.json",
+          "expect": "non-zero",
+          "on_fail": "STOP. Save the editor tab (Ctrl+S)."
+        },
+        {
+          "id": "STOP 0d",
+          "command": "ls bin/cors-probe 2>&1",
+          "expect": "No such file or directory",
+          "on_fail": "STOP. bin/cors-probe already exists."
+        }
+      ]
+    },
+    {
+      "phase": 1,
+      "name": "Read-only checks",
+      "steps": [
+        {
+          "id": "STOP 1",
+          "command": "python3 -c \"import json; s=json.load(open('_docs/specs/kiro-spec-cors.json')); t=open('backend-flask/app.py').read(); [print(e['id'], t.count(e['find'])) for e in s['phases'][2]['edits'] if e['id'] != 'IMP']\"",
+          "expect": "nine lines, each ending in 1",
+          "on_fail": "STOP. Report which id differs."
+        },
+        {
+          "id": "STOP 1b",
+          "command": "grep -c -x -F 'from flask_cors import CORS, cross_origin' backend-flask/app.py",
+          "expect": "1",
+          "on_fail": "STOP."
+        },
+        {
+          "id": "STOP 2",
+          "command": "grep -c -F '@cross_origin()' backend-flask/app.py",
+          "expect": "8",
+          "on_fail": "STOP."
+        },
+        {
+          "id": "STOP 3",
+          "command": "grep -n -F \"if request.method == 'OPTIONS':\" backend-flask/app.py",
+          "expect": "exactly 2 lines, inside data_activities and data_users_index (quote them with the def above each if unsure: read the file)",
+          "on_fail": "STOP. The OPTIONS split this spec relies on is different."
+        }
+      ]
+    },
+    {
+      "phase": 2,
+      "name": "Apply the edits in order with the IDE edit tool, then create bin/cors-probe with the IDE create-file tool",
+      "edits": [
+        {
+          "id": "IMP",
+          "file": "backend-flask/app.py",
+          "purpose": "cross_origin is no longer used.",
+          "find": "from flask_cors import CORS, cross_origin",
+          "replace": "from flask_cors import CORS"
+        },
+        {
+          "id": "NOTE",
+          "file": "backend-flask/app.py",
+          "purpose": "Explain the policy so the decorators are not re-added.",
+          "find": "# Allow frontend (port 3000) to make requests to backend API (port 4567)",
+          "replace": "# Allow frontend (port 3000) to make requests to backend API (port 4567)\n# Pilot #3 finding: per-route decorators overrode this allow-list with flask-cors\n# defaults and echoed ANY Origin. They were removed, so this block governs every\n# /api/* route. Do not list 'OPTIONS' in a route's methods unless the view returns\n# early for OPTIONS: Flask then answers preflights itself. Check with bin/cors-probe."
+        },
+        {
+          "id": "DEC_1",
+          "file": "backend-flask/app.py",
+          "purpose": "/api/messages/<string:message_group_uuid>: remove the decorator AND drop 'OPTIONS' from methods. The view has no OPTIONS branch, so with 'OPTIONS' listed Flask would run the view on preflights (401/415). Without it, Flask answers OPTIONS and the app-wide policy adds the headers.",
+          "find": "@app.route(\"/api/messages/<string:message_group_uuid>\", methods=['GET', 'OPTIONS'])\n@cross_origin()\ndef data_messages(message_group_uuid):",
+          "replace": "@app.route(\"/api/messages/<string:message_group_uuid>\", methods=['GET'])\ndef data_messages(message_group_uuid):"
+        },
+        {
+          "id": "DEC_2",
+          "file": "backend-flask/app.py",
+          "purpose": "/api/messages: remove the decorator AND drop 'OPTIONS' from methods. The view has no OPTIONS branch, so with 'OPTIONS' listed Flask would run the view on preflights (401/415). Without it, Flask answers OPTIONS and the app-wide policy adds the headers.",
+          "find": "@app.route(\"/api/messages\", methods=['POST','OPTIONS'])\n@cross_origin()\ndef data_create_message():",
+          "replace": "@app.route(\"/api/messages\", methods=['POST'])\ndef data_create_message():"
+        },
+        {
+          "id": "DEC_3",
+          "file": "backend-flask/app.py",
+          "purpose": "/api/activities/home: remove the decorator AND drop 'OPTIONS' from methods. The view has no OPTIONS branch, so with 'OPTIONS' listed Flask would run the view on preflights (401/415). Without it, Flask answers OPTIONS and the app-wide policy adds the headers.",
+          "find": "@app.route(\"/api/activities/home\", methods=['GET', 'OPTIONS'])\n@cross_origin()\n@xray_recorder.capture('activities_home')",
+          "replace": "@app.route(\"/api/activities/home\", methods=['GET'])\n@xray_recorder.capture('activities_home')"
+        },
+        {
+          "id": "DEC_4",
+          "file": "backend-flask/app.py",
+          "purpose": "/api/activities: remove the decorator only. This view already returns 204 for OPTIONS.",
+          "find": "@app.route(\"/api/activities\", methods=['POST','OPTIONS'])\n@cross_origin()\ndef data_activities():",
+          "replace": "@app.route(\"/api/activities\", methods=['POST','OPTIONS'])\ndef data_activities():"
+        },
+        {
+          "id": "DEC_5",
+          "file": "backend-flask/app.py",
+          "purpose": "/api/activities/<string:activity_uuid>/replies: remove the decorator only. GET only; Flask answers OPTIONS.",
+          "find": "@app.route(\"/api/activities/<string:activity_uuid>/replies\", methods=['GET'])\n@cross_origin()\ndef data_activity_replies(activity_uuid):",
+          "replace": "@app.route(\"/api/activities/<string:activity_uuid>/replies\", methods=['GET'])\ndef data_activity_replies(activity_uuid):"
+        },
+        {
+          "id": "DEC_6",
+          "file": "backend-flask/app.py",
+          "purpose": "/api/activities/<string:activity_uuid>/reply: remove the decorator AND drop 'OPTIONS' from methods. The view has no OPTIONS branch, so with 'OPTIONS' listed Flask would run the view on preflights (401/415). Without it, Flask answers OPTIONS and the app-wide policy adds the headers.",
+          "find": "@app.route(\"/api/activities/<string:activity_uuid>/reply\", methods=['POST','OPTIONS'])\n@cross_origin()\ndef data_activities_reply(activity_uuid):",
+          "replace": "@app.route(\"/api/activities/<string:activity_uuid>/reply\", methods=['POST'])\ndef data_activities_reply(activity_uuid):"
+        },
+        {
+          "id": "DEC_7",
+          "file": "backend-flask/app.py",
+          "purpose": "/api/users: remove the decorator only. This view already returns 204 for OPTIONS.",
+          "find": "@app.route(\"/api/users\", methods=['GET','OPTIONS'])\n@cross_origin()\ndef data_users_index():",
+          "replace": "@app.route(\"/api/users\", methods=['GET','OPTIONS'])\ndef data_users_index():"
+        },
+        {
+          "id": "DEC_8",
+          "file": "backend-flask/app.py",
+          "purpose": "/api/profile/update: remove the decorator AND drop 'OPTIONS' from methods. The view has no OPTIONS branch, so with 'OPTIONS' listed Flask would run the view on preflights (401/415). Without it, Flask answers OPTIONS and the app-wide policy adds the headers.",
+          "find": "@app.route(\"/api/profile/update\", methods=['POST','OPTIONS'])\n@cross_origin()\ndef data_update_profile():",
+          "replace": "@app.route(\"/api/profile/update\", methods=['POST'])\ndef data_update_profile():"
+        }
+      ],
+      "create": {
+        "id": "PROBE",
+        "file": "bin/cors-probe",
+        "action": "create new file with exactly this content (it ends with a newline)",
+        "content": "#!/usr/bin/env bash\n# bin/cors-probe — run the WORKING-TREE backend-flask/app.py inside the pinned\n# backend image (network off) and send a CORS preflight to every browser-called\n# /api route, from the real site and from https://evil.example.\n#   PASS = real site gets a 2xx with its own origin and \"authorization\" allowed;\n#          evil.example gets no Access-Control-Allow-Origin header at all.\n# Read-only: the source is mounted :ro and the container is removed afterwards.\n# Usage: ./bin/cors-probe [image]\n#   default image = EcrImage in aws/cfn/service/config.toml\nset -euo pipefail\ncd \"$(dirname \"$0\")/..\"\n\nIMAGE=\"${1:-$(sed -n \"s/^[[:space:]]*EcrImage[[:space:]]*=[[:space:]]*['\\\"]\\([^'\\\"]*\\)['\\\"].*/\\1/p\" aws/cfn/service/config.toml 2>/dev/null)}\"\nif [ -z \"$IMAGE\" ]; then\n  echo \"No image given and no EcrImage line in aws/cfn/service/config.toml\" >&2\n  exit 2\nfi\necho \"Image: $IMAGE\"\n\nLOG=\"$(mktemp)\"\ntrap 'rm -f \"$LOG\"' EXIT\n\nset +e\ndocker run --rm -i --network none -e PYTHONDONTWRITEBYTECODE=1 \\\n  -e FRONTEND_URL=https://fentoncruddur.com -e BACKEND_URL=https://api.fentoncruddur.com \\\n  -e AWS_REGION=us-east-1 -e AWS_DEFAULT_REGION=us-east-1 \\\n  -e CONNECTION_URL=postgresql://x:x@127.0.0.1:5432/x \\\n  -e AWS_COGNITO_USER_POOL_ID=us-east-1_dummy -e AWS_COGNITO_USER_POOL_CLIENT_ID=dummy \\\n  -v \"$PWD/backend-flask:/backend-flask:ro\" -w /backend-flask \\\n  --entrypoint python3 \"$IMAGE\" - > \"$LOG\" 2>&1 <<'PY'\nimport sys, importlib.metadata as m, requests\n\nclass FakeResp:\n    status_code = 200\n    def json(self): return {\"keys\": []}\n    def raise_for_status(self): pass\n# Network is off. The token checker downloads Cognito's JWKS at import time;\n# give it an empty key list. Preflights never verify a token.\nrequests.get = lambda *a, **k: FakeResp()\n\nsys.path.insert(0, \"/backend-flask\")\nimport app as real\nc = real.app.test_client()\nGOOD, EVIL = \"https://fentoncruddur.com\", \"https://evil.example\"\nroutes = [(\"/api/message_groups\", \"GET\"), (\"/api/messages/abc\", \"GET\"), (\"/api/messages\", \"POST\"),\n          (\"/api/activities/home\", \"GET\"), (\"/api/activities\", \"POST\"),\n          (\"/api/activities/abc/replies\", \"GET\"), (\"/api/activities/abc/reply\", \"POST\"),\n          (\"/api/users\", \"GET\"), (\"/api/profile/update\", \"POST\")]\nprint(\"PROBE flask\", m.version(\"flask\"), \"flask-cors\", m.version(\"flask-cors\"))\nok = True\nfor path, meth in routes:\n    for origin in (GOOD, EVIL):\n        r = c.open(path, method=\"OPTIONS\", headers={\n            \"Origin\": origin, \"Access-Control-Request-Method\": meth,\n            \"Access-Control-Request-Headers\": \"authorization,content-type\"})\n        acao = r.headers.get(\"Access-Control-Allow-Origin\")\n        acah = (r.headers.get(\"Access-Control-Allow-Headers\") or \"\").lower()\n        if origin == GOOD:\n            good = 200 <= r.status_code < 300 and acao == GOOD and \"authorization\" in acah\n        else:\n            good = acao is None\n        ok = ok and good\n        print(f\"PROBE {'ok  ' if good else 'FAIL'} {meth:4} {path:28} {origin:26} {r.status_code} ACAO={acao}\")\nr = c.get(\"/api/activities/home\", headers={\"Origin\": EVIL})\ngood = r.headers.get(\"Access-Control-Allow-Origin\") is None\nok = ok and good\nprint(f\"PROBE {'ok  ' if good else 'FAIL'} GET  /api/activities/home (simple) {EVIL:26} {r.status_code} ACAO={r.headers.get('Access-Control-Allow-Origin')}\")\nprint(\"PROBE RESULT:\", \"PASS\" if ok else \"FAIL\")\nsys.exit(0 if ok else 1)\nPY\nrc=$?\nset -e\n\ngrep '^PROBE' \"$LOG\" || true\nif ! grep -q '^PROBE RESULT' \"$LOG\"; then\n  echo \"--- the probe did not finish; last lines of output:\"\n  tail -20 \"$LOG\"\n  exit 2\nfi\nexit $rc\n"
+      }
+    },
+    {
+      "phase": 3,
+      "name": "Gates. Run each exactly as written; report actual vs expected.",
+      "gates": [
+        {
+          "gate": 1,
+          "check": "No cross_origin left in app.py",
+          "command": "grep -c -F 'cross_origin' backend-flask/app.py",
+          "expect": "0"
+        },
+        {
+          "gate": 2,
+          "check": "Import is exactly CORS only (this, not gate 3, is the import check)",
+          "command": "grep -c -x -F 'from flask_cors import CORS' backend-flask/app.py",
+          "expect": "1"
+        },
+        {
+          "gate": 3,
+          "check": "Every replacement present exactly once (IMP excluded: its text is a substring of the old line)",
+          "command": "python3 -c \"import json; s=json.load(open('_docs/specs/kiro-spec-cors.json')); t=open('backend-flask/app.py').read(); [print(e['id'], t.count(e['replace'])) for e in s['phases'][2]['edits'] if e['id'] != 'IMP']\"",
+          "expect": "nine lines: NOTE 1, DEC_1 1 ... DEC_8 1"
+        },
+        {
+          "gate": 4,
+          "check": "'OPTIONS' now listed only on the two routes that answer it themselves",
+          "command": "grep -n -F \"'OPTIONS'\" backend-flask/app.py | grep -F '@app.route'",
+          "expect": "exactly two lines: /api/activities (POST,OPTIONS) and /api/users (GET,OPTIONS). Quote them."
+        },
+        {
+          "gate": 5,
+          "check": "Both manual OPTIONS branches still present",
+          "command": "grep -c -F \"if request.method == 'OPTIONS':\" backend-flask/app.py",
+          "expect": "2"
+        },
+        {
+          "gate": 6,
+          "check": "App-wide CORS block unchanged",
+          "command": "grep -c -F '\"allow_headers\": [\"Authorization\", \"Content-Type\", \"if-modified-since\"],' backend-flask/app.py",
+          "expect": "1"
+        },
+        {
+          "gate": 7,
+          "check": "Python parses",
+          "command": "python3 -c \"import ast; ast.parse(open('backend-flask/app.py').read()); print('AST OK')\"",
+          "expect": "AST OK"
+        },
+        {
+          "gate": 8,
+          "check": "bin/cors-probe is byte-identical to the spec",
+          "command": "python3 -c \"import json; s=json.load(open('_docs/specs/kiro-spec-cors.json')); print('PROBE identical:', open('bin/cors-probe').read()==s['phases'][2]['create']['content'])\"",
+          "expect": "PROBE identical: True"
+        },
+        {
+          "gate": 9,
+          "check": "bin/cors-probe parses as bash (do NOT run it: it uses docker)",
+          "command": "bash -n bin/cors-probe && echo 'bash OK'",
+          "expect": "bash OK"
+        },
+        {
+          "gate": 10,
+          "check": "Exact line counts for app.py",
+          "command": "GIT_PAGER=cat git diff --numstat",
+          "expect": "10\t14\tbackend-flask/app.py"
+        },
+        {
+          "gate": 11,
+          "check": "Changed and new files",
+          "command": "GIT_PAGER=cat git status --short",
+          "expect": " M backend-flask/app.py\n?? bin/cors-probe\n?? _docs/specs/kiro-spec-cors.json  (order may differ)"
+        },
+        {
+          "gate": 12,
+          "check": "No mode changes on tracked files",
+          "command": "GIT_PAGER=cat git diff --summary",
+          "expect": "no output"
+        }
+      ]
+    },
+    {
+      "phase": 4,
+      "name": "Report",
+      "report_format": [
+        "Every STOP: output and pass/fail.",
+        "Each edit id and PROBE: applied byte-identical yes/no.",
+        "Each gate: actual, expected, MATCH/MISMATCH; explain any mismatch without changing files.",
+        "Out-of-scope observations: report only.",
+        "Credits used."
+      ]
+    },
+    {
+      "phase": 5,
+      "name": "Hand back to C",
+      "steps": [
+        "Stop. C runs the operator gate (bin/cors-probe), then commits."
+      ]
+    }
+  ],
+  "operator_gate_before_commit": {
+    "commands": "cd ~/aws-bootcamp-cruddur-2023 && chmod +x bin/cors-probe && ./bin/cors-probe; echo \"exit=$?\"",
+    "expect": "Every line 'PROBE ok', 9 routes x 2 origins + 1 simple GET; real site 2xx with ACAO=https://fentoncruddur.com; evil ACAO=None; 'PROBE RESULT: PASS' and exit=0. Any FAIL: do not commit."
+  },
+  "operator_after_run": {
+    "commit_command": "cd ~/aws-bootcamp-cruddur-2023 && git add backend-flask/app.py bin/cors-probe _docs/specs/kiro-spec-cors.json && git commit -m \"CORS: remove 8 per-route decorators that echoed any Origin, drop OPTIONS on 5 routes so Flask answers preflights, add bin/cors-probe (pilot #3 finding)\" && git push origin kiro-dev",
+    "note": "Subject starts with 'CORS:'. Check 'git ls-files -s bin/cors-probe' shows mode 100755 after commit."
+  },
+  "verify_next_deploy": [
+    "Run ./bin/cors-probe against the new image before deploy-all: PASS.",
+    "curl -s -o /dev/null -D - -H 'Origin: https://evil.example' https://api.fentoncruddur.com/api/activities/home | grep -i access-control  -> no output.",
+    "Preflight with STATUS, real site, a route that used to depend on the decorator: curl -s -o /dev/null -w '%{http_code}\\n' -D - -X OPTIONS -H 'Origin: https://fentoncruddur.com' -H 'Access-Control-Request-Method: POST' -H 'Access-Control-Request-Headers: authorization,content-type' https://api.fentoncruddur.com/api/profile/update | grep -i -e access-control-allow-origin -e '^2'  -> allow-origin fentoncruddur.com and a 2xx code.",
+    "Browser, logged in, all formerly decorated routes: home feed; post a crud; open a conversation; send a DM; View N more replies; reply to a post; People page; edit bio. No CORS errors in the DevTools console."
+  ]
+}

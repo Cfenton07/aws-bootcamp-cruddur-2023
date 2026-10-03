@@ -3,7 +3,7 @@
 # ============================================================
 from flask import Flask
 from flask import request
-from flask_cors import CORS, cross_origin
+from flask_cors import CORS
 import os
 
 # ============================================================
@@ -16,6 +16,9 @@ from services.user_activities import *
 from services.create_activity import *
 from services.create_reply import *
 from services.activity_replies import *
+from services.activity_like import *
+from services.activities_trending import *
+from services.users_suggested import *
 from services.search_activities import *
 from services.message_groups import *
 from services.messages import *
@@ -163,6 +166,10 @@ RequestsInstrumentor().instrument()
 # CORS CONFIGURATION
 # ============================================================
 # Allow frontend (port 3000) to make requests to backend API (port 4567)
+# Pilot #3 finding: per-route decorators overrode this allow-list with flask-cors
+# defaults and echoed ANY Origin. They were removed, so this block governs every
+# /api/* route. Do not list 'OPTIONS' in a route's methods unless the view returns
+# early for OPTIONS: Flask then answers preflights itself. Check with bin/cors-probe.
 frontend = os.getenv('FRONTEND_URL')
 backend = os.getenv('BACKEND_URL')
 origins = [frontend, backend]
@@ -268,8 +275,7 @@ def data_message_groups():
 # ============================================================
 # API ENDPOINTS - DIRECT MESSAGES
 # ============================================================
-@app.route("/api/messages/<string:message_group_uuid>", methods=['GET', 'OPTIONS'])
-@cross_origin()
+@app.route("/api/messages/<string:message_group_uuid>", methods=['GET'])
 def data_messages(message_group_uuid):
     access_token = extract_access_token(request.headers)
     try:
@@ -295,8 +301,7 @@ def data_messages(message_group_uuid):
         app.logger.debug(e)
         return {}, 401 
 
-@app.route("/api/messages", methods=['POST','OPTIONS'])
-@cross_origin()
+@app.route("/api/messages", methods=['POST'])
 def data_create_message():
   message_group_uuid   = request.json.get('message_group_uuid',None)
   user_receiver_handle = request.json.get('handle',None)
@@ -340,8 +345,7 @@ def data_create_message():
 # ============================================================
 # API ENDPOINTS - HOME FEED
 # ============================================================
-@app.route("/api/activities/home", methods=['GET', 'OPTIONS'])
-@cross_origin()
+@app.route("/api/activities/home", methods=['GET'])
 @xray_recorder.capture('activities_home')
 def data_home():
     """
@@ -371,7 +375,9 @@ def data_home():
         app.logger.debug(claims['username'])
 
         # Return personalized feed with user's Cognito ID
-        data = HomeActivities().run(cognito_user_id=claims['username'])
+        # users.cognito_user_id stores the token's 'sub' (the reply route uses
+        # it too), not 'username'. liked_by_me in home.sql depends on this.
+        data = HomeActivities().run(cognito_user_id=claims['sub'])
 
         # COMMENTED OUT: Additional token validation
         #token_type, access_token = auth_header.split()
@@ -432,7 +438,6 @@ def data_search():
 # API ENDPOINTS - CREATE ACTIVITY (CRUD POST)
 # ============================================================
 @app.route("/api/activities", methods=['POST','OPTIONS'])
-@cross_origin()
 def data_activities():
     """Create a new activity/post"""
     # Debug logging for troubleshooting
@@ -491,7 +496,6 @@ def data_show_activity(activity_uuid):
     return data, 200
 
 @app.route("/api/activities/<string:activity_uuid>/replies", methods=['GET'])
-@cross_origin()
 def data_activity_replies(activity_uuid):
     """All direct replies to one root activity, oldest first (backs "View N more replies")."""
     model = ActivityReplies.run(activity_uuid)
@@ -502,8 +506,7 @@ def data_activity_replies(activity_uuid):
 # ============================================================
 # API ENDPOINTS - REPLY TO ACTIVITY
 # ============================================================
-@app.route("/api/activities/<string:activity_uuid>/reply", methods=['POST','OPTIONS'])
-@cross_origin()
+@app.route("/api/activities/<string:activity_uuid>/reply", methods=['POST'])
 def data_activities_reply(activity_uuid):
     """Create a reply to an existing activity"""
     # Verify the caller's identity from the JWT. The handle used to be
@@ -531,6 +534,59 @@ def data_activities_reply(activity_uuid):
         return model['data'], 200
     
 # ============================================================
+# API ENDPOINTS - LIKE / UNLIKE AN ACTIVITY (backlog #18)
+# ============================================================
+# methods=['POST'] only, no 'OPTIONS': Flask answers the CORS preflight itself
+# and the app-wide CORS block adds the headers (see the CORS note above).
+@app.route("/api/activities/<string:activity_uuid>/like", methods=['POST'])
+def data_activities_like(activity_uuid):
+    return like_or_unlike(activity_uuid, like=True)
+
+@app.route("/api/activities/<string:activity_uuid>/unlike", methods=['POST'])
+def data_activities_unlike(activity_uuid):
+    return like_or_unlike(activity_uuid, like=False)
+
+def like_or_unlike(activity_uuid, like):
+    """Shared body for /like and /unlike. Same auth and error mapping as reply."""
+    access_token = extract_access_token(request.headers)
+    try:
+        claims = cognito_jwt_token.verify(access_token)
+        cognito_user_id = claims['sub']
+    except TokenVerifyError as e:
+        app.logger.debug(f'like auth failed: {e}')
+        return {'errors': ['not_authenticated']}, 401
+
+    model = ActivityLike.run(cognito_user_id, activity_uuid, like)
+    if model['errors'] is not None:
+        if 'invalid_activity_uuid' in model['errors']:
+            return {'errors': model['errors']}, 400
+        if 'activity_not_found' in model['errors']:
+            return {'errors': model['errors']}, 404
+        return {'errors': model['errors']}, 422
+    return model['data'], 200
+
+# ============================================================
+# API ENDPOINTS - SIDEBAR: MOST LIKED THIS WEEK, SUGGESTED USERS (#19, #20)
+# ============================================================
+# GET only, no 'OPTIONS' (see the CORS note above). /api/activities/trending
+# is a static path, so Flask matches it before /api/activities/<activity_uuid>.
+@app.route("/api/activities/trending", methods=['GET'])
+def data_activities_trending():
+    return ActivitiesTrending.run(), 200
+
+@app.route("/api/users/suggested", methods=['GET'])
+def data_users_suggested():
+    # Signed in: exclude the caller. Logged out or bad token: exclude no one.
+    access_token = extract_access_token(request.headers)
+    cognito_user_id = None
+    try:
+        claims = cognito_jwt_token.verify(access_token)
+        cognito_user_id = claims['sub']
+    except TokenVerifyError as e:
+        app.logger.debug(f'suggested users: anonymous ({e})')
+    return UsersSuggested.run(cognito_user_id), 200
+
+# ============================================================
 # API ENDPOINTS - USERS SHORT INFO
 # ============================================================    
     
@@ -543,7 +599,6 @@ def data_users_short(handle):
 # API ENDPOINTS - USERS DIRECTORY (PEOPLE)
 # ============================================================
 @app.route("/api/users", methods=['GET','OPTIONS'])
-@cross_origin()
 def data_users_index():
   # OPTIONS preflight handled the same way as data_activities
   if request.method == 'OPTIONS':
@@ -553,8 +608,7 @@ def data_users_index():
 # ============================================================
 # API ENDPOINTS - UPDATE PROFILE
 # ============================================================
-@app.route("/api/profile/update", methods=['POST','OPTIONS'])
-@cross_origin()
+@app.route("/api/profile/update", methods=['POST'])
 def data_update_profile():
     """Update user profile bio and display name"""
     bio = request.json.get('bio', None)

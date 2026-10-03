@@ -72,10 +72,9 @@ class HomeActivities:
     # 4. Converts them to a JSON array
     # 5. Returns the array (or empty array [] if no results found)
     #
-    # NOTE: Currently not passing cognito_user_id as a parameter
-    # If you need to filter activities by user, you would use:
-    # results = db.query_array_json(sql, {'cognito_user_id': cognito_user_id})
-    results = db.query_array_json(sql)
+    # cognito_user_id (the token's 'sub') is None for logged-out visitors;
+    # home.sql then returns liked_by_me = false for every activity.
+    results = db.query_array_json(sql, {'cognito_user_id': cognito_user_id})
     
     # Return the JSON array of activities to the Flask endpoint
     # This will be sent as the HTTP response to the frontend
