@@ -1,0 +1,330 @@
+{
+  "spec": "kiro-spec-sidebar",
+  "version": "2026-10-03 (rewritten; the 2026-09-26 version was never saved)",
+  "protocol": "Kiro Supervised. Kiro authors files with IDE tools and may run READ-ONLY git (log, status, diff). C runs every mutating git command and all AWS and docker commands, including bin/cors-probe. Stop and report at any failed STOP; never work around it.",
+  "backlog": [
+    "#19 suggested users (random, not me)",
+    "#20 trending -> most liked this week",
+    "new-conversation entry photo (short.sql)"
+  ],
+  "base_commit": "b380514 (subject starts 'Likes:')",
+  "files_in_scope": [
+    "backend-flask/app.py",
+    "backend-flask/db/sql/activities/users/short.sql",
+    "frontend-react-js/src/components/SuggestedUsersSection.js",
+    "frontend-react-js/src/components/SuggestedUserItem.js",
+    "frontend-react-js/src/components/SuggestedUserItem.css",
+    "frontend-react-js/src/components/TrendItem.css",
+    "bin/cors-probe",
+    "frontend-react-js/src/components/DesktopSidebar.js",
+    "frontend-react-js/src/components/TrendingsSection.js",
+    "frontend-react-js/src/components/TrendItem.js",
+    "backend-flask/db/sql/users/suggested.sql",
+    "backend-flask/db/sql/activities/trending.sql",
+    "backend-flask/services/users_suggested.py",
+    "backend-flask/services/activities_trending.py"
+  ],
+  "context": [
+    "DesktopSidebar hardcoded one fake suggested user and four fake hashtags. Decisions (C, 2026-10-03): Trending = most-liked posts this week; Suggested = 3 random users other than me.",
+    "trending.sql ranks by likes RECEIVED in the last 7 days (likes.created_at, LOCALTIMESTAMP to match TIMESTAMP without time zone), ties -> most recently liked, LIMIT 4. suggested.sql: random 3, 'cognito_user_id IS DISTINCT FROM %(cognito_user_id)s' so logged-out callers (NULL) exclude no one. Both tested 2026-10-03 in PostgreSQL 16 (ranking, 7-day window, LIMIT, exclusion over 40 runs, randomness, empty result).",
+    "GET /api/activities/trending is public; GET /api/users/suggested reads the token if present (claims['sub']) and otherwise excludes no one. GET only, no 'OPTIONS'. Static path /api/activities/trending is matched before /api/activities/<activity_uuid>.",
+    "Frontend: DesktopSidebar fetches both when signed in (Suggested sends the Bearer token via getAccessToken, same as ReplyForm), hides Suggested when empty, and shows 'No likes yet this week.' when trending is empty. No single-post page exists, so trend items link to the author's profile. SuggestedUserItem renders ProfileAvatar inside the existing fixed 36px .avatar circle (fallback fills it; the img gets an explicit 36px size).",
+    "short.sql gains users.cognito_user_id so MessageGroupNewItem (b680d9a) shows the photo.",
+    "Files ending without a newline today: short.sql, TrendItem.css, SuggestedUsersSection.js, SuggestedUserItem.js, and the three overwritten files. Overwrites end with a newline (intended). TC_A ends with one (intended, 1 deletion). SuggestedUserItem.css already ends with a newline.",
+    "Commits do not deploy. This ships in pilot #4."
+  ],
+  "must_not": [
+    "No git add/commit/push/stash/reset/restore/checkout/rebase. C commits.",
+    "No AWS, docker, bin/ scripts (including bin/cors-probe), psql.",
+    "No npm/npx installs; use 'npx --no-install' exactly as gate 9 is written. Never pass a Windows/UNC working directory.",
+    "No pip installs or throwaway venvs.",
+    "Edits only to files_in_scope. Do not touch ProfileAvatar.*, CheckAuth, likes files, or other routes.",
+    "IDE tools only for edits, overwrites and creates. Never write files through a shell command. Do not chmod.",
+    "Apply each edit exactly; no reformatting or cleanup."
+  ],
+  "phases": [
+    {
+      "phase": 0,
+      "name": "Preflight",
+      "steps": [
+        {
+          "id": "STOP 0a",
+          "command": "GIT_PAGER=cat git log -1 --format=%s",
+          "expect": "starts with 'Likes:'",
+          "on_fail": "STOP."
+        },
+        {
+          "id": "STOP 0b",
+          "command": "GIT_PAGER=cat git status --short",
+          "expect": "exactly one line: ?? _docs/specs/kiro-spec-sidebar.json",
+          "on_fail": "STOP."
+        },
+        {
+          "id": "STOP 0c",
+          "command": "wc -c _docs/specs/kiro-spec-sidebar.json",
+          "expect": "non-zero",
+          "on_fail": "STOP. Save the tab (Ctrl+S)."
+        }
+      ]
+    },
+    {
+      "phase": 1,
+      "name": "Read-only checks",
+      "steps": [
+        {
+          "id": "STOP 1",
+          "command": "python3 -c \"import json; s=json.load(open('_docs/specs/kiro-spec-sidebar.json')); [print(e['id'], open(e['file']).read().count(e['find'])) for e in s['phases'][2]['edits']]\"",
+          "expect": "9 lines, each ending in 1",
+          "on_fail": "STOP. Report which id differs."
+        },
+        {
+          "id": "STOP 2",
+          "command": "grep -c -F 'Andrew Brown' frontend-react-js/src/components/DesktopSidebar.js; grep -c -F 'trending.hashtag' frontend-react-js/src/components/TrendingsSection.js; grep -c -F 'commify' frontend-react-js/src/components/TrendItem.js",
+          "expect": "1, 1, then a number >= 1 (the three files are still the originals this spec overwrites)",
+          "on_fail": "STOP."
+        },
+        {
+          "id": "STOP 3",
+          "command": "ls backend-flask/db/sql/users/suggested.sql backend-flask/db/sql/activities/trending.sql backend-flask/services/users_suggested.py backend-flask/services/activities_trending.py 2>&1 | grep -c 'No such file'",
+          "expect": "4",
+          "on_fail": "STOP. A new file already exists."
+        },
+        {
+          "id": "STOP 4",
+          "command": "ls frontend-react-js/src/components/TrendingsSection.css frontend-react-js/src/components/ProfileAvatar.js frontend-react-js/src/components/lib/CheckAuth.js",
+          "expect": "all three listed (imported by the new code)",
+          "on_fail": "STOP."
+        },
+        {
+          "id": "STOP 5 (report only)",
+          "command": "grep -rn -F -e 'users/short' -e 'UsersShort' backend-flask --include=*.py",
+          "expect": "Quote. Confirms who calls short.sql; adding a column is backward compatible. Continue.",
+          "on_fail": "n/a"
+        }
+      ]
+    },
+    {
+      "phase": 2,
+      "name": "Apply: edits in order (IDE replace), then the 3 overwrites (IDE write, whole file), then the 4 new files (IDE create)",
+      "edits": [
+        {
+          "id": "AP_A",
+          "file": "backend-flask/app.py",
+          "purpose": "Import the two new services.",
+          "find": "from services.activity_like import *",
+          "replace": "from services.activity_like import *\nfrom services.activities_trending import *\nfrom services.users_suggested import *"
+        },
+        {
+          "id": "AP_B",
+          "file": "backend-flask/app.py",
+          "purpose": "Add GET /api/activities/trending and GET /api/users/suggested before the users-short section.",
+          "find": "# ============================================================\n# API ENDPOINTS - USERS SHORT INFO",
+          "replace": "# ============================================================\n# API ENDPOINTS - SIDEBAR: MOST LIKED THIS WEEK, SUGGESTED USERS (#19, #20)\n# ============================================================\n# GET only, no 'OPTIONS' (see the CORS note above). /api/activities/trending\n# is a static path, so Flask matches it before /api/activities/<activity_uuid>.\n@app.route(\"/api/activities/trending\", methods=['GET'])\ndef data_activities_trending():\n    return ActivitiesTrending.run(), 200\n\n@app.route(\"/api/users/suggested\", methods=['GET'])\ndef data_users_suggested():\n    # Signed in: exclude the caller. Logged out or bad token: exclude no one.\n    access_token = extract_access_token(request.headers)\n    cognito_user_id = None\n    try:\n        claims = cognito_jwt_token.verify(access_token)\n        cognito_user_id = claims['sub']\n    except TokenVerifyError as e:\n        app.logger.debug(f'suggested users: anonymous ({e})')\n    return UsersSuggested.run(cognito_user_id), 200\n\n# ============================================================\n# API ENDPOINTS - USERS SHORT INFO"
+        },
+        {
+          "id": "SH_A",
+          "file": "backend-flask/db/sql/activities/users/short.sql",
+          "purpose": "Return cognito_user_id so the new-conversation entry (MessageGroupNewItem, b680d9a) can show the photo, not just the initial.",
+          "find": "  users.display_name\nFROM public.users",
+          "replace": "  users.display_name,\n  users.cognito_user_id\nFROM public.users"
+        },
+        {
+          "id": "SS_A",
+          "file": "frontend-react-js/src/components/SuggestedUsersSection.js",
+          "purpose": "Pass cognito_user_id for the avatar; key by uuid.",
+          "find": "<SuggestedUserItem key={user.handle} display_name={user.display_name} handle={user.handle} />",
+          "replace": "<SuggestedUserItem key={user.uuid} display_name={user.display_name} handle={user.handle} cognito_user_id={user.cognito_user_id} />"
+        },
+        {
+          "id": "SI_A",
+          "file": "frontend-react-js/src/components/SuggestedUserItem.js",
+          "purpose": "Import ProfileAvatar.",
+          "find": "import { Link } from \"react-router-dom\";",
+          "replace": "import { Link } from \"react-router-dom\";\nimport ProfileAvatar from './ProfileAvatar';"
+        },
+        {
+          "id": "SI_B",
+          "file": "frontend-react-js/src/components/SuggestedUserItem.js",
+          "purpose": "Real avatar (photo or initial) inside the existing 36px circle.",
+          "find": "<div className='avatar'></div>",
+          "replace": "<div className='avatar'>\n        <ProfileAvatar id={props.cognito_user_id} name={props.display_name} />\n      </div>"
+        },
+        {
+          "id": "SC_A",
+          "file": "frontend-react-js/src/components/SuggestedUserItem.css",
+          "purpose": "Size the photo to the 36px circle (ProfileAvatar.css sizes no img). The initial fallback already fills the fixed-size circle.",
+          "find": ".suggested_users .avatar {\n  background: rgb(149,0,255);\n  height: 36px;\n  width: 36px;\n  border-radius: 999px;\n  flex-shrink: 0;\n  margin-right: 12px;\n}\n",
+          "replace": ".suggested_users .avatar {\n  background: rgb(149,0,255);\n  height: 36px;\n  width: 36px;\n  border-radius: 999px;\n  flex-shrink: 0;\n  margin-right: 12px;\n}\n\n/* Real avatars (#19): the photo fills the existing 36px circle. */\n.suggested_users .avatar {\n  overflow: hidden;\n}\n\n.suggested_users .avatar img {\n  display: block;\n  width: 36px;\n  height: 36px;\n}\n"
+        },
+        {
+          "id": "TC_A",
+          "file": "frontend-react-js/src/components/TrendItem.css",
+          "purpose": "Clamp long post text to 2 lines; style the empty state. File has no trailing newline today; this edit ends with one.",
+          "find": ".trendings a span.count {\n  font-size: 13px;\n  color: rgba(255,255,255,0.5)\n}",
+          "replace": ".trendings a span.count {\n  font-size: 13px;\n  color: rgba(255,255,255,0.5)\n}\n\n/* Most liked this week (#20): long post text is clamped to two lines. */\n.trendings a span.message {\n  display: -webkit-box;\n  -webkit-line-clamp: 2;\n  -webkit-box-orient: vertical;\n  overflow: hidden;\n}\n\n.trendings .trendings-empty {\n  padding: 16px;\n  font-size: 14px;\n  color: rgba(255,255,255,0.5);\n}\n"
+        },
+        {
+          "id": "PR_A",
+          "file": "bin/cors-probe",
+          "purpose": "Probe the two new routes (operator gate expects 27 lines).",
+          "find": "(\"/api/activities/abc/like\", \"POST\"), (\"/api/activities/abc/unlike\", \"POST\"),",
+          "replace": "(\"/api/activities/abc/like\", \"POST\"), (\"/api/activities/abc/unlike\", \"POST\"),\n          (\"/api/activities/trending\", \"GET\"), (\"/api/users/suggested\", \"GET\"),"
+        }
+      ],
+      "overwrite": [
+        {
+          "id": "OW_SIDEBAR",
+          "file": "frontend-react-js/src/components/DesktopSidebar.js",
+          "content": "import './DesktopSidebar.css';\nimport { useEffect, useState } from 'react';\nimport process from 'process';\nimport Search from '../components/Search';\nimport TrendingSection from '../components/TrendingsSection'\nimport SuggestedUsersSection from '../components/SuggestedUsersSection'\nimport JoinSection from '../components/JoinSection'\nimport { getAccessToken } from './lib/CheckAuth';\n\n// Sidebar data used to be hardcoded (one fake user, four fake hashtags).\n// Now (backlog #19, #20):\n//   Trending  = posts with the most likes in the last 7 days (public API)\n//   Suggested = 3 random users other than the signed-in one\n// Both load only when someone is signed in, as the sections did before.\nexport default function DesktopSidebar(props) {\n  const [trendings, setTrendings] = useState([]);\n  const [users, setUsers] = useState([]);\n  const signedIn = Boolean(props.user);\n\n  useEffect(() => {\n    if (!signedIn) return;\n    let cancelled = false;\n\n    const load = async () => {\n      const base = process.env.REACT_APP_BACKEND_URL;\n      try {\n        const res = await fetch(`${base}/api/activities/trending`, { method: 'GET' });\n        if (res.ok && !cancelled) {\n          setTrendings(await res.json());\n        }\n      } catch (err) {\n        console.log('trending failed', err);\n      }\n      try {\n        const headers = { 'Accept': 'application/json' };\n        const accessToken = await getAccessToken();\n        if (accessToken) {\n          headers['Authorization'] = `Bearer ${accessToken}`;\n        }\n        const res = await fetch(`${base}/api/users/suggested`, { method: 'GET', headers: headers });\n        if (res.ok && !cancelled) {\n          setUsers(await res.json());\n        }\n      } catch (err) {\n        console.log('suggested users failed', err);\n      }\n    };\n\n    load();\n    return () => { cancelled = true; };\n  }, [signedIn]);\n\n  let trending;\n  if (props.user) {\n    trending = <TrendingSection trendings={trendings} />\n  }\n\n  let suggested;\n  if (props.user && users.length > 0) {\n    suggested = <SuggestedUsersSection users={users} />\n  }\n  let join;\n  if (props.user) {\n  } else {\n    join = <JoinSection />\n  }\n\n  return (\n    <section>\n      <Search />\n      {trending}\n      {suggested}\n      {join}\n      <footer>\n        <a href=\"#\">About</a>\n        <a href=\"#\">Terms of Service</a>\n        <a href=\"#\">Privacy Policy</a>\n      </footer>\n    </section>\n  );\n}\n",
+          "must_contain_before": "Andrew Brown"
+        },
+        {
+          "id": "OW_TRENDS",
+          "file": "frontend-react-js/src/components/TrendingsSection.js",
+          "content": "import './TrendingsSection.css';\nimport TrendItem from '../components/TrendItem';\n\n// \"Most liked this week\" (backlog #20). Cruddur has no hashtags, so the\n// section lists the posts with the most likes in the last 7 days.\nexport default function TrendingsSection(props) {\n  let items;\n  if (props.trendings.length > 0) {\n    items = props.trendings.map(trending => {\n      return <TrendItem key={trending.uuid} trending={trending} />\n    });\n  } else {\n    items = <div className='trendings-empty'>No likes yet this week.</div>;\n  }\n\n  return (\n    <div className=\"trendings\">\n      <div className='trendings-title'>\n        Most liked this week\n      </div>\n      {items}\n    </div>\n  );\n}\n",
+          "must_contain_before": "trending.hashtag"
+        },
+        {
+          "id": "OW_TRENDITEM",
+          "file": "frontend-react-js/src/components/TrendItem.js",
+          "content": "import './TrendItem.css';\nimport { Link } from 'react-router-dom';\n\n// One \"most liked this week\" entry. There is no single-post page yet, so the\n// entry links to the author's profile.\nexport default function TrendItem(props) {\n  const trending = props.trending;\n  const likes = trending.week_likes;\n\n  return (\n    <Link className=\"trending\" to={'/@' + trending.handle}>\n      <span className=\"message\">{trending.message}</span>\n      <span className=\"count\">{trending.display_name} · {likes} {likes === 1 ? 'like' : 'likes'} this week</span>\n    </Link>\n  );\n}\n",
+          "must_contain_before": "commify"
+        }
+      ],
+      "create": [
+        {
+          "id": "NEW_SUG_SQL",
+          "file": "backend-flask/db/sql/users/suggested.sql",
+          "content": "-- Suggested users for the sidebar: up to 3 random users other than the\n-- caller. IS DISTINCT FROM keeps everyone when cognito_user_id is NULL\n-- (logged out), where \"<> NULL\" would match no one.\nSELECT\n  users.uuid,\n  users.handle,\n  users.display_name,\n  users.cognito_user_id\nFROM public.users\nWHERE users.cognito_user_id IS DISTINCT FROM %(cognito_user_id)s\nORDER BY random()\nLIMIT 3\n"
+        },
+        {
+          "id": "NEW_TR_SQL",
+          "file": "backend-flask/db/sql/activities/trending.sql",
+          "content": "-- \"Most liked this week\" for the sidebar: activities ranked by likes\n-- RECEIVED in the last 7 days (likes.created_at), not by when the post was\n-- written, so an older post liked today still shows. Ties go to the most\n-- recently liked. LOCALTIMESTAMP matches likes.created_at, which is a\n-- TIMESTAMP without time zone.\nSELECT\n  activities.uuid,\n  activities.message,\n  activities.likes_count,\n  users.handle,\n  users.display_name,\n  week.week_likes\nFROM (\n  SELECT\n    likes.activity_uuid,\n    COUNT(*) AS week_likes,\n    MAX(likes.created_at) AS last_liked_at\n  FROM public.likes\n  WHERE likes.created_at > LOCALTIMESTAMP - INTERVAL '7 days'\n  GROUP BY likes.activity_uuid\n) week\nJOIN public.activities ON activities.uuid = week.activity_uuid\nLEFT JOIN public.users ON users.uuid = activities.user_uuid\nORDER BY week.week_likes DESC, week.last_liked_at DESC\nLIMIT 4\n"
+        },
+        {
+          "id": "NEW_SUG_SVC",
+          "file": "backend-flask/services/users_suggested.py",
+          "content": "from lib.db import db\n\n\nclass UsersSuggested:\n  \"\"\"Up to 3 random users other than the caller (sidebar, backlog #19).\"\"\"\n\n  @staticmethod\n  def run(cognito_user_id=None):\n    sql = db.template('users', 'suggested')\n    return db.query_array_json(sql, {'cognito_user_id': cognito_user_id})\n"
+        },
+        {
+          "id": "NEW_TR_SVC",
+          "file": "backend-flask/services/activities_trending.py",
+          "content": "from lib.db import db\n\n\nclass ActivitiesTrending:\n  \"\"\"Most-liked activities in the last 7 days (sidebar, backlog #20).\"\"\"\n\n  @staticmethod\n  def run():\n    sql = db.template('activities', 'trending')\n    return db.query_array_json(sql)\n"
+        }
+      ]
+    },
+    {
+      "phase": 3,
+      "name": "Gates. Run each exactly as written; report actual vs expected.",
+      "gates": [
+        {
+          "gate": 1,
+          "check": "Every replacement present exactly once",
+          "command": "python3 -c \"import json; s=json.load(open('_docs/specs/kiro-spec-sidebar.json')); [print(e['id'], open(e['file']).read().count(e['replace'])) for e in s['phases'][2]['edits']]\"",
+          "expect": "9 lines, each ending in 1"
+        },
+        {
+          "gate": 2,
+          "check": "Overwritten and new files byte-identical (binary compare)",
+          "command": "python3 -c \"import json; s=json.load(open('_docs/specs/kiro-spec-sidebar.json')); [print(c['id'], open(c['file'],'rb').read()==c['content'].encode('utf-8')) for c in s['phases'][2]['create']+s['phases'][2]['overwrite']]\"",
+          "expect": "7 lines, each ending in True"
+        },
+        {
+          "gate": 3,
+          "check": "No carriage returns",
+          "command": "grep -c $'\\r' backend-flask/app.py backend-flask/db/sql/activities/users/short.sql frontend-react-js/src/components/SuggestedUsersSection.js frontend-react-js/src/components/SuggestedUserItem.js frontend-react-js/src/components/SuggestedUserItem.css frontend-react-js/src/components/TrendItem.css bin/cors-probe frontend-react-js/src/components/DesktopSidebar.js frontend-react-js/src/components/TrendingsSection.js frontend-react-js/src/components/TrendItem.js backend-flask/db/sql/users/suggested.sql backend-flask/db/sql/activities/trending.sql backend-flask/services/users_suggested.py backend-flask/services/activities_trending.py",
+          "expect": "every count :0"
+        },
+        {
+          "gate": 4,
+          "check": "New routes are GET only",
+          "command": "grep -n -F -e '/api/activities/trending\", methods=' -e '/api/users/suggested\", methods=' backend-flask/app.py",
+          "expect": "two lines, each ending methods=['GET'])"
+        },
+        {
+          "gate": 5,
+          "check": "Hardcoded sidebar data gone",
+          "command": "grep -c -F -e 'Andrew Brown' -e 'FreeWillyReboot' frontend-react-js/src/components/DesktopSidebar.js",
+          "expect": "0"
+        },
+        {
+          "gate": 6,
+          "check": "Python parses",
+          "command": "for f in backend-flask/app.py backend-flask/services/users_suggested.py backend-flask/services/activities_trending.py; do python3 -c \"import ast,sys; ast.parse(open(sys.argv[1]).read())\" $f && echo \"AST OK $f\"; done",
+          "expect": "three AST OK lines"
+        },
+        {
+          "gate": 7,
+          "check": "SQL templates have no trailing semicolon (query_wrap_array embeds them)",
+          "command": "for f in backend-flask/db/sql/users/suggested.sql backend-flask/db/sql/activities/trending.sql backend-flask/db/sql/activities/users/short.sql; do printf '%s ' $f; tail -c 1 $f | od -An -c; done",
+          "expect": "no ';' on any line"
+        },
+        {
+          "gate": 8,
+          "check": "cors-probe parses",
+          "command": "bash -n bin/cors-probe && echo 'bash OK'",
+          "expect": "bash OK"
+        },
+        {
+          "gate": 9,
+          "check": "ESLint on the five edited components (npx --no-install; background process if output is not captured; NEVER a Windows/UNC path - if that happens, stop the process and report)",
+          "command": "(cd frontend-react-js && npx --no-install eslint src/components/DesktopSidebar.js src/components/TrendingsSection.js src/components/TrendItem.js src/components/SuggestedUsersSection.js src/components/SuggestedUserItem.js; echo \"exit=$?\")",
+          "expect": "0 errors, exit=0. EXPECTED pre-existing warnings: jsx-a11y/anchor-is-valid on the three footer <a href=\"#\"> lines in DesktopSidebar.js (unchanged lines kept by the overwrite) -> MATCH-WITH-NOTE. Any warning on a new or changed line -> MISMATCH."
+        },
+        {
+          "gate": 10,
+          "check": "Line counts of tracked files",
+          "command": "GIT_PAGER=cat git diff --numstat",
+          "expect": "23\t0\tbackend-flask/app.py\n2\t1\tbackend-flask/db/sql/activities/users/short.sql\n1\t0\tbin/cors-probe\n45\t11\tfrontend-react-js/src/components/DesktopSidebar.js\n11\t0\tfrontend-react-js/src/components/SuggestedUserItem.css\n4\t1\tfrontend-react-js/src/components/SuggestedUserItem.js\n1\t1\tfrontend-react-js/src/components/SuggestedUsersSection.js\n15\t1\tfrontend-react-js/src/components/TrendItem.css\n10\t12\tfrontend-react-js/src/components/TrendItem.js\n14\t5\tfrontend-react-js/src/components/TrendingsSection.js\n(order may differ)"
+        },
+        {
+          "gate": 11,
+          "check": "Changed and new files",
+          "command": "GIT_PAGER=cat git status --short",
+          "expect": "10 ' M' lines and 5 '??' lines (the 4 new files + the spec)"
+        },
+        {
+          "gate": 12,
+          "check": "No mode changes",
+          "command": "GIT_PAGER=cat git diff --summary",
+          "expect": "no output"
+        }
+      ]
+    },
+    {
+      "phase": 4,
+      "name": "Report",
+      "report_format": [
+        "Every STOP with output.",
+        "Each edit/overwrite/create id: applied byte-identical yes/no.",
+        "Each gate: actual, expected, MATCH / MATCH-WITH-NOTE / MISMATCH. Explain mismatches; do not change files to force a pass.",
+        "Out-of-scope observations: report only.",
+        "Credits used."
+      ]
+    },
+    {
+      "phase": 5,
+      "name": "Hand back to C",
+      "steps": [
+        "Stop. C runs the operator gate and ESLint, then commits."
+      ]
+    }
+  ],
+  "operator_gate_before_commit": {
+    "commands": "cd ~/aws-bootcamp-cruddur-2023 && ./bin/cors-probe; echo \"exit=$?\"",
+    "expect": "27 'PROBE ok' lines (13 routes x 2 origins + 1), including GET /api/activities/trending and /api/users/suggested; 'PROBE RESULT: PASS'; exit=0."
+  },
+  "operator_after_run": {
+    "commit_command": "cd ~/aws-bootcamp-cruddur-2023 && git add backend-flask/app.py backend-flask/db/sql/activities/users/short.sql frontend-react-js/src/components/SuggestedUsersSection.js frontend-react-js/src/components/SuggestedUserItem.js frontend-react-js/src/components/SuggestedUserItem.css frontend-react-js/src/components/TrendItem.css bin/cors-probe frontend-react-js/src/components/DesktopSidebar.js frontend-react-js/src/components/TrendingsSection.js frontend-react-js/src/components/TrendItem.js backend-flask/db/sql/users/suggested.sql backend-flask/db/sql/activities/trending.sql backend-flask/services/users_suggested.py backend-flask/services/activities_trending.py _docs/specs/kiro-spec-sidebar.json && git commit -m \"Sidebar: most liked this week + random suggested users with avatars (replaces hardcoded data), short.sql cognito_user_id (backlog #19, #20)\" && git push origin kiro-dev",
+    "note": "Subject starts with 'Sidebar:'."
+  },
+  "verify_next_deploy": [
+    "Signed in: 'Most liked this week' lists posts liked in the last 7 days, most likes first; like a post and reload -> it appears or moves up. With no likes this week: 'No likes yet this week.'",
+    "Clicking a trend item opens the author's profile.",
+    "Suggested Users: 3 real users, never yourself, different on reload; photos or initials in round 36px circles.",
+    "Logged out: neither section shows; the Join section does (unchanged).",
+    "From another user's profile, click Message: the new-conversation entry now shows their PHOTO.",
+    "curl GET /api/activities/trending -> 200 JSON array; GET /api/users/suggested without a token -> 200, 3 users."
+  ]
+}

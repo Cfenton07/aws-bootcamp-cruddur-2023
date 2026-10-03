@@ -17,6 +17,8 @@ from services.create_activity import *
 from services.create_reply import *
 from services.activity_replies import *
 from services.activity_like import *
+from services.activities_trending import *
+from services.users_suggested import *
 from services.search_activities import *
 from services.message_groups import *
 from services.messages import *
@@ -562,6 +564,27 @@ def like_or_unlike(activity_uuid, like):
             return {'errors': model['errors']}, 404
         return {'errors': model['errors']}, 422
     return model['data'], 200
+
+# ============================================================
+# API ENDPOINTS - SIDEBAR: MOST LIKED THIS WEEK, SUGGESTED USERS (#19, #20)
+# ============================================================
+# GET only, no 'OPTIONS' (see the CORS note above). /api/activities/trending
+# is a static path, so Flask matches it before /api/activities/<activity_uuid>.
+@app.route("/api/activities/trending", methods=['GET'])
+def data_activities_trending():
+    return ActivitiesTrending.run(), 200
+
+@app.route("/api/users/suggested", methods=['GET'])
+def data_users_suggested():
+    # Signed in: exclude the caller. Logged out or bad token: exclude no one.
+    access_token = extract_access_token(request.headers)
+    cognito_user_id = None
+    try:
+        claims = cognito_jwt_token.verify(access_token)
+        cognito_user_id = claims['sub']
+    except TokenVerifyError as e:
+        app.logger.debug(f'suggested users: anonymous ({e})')
+    return UsersSuggested.run(cognito_user_id), 200
 
 # ============================================================
 # API ENDPOINTS - USERS SHORT INFO
