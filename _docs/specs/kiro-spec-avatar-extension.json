@@ -1,0 +1,65 @@
+{
+  "task": "Avatar upload: choose the S3 key extension from the file TYPE, not the file name (backlog #33 root cause: .jfif uploads never processed)",
+  "branch": "kiro-dev",
+  "protocol": "Kiro Supervised. Kiro may run read-only git (log/status/diff); C runs every mutating git, AWS and docker command. Edit ONLY frontend-react-js/src/components/ProfileForm.js with the IDE edit tool. Do NOT pass the cwd parameter; every command does its own cd. Stop at every STOP and paste actual output.",
+  "context": {
+    "finding": "2026-10-05: Chrome 'Save As → JPEG Image' saved the photo as Smile2.jfif. ProfileForm took the extension from the file name, so the object went to S3 as <sub>.jfif. The upload returned 200, but the avatar processing trigger only handles .jpg/.png keys, so the processed avatar was never replaced. Renaming the same file to .jpg and uploading worked immediately.",
+    "fix": "file.type is 'image/jpeg' for .jpg/.jpeg/.jfif/.jpe and 'image/png' for .png (the input already accepts only those two types). Map them to 'jpg' / 'png'; anything else shows a message and stops. The PUT still sends Content-Type: file.type (unchanged).",
+    "prereq": "The pilot-polish changes (kiro-spec-pilot-polish.json rev 2) are COMMITTED by C before this spec runs."
+  },
+  "phases": [
+    {
+      "phase": 0,
+      "name": "STOP 0 — state (read-only)",
+      "commands": [
+        "cd /home/fento01/aws-bootcamp-cruddur-2023 && GIT_PAGER=cat git status --short",
+        "cd /home/fento01/aws-bootcamp-cruddur-2023 && GIT_PAGER=cat git log --oneline -2",
+        "cd /home/fento01/aws-bootcamp-cruddur-2023 && sha256sum frontend-react-js/src/components/ProfileForm.js"
+      ],
+      "expect": {
+        "git status": "empty, or only ?? lines for files under _docs/specs/",
+        "git log": "top commit is the pilot polish commit (message starts 'Pilot polish'), above ea2d7f1",
+        "sha256": "6bdf3c3717c4927286d76404ee95dabc82cc15bb18d23b324f31012f1e8c4cbf"
+      },
+      "on_mismatch": "STOP and report. Edit nothing."
+    },
+    {
+      "phase": 1,
+      "name": "Write frontend-react-js/src/components/ProfileForm.js",
+      "file": "frontend-react-js/src/components/ProfileForm.js",
+      "mode": "replace the ENTIRE file with the content below, byte for byte (LF line endings, one trailing newline)",
+      "content": "import './ProfileForm.css';\nimport React from \"react\";\nimport process from 'process';\nimport { getAccessToken } from '../components/lib/CheckAuth';\n\nexport default function ProfileForm(props) {\n  const [bio, setBio] = React.useState('');\n  const [displayName, setDisplayName] = React.useState('');\n  // Visible result of a photo upload (backlog #33); it used to go to the\n  // console only, so a user could not tell whether anything happened.\n  const [uploadStatus, setUploadStatus] = React.useState(null);\n\n  React.useEffect(() => {\n    if (props.profile) {\n      setBio(props.profile.bio || '');\n      setDisplayName(props.profile.display_name || '');\n    }\n  }, [props.profile]);\n\n  const onsubmit = async (event) => {\n    event.preventDefault();\n    const accessToken = await getAccessToken();\n    try {\n      const backend_url = `${process.env.REACT_APP_BACKEND_URL}/api/profile/update`;\n      const res = await fetch(backend_url, {\n        method: \"POST\",\n        headers: {\n          'Accept': 'application/json',\n          'Content-Type': 'application/json',\n          'Authorization': `Bearer ${accessToken}`\n        },\n        body: JSON.stringify({\n          bio: bio,\n          display_name: displayName\n        }),\n      });\n      let data = await res.json();\n      if (res.status === 200) {\n        await props.loadData();\n        props.setPopped(false);\n      } else {\n        console.log(res);\n      }\n    } catch (err) {\n      console.log(err);\n    }\n  };\n\n  const s3_upload_key = async (extension) => {\n    const gateway_url = `${process.env.REACT_APP_API_GATEWAY_ENDPOINT_URL}/avatars/key_upload`;\n    const accessToken = await getAccessToken();\n    try {\n      const res = await fetch(gateway_url, {\n        method: \"POST\",\n        headers: {\n          'Authorization': `Bearer ${accessToken}`,\n          'Accept': 'application/json',\n          'Content-Type': 'application/json'\n        },\n        body: JSON.stringify({ extension: extension })\n      });\n      let data = await res.json();\n      return data.url;\n    } catch (err) {\n      console.log(err);\n    }\n  };\n\n  const s3_upload = async (event) => {\n    const file = event.target.files[0];\n    if (!file) return;\n\n    // Decide the extension from the file's TYPE, not its name. Windows and\n    // Chrome often save JPEGs as \".jfif\"; the S3 trigger that resizes avatars\n    // only picks up .jpg/.png keys, so a .jfif upload \"succeeded\" but the\n    // photo never changed (backlog #33, confirmed live 2026-10-05).\n    let extension;\n    if (file.type === 'image/jpeg') {\n      extension = 'jpg';\n    } else if (file.type === 'image/png') {\n      extension = 'png';\n    } else {\n      setUploadStatus('Please choose a JPG or PNG image.');\n      return;\n    }\n    setUploadStatus('Uploading…');\n    const presignedUrl = await s3_upload_key(extension);\n    if (!presignedUrl) {\n      setUploadStatus('Upload failed: could not get an upload link. Please try again.');\n      return;\n    }\n\n    try {\n      const res = await fetch(presignedUrl, {\n        method: \"PUT\",\n        body: file,\n        headers: {\n          'Content-Type': file.type\n        }\n      });\n      if (res.status === 200) {\n        console.log('Avatar uploaded successfully');\n        setUploadStatus('Photo uploaded. It can take a minute to appear. Refresh the page to see it.');\n      } else {\n        console.log('Upload failed:', res);\n        setUploadStatus(`Upload failed (${res.status}). Please try again.`);\n      }\n    } catch (err) {\n      console.log(err);\n      setUploadStatus('Upload failed. Please try again.');\n    }\n  };\n\n  const bio_onchange = (event) => {\n    setBio(event.target.value);\n  };\n\n  const display_name_onchange = (event) => {\n    setDisplayName(event.target.value);\n  };\n\n  const close = (event) => {\n    if (event) event.preventDefault();\n    setUploadStatus(null);\n    props.setPopped(false);\n  };\n\n  if (props.popped === true) {\n    return (\n      <div className=\"popup_form_wrap\">\n        <div className=\"popup_form\">\n          <div className=\"popup_heading\">\n            <div className=\"popup_title\">Edit Profile</div>\n            <div className='popup_close' onClick={close}>X</div>\n          </div>\n          <div className=\"popup_content\">\n            <div className=\"field\">\n              <label>Display Name</label>\n              <input\n                type=\"text\"\n                placeholder=\"Display Name\"\n                value={displayName}\n                onChange={display_name_onchange}\n              />\n            </div>\n            <div className=\"field\">\n              <label>Bio</label>\n              <textarea\n                placeholder=\"Bio\"\n                value={bio}\n                onChange={bio_onchange}\n              />\n            </div>\n            <div className=\"field\">\n              <label>Avatar</label>\n              <input\n                type=\"file\"\n                accept=\"image/jpeg,image/png\"\n                onChange={s3_upload}\n              />\n              {uploadStatus && (\n                <div\n                  className='upload_status'\n                  style={{ marginTop: '8px', fontSize: '14px', color: 'rgba(255,255,255,0.7)' }}\n                >\n                  {uploadStatus}\n                </div>\n              )}\n            </div>\n            <div className='submit'>\n              <button onClick={onsubmit}>Save</button>\n            </div>\n          </div>\n        </div>\n      </div>\n    );\n  }\n}\n"
+    },
+    {
+      "phase": 2,
+      "name": "STOP — gates (paste actual output)",
+      "commands": [
+        "cd /home/fento01/aws-bootcamp-cruddur-2023 && sha256sum frontend-react-js/src/components/ProfileForm.js",
+        "cd /home/fento01/aws-bootcamp-cruddur-2023 && grep -c $'\\r' frontend-react-js/src/components/ProfileForm.js ; true",
+        "cd /home/fento01/aws-bootcamp-cruddur-2023 && grep -n \"split('.')\" frontend-react-js/src/components/ProfileForm.js ; echo \"name_split_count=$(grep -c \"split('.')\" frontend-react-js/src/components/ProfileForm.js)\"",
+        "cd /home/fento01/aws-bootcamp-cruddur-2023 && GIT_PAGER=cat git status --short",
+        "cd /home/fento01/aws-bootcamp-cruddur-2023 && GIT_PAGER=cat git diff --stat"
+      ],
+      "expect": {
+        "sha256": "e1371b1c95512b0e3d318f625702db22ba5ad90b75984c73f195c83d1c6f9c44",
+        "CR count": "0",
+        "name_split_count": "0",
+        "git status": "only ' M frontend-react-js/src/components/ProfileForm.js' (plus any ?? _docs/specs/ lines)",
+        "git diff --stat": "1 file changed, 13 insertions(+), 2 deletions(-)"
+      },
+      "note": "ESLint is optional here (it hangs in the Kiro terminal); C can run it.",
+      "on_failure": "STOP and report the exact output."
+    }
+  ],
+  "must_not": [
+    "Edit any other file.",
+    "git add/commit/push or history rewrites.",
+    "docker, AWS CLI, npm install/build, bin/ scripts.",
+    "Write the file with shell commands."
+  ],
+  "verify_next_deploy": [
+    "Upload a .jfif photo: shows 'Photo uploaded…' and the avatar changes after ~1 min + refresh.",
+    "Upload a .png: still works.",
+    "Pick a .webp via 'All files': shows 'Please choose a JPG or PNG image.' and nothing is uploaded."
+  ]
+}

@@ -70,8 +70,19 @@ export default function ProfileForm(props) {
     const file = event.target.files[0];
     if (!file) return;
 
-    const filename = file.name;
-    const extension = filename.split('.').pop();
+    // Decide the extension from the file's TYPE, not its name. Windows and
+    // Chrome often save JPEGs as ".jfif"; the S3 trigger that resizes avatars
+    // only picks up .jpg/.png keys, so a .jfif upload "succeeded" but the
+    // photo never changed (backlog #33, confirmed live 2026-10-05).
+    let extension;
+    if (file.type === 'image/jpeg') {
+      extension = 'jpg';
+    } else if (file.type === 'image/png') {
+      extension = 'png';
+    } else {
+      setUploadStatus('Please choose a JPG or PNG image.');
+      return;
+    }
     setUploadStatus('Uploading…');
     const presignedUrl = await s3_upload_key(extension);
     if (!presignedUrl) {
