@@ -1,5 +1,6 @@
 import './HomeFeedPage.css';
 import React from "react";
+import { useLocation, useNavigate } from 'react-router-dom';
 
 import DesktopNavigation  from '../components/DesktopNavigation';
 import DesktopSidebar     from '../components/DesktopSidebar';
@@ -16,6 +17,8 @@ export default function HomeFeedPage() {
   const [poppedReply, setPoppedReply] = React.useState(false);
   const [replyActivity, setReplyActivity] = React.useState({});
   const [user, setUser] = React.useState(null);
+  const location = useLocation();
+  const navigate = useNavigate();
 
 const loadData = async () => {
     console.log('loadData called');
@@ -61,6 +64,16 @@ const loadData = async () => {
     checkAuth(setUser);
     loadData();
   }, []);
+
+  // The Crud button on any other page navigates here with { compose: true }
+  // (backlog #40). Open the form, then clear the flag with a replace so a
+  // refresh or Back does not reopen it.
+  React.useEffect(() => {
+    if (location.state && location.state.compose) {
+      setPopped(true);
+      navigate(location.pathname, { replace: true, state: {} });
+    }
+  }, [location.state, location.pathname, navigate]);
 
   React.useEffect(() => {
     // This effect runs whenever the `user` state changes

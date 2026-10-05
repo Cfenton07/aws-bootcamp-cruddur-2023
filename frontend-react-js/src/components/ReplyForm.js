@@ -5,6 +5,10 @@ import process from 'process';
 import ActivityContent  from '../components/ActivityContent';
 import { getAccessToken } from './lib/CheckAuth';
 
+// Same limit the backend enforces (create_reply.py), counted in code points
+// like Python's len() so an emoji counts as 1 (backlog #36).
+const MAX_CHARS = 1024;
+
 export default function ReplyForm(props) {
   const [count, setCount] = React.useState(0);
   const [message, setMessage] = React.useState('');
@@ -14,7 +18,7 @@ export default function ReplyForm(props) {
 
   const classes = []
   classes.push('count')
-  if (240-count < 0){
+  if (MAX_CHARS-count < 0){
     classes.push('err')
   }
 
@@ -110,7 +114,7 @@ export default function ReplyForm(props) {
   }
 
   const textarea_onchange = (event) => {
-    setCount(event.target.value.length);
+    setCount(Array.from(event.target.value).length);
     setMessage(event.target.value);
   }
 
@@ -150,7 +154,7 @@ export default function ReplyForm(props) {
                 onChange={textarea_onchange}
               />
               <div className='submit'>
-                <div className={classes.join(' ')}>{240-count}</div>
+                <div className={classes.join(' ')}>{MAX_CHARS-count}</div>
                 <button type='submit'>Reply</button>
               </div>
             </form>

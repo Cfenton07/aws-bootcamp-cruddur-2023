@@ -93,7 +93,8 @@ export default function MessageForm(props) {
   }
 
   const textarea_onchange = (event) => {
-    setCount(event.target.value.length);
+    // Code points, like Python's len() in create_message.py (backlog #36).
+    setCount(Array.from(event.target.value).length);
     setMessage(event.target.value);
   }
 

@@ -4,44 +4,16 @@ import React from "react";
 import DesktopNavigation  from '../components/DesktopNavigation';
 import DesktopSidebar     from '../components/DesktopSidebar';
 import ActivityFeed from '../components/ActivityFeed';
-import ActivityForm from '../components/ActivityForm';
-import ReplyForm from '../components/ReplyForm';
 
 import { signOut } from 'aws-amplify/auth';
-import { checkAuth, getAccessToken } from '../components/lib/CheckAuth';
+import { checkAuth } from '../components/lib/CheckAuth';
 
+// Notifications are not built yet (backlog #31). The backend endpoint still
+// returns bootcamp demo data, so this page no longer fetches it and shows an
+// empty state instead (backlog #24).
 export default function NotificationsFeedPage() {
-  const [activities, setActivities] = React.useState([]);
-  const [popped, setPopped] = React.useState(false);
-  const [poppedReply, setPoppedReply] = React.useState(false);
-  const [replyActivity, setReplyActivity] = React.useState({});
   const [user, setUser] = React.useState(null);
   const dataFetchedRef = React.useRef(false);
-
-  const loadData = async () => {
-    const headers = {};
-
-    const accessToken = await getAccessToken();
-    if (accessToken) {
-      headers['Authorization'] = `Bearer ${accessToken}`;
-    }
-
-    try {
-      const backend_url = `${process.env.REACT_APP_BACKEND_URL}/api/activities/notifications`
-      const res = await fetch(backend_url, {
-        method: "GET",
-        headers: headers,
-      });
-      let resJson = await res.json();
-      if (res.status === 200) {
-        setActivities(resJson)
-      } else {
-        console.log(res)
-      }
-    } catch (err) {
-      console.log(err);
-    }
-  };
 
   const handleSignOut = async () => {
     try {
@@ -58,31 +30,19 @@ export default function NotificationsFeedPage() {
     dataFetchedRef.current = true;
 
     checkAuth(setUser);
-    loadData();
   }, [])
 
   return (
     <article>
-      <DesktopNavigation user={user} active={'notifications'} setPopped={setPopped} handleSignOut={handleSignOut} />
+      <DesktopNavigation user={user} active={'notifications'} handleSignOut={handleSignOut} />
       <div className='content'>
-        <ActivityForm  
-          popped={popped}
-          setPopped={setPopped} 
-          setActivities={setActivities} 
-        />
-        <ReplyForm 
-          activity={replyActivity} 
-          popped={poppedReply} 
-          setPopped={setPoppedReply} 
-          setActivities={setActivities} 
-          activities={activities} 
-        />
-        <ActivityFeed 
-          title="Notifications" 
-          setReplyActivity={setReplyActivity} 
-          setPopped={setPoppedReply} 
-          activities={activities} 
-        />
+        <ActivityFeed title="Notifications" activities={[]} />
+        <div
+          className='notifications_empty'
+          style={{ padding: '16px', color: 'rgba(255,255,255,0.5)' }}
+        >
+          No notifications yet.
+        </div>
       </div>
       <DesktopSidebar user={user} />
     </article>

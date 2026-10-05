@@ -6,6 +6,9 @@ import { getAccessToken } from '../components/lib/CheckAuth';
 export default function ProfileForm(props) {
   const [bio, setBio] = React.useState('');
   const [displayName, setDisplayName] = React.useState('');
+  // Visible result of a photo upload (backlog #33); it used to go to the
+  // console only, so a user could not tell whether anything happened.
+  const [uploadStatus, setUploadStatus] = React.useState(null);
 
   React.useEffect(() => {
     if (props.profile) {
@@ -69,7 +72,12 @@ export default function ProfileForm(props) {
 
     const filename = file.name;
     const extension = filename.split('.').pop();
+    setUploadStatus('Uploading…');
     const presignedUrl = await s3_upload_key(extension);
+    if (!presignedUrl) {
+      setUploadStatus('Upload failed: could not get an upload link. Please try again.');
+      return;
+    }
 
     try {
       const res = await fetch(presignedUrl, {
@@ -81,11 +89,14 @@ export default function ProfileForm(props) {
       });
       if (res.status === 200) {
         console.log('Avatar uploaded successfully');
+        setUploadStatus('Photo uploaded. It can take a minute to appear. Refresh the page to see it.');
       } else {
         console.log('Upload failed:', res);
+        setUploadStatus(`Upload failed (${res.status}). Please try again.`);
       }
     } catch (err) {
       console.log(err);
+      setUploadStatus('Upload failed. Please try again.');
     }
   };
 
@@ -99,6 +110,7 @@ export default function ProfileForm(props) {
 
   const close = (event) => {
     if (event) event.preventDefault();
+    setUploadStatus(null);
     props.setPopped(false);
   };
 
@@ -135,6 +147,14 @@ export default function ProfileForm(props) {
                 accept="image/jpeg,image/png"
                 onChange={s3_upload}
               />
+              {uploadStatus && (
+                <div
+                  className='upload_status'
+                  style={{ marginTop: '8px', fontSize: '14px', color: 'rgba(255,255,255,0.7)' }}
+                >
+                  {uploadStatus}
+                </div>
+              )}
             </div>
             <div className='submit'>
               <button onClick={onsubmit}>Save</button>

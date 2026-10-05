@@ -71,3 +71,10 @@
   border-radius: 999px;
   object-fit: cover;
 }
+
+/* #hashtags inside a message (backlog #41). Theme purple; semi-bold because
+   this purple is only 3.7:1 against the black background. */
+.activity_content .message .hashtag {
+  color: rgb(149,0,255);
+  font-weight: 600;
+}
