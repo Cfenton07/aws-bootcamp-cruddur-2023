@@ -1,0 +1,105 @@
+{
+  "task": "Animated page banners: replace the 4 banner SVGs with animated versions (same file names, same artwork)",
+  "branch": "kiro-dev",
+  "protocol": "Kiro Supervised. Kiro may run read-only git (log/status/diff); C runs every mutating git, AWS and docker command. Replace ONLY the 4 SVG files listed, with the IDE write tool. Do NOT pass the cwd parameter; every command does its own cd. Stop at every STOP and paste actual output verbatim.",
+  "context": {
+    "what": "Each SVG gains an internal <style> block with CSS keyframes (opacity, rotate, scale, stroke-dashoffset) and, in banner_messages.svg only, an SMIL <animateMotion> that flies the paper plane along the dotted path. Artwork, colours, viewBox and ids are unchanged. Each file has a prefers-reduced-motion rule that stops the animation (the Messages plane is shown parked mid-flight instead).",
+    "why_no_code_change": "The banners are CSS background images (kiro-spec-banners.json, da339f9). Browsers run CSS and SMIL animation inside SVG background images, so swapping the files is the whole change. No JS, CSS or page edits.",
+    "tested_by_claude": "All 4 files parse as XML. Rendered in Chromium as CSS backgrounds with the deployed sizing: frames at 0.3s/2s/3.9s/4.3s show the house ripple, bell swing + waves, plane in flight and read tick, typing dots, wave and heart beat. C reviewed and approved the preview 2026-10-06."
+  },
+  "phases": [
+    {
+      "phase": 0,
+      "name": "STOP 0 — state and anchors (read-only)",
+      "commands": [
+        "cd /home/fento01/aws-bootcamp-cruddur-2023 && GIT_PAGER=cat git status --short",
+        "cd /home/fento01/aws-bootcamp-cruddur-2023 && GIT_PAGER=cat git log --oneline -1",
+        "cd /home/fento01/aws-bootcamp-cruddur-2023/frontend-react-js/src/components/banners && sha256sum banner_home.svg banner_notifications.svg banner_people.svg banner_messages.svg"
+      ],
+      "expect": {
+        "git status": "empty, or only ?? lines under _docs/specs/",
+        "git log": "da339f9 ... Page banners + sticky page headers (backlog #43)",
+        "sha256 (all 4 must match — the static banners from da339f9)": {
+          "banner_home.svg": "3580e7647d55a7f7d0c672f9b65934403e42f3a5151070b716f855fd76d4da2f",
+          "banner_notifications.svg": "66c62da8847885c732675ce13c77b9fc204175676900a445bf3f8cd459ccd16b",
+          "banner_people.svg": "1bcf9676683a6bfd92abbc01d88ae1d7a08f7a4224c3cef1e30f64076903073f",
+          "banner_messages.svg": "68ac73a9bc0c196e773f8459204c0a421ddd211f24d177ebedaf246191db4255"
+        }
+      },
+      "on_mismatch": "STOP and report. Edit nothing."
+    },
+    {
+      "phase": 1,
+      "name": "Write frontend-react-js/src/components/banners/banner_home.svg",
+      "file": "frontend-react-js/src/components/banners/banner_home.svg",
+      "mode": "replace the ENTIRE file with the content below, byte for byte (LF line endings, exactly one trailing newline)",
+      "content": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 600 92\" width=\"600\" height=\"92\" preserveAspectRatio=\"xMaxYMid slice\">\n  <style>\n    .glow { animation: breathe 6s ease-in-out infinite; }\n    .door { animation: doorlight 6s ease-in-out infinite; }\n    .ring { transform-box: fill-box; transform-origin: center; animation: ripple 6s ease-out infinite; }\n    @keyframes breathe { 0%,100% { opacity: .55 } 50% { opacity: 1 } }\n    @keyframes doorlight { 0%,100% { opacity: .35 } 50% { opacity: 1 } }\n    @keyframes ripple { 0%,55% { opacity: 0; transform: scale(.6) } 62% { opacity: .5 } 100% { opacity: 0; transform: scale(1.6) } }\n    @media (prefers-reduced-motion: reduce) { .glow, .door, .ring { animation: none } .ring { opacity: 0 } }\n  </style>\n  <defs>\n    <radialGradient id=\"glow\" cx=\"88%\" cy=\"50%\" r=\"45%\">\n      <stop offset=\"0\" stop-color=\"#9500FF\" stop-opacity=\"0.28\"/>\n      <stop offset=\"1\" stop-color=\"#9500FF\" stop-opacity=\"0\"/>\n    </radialGradient>\n    <linearGradient id=\"rule\" x1=\"0\" x2=\"1\">\n      <stop offset=\"0.35\" stop-color=\"#9500FF\" stop-opacity=\"0\"/>\n      <stop offset=\"1\" stop-color=\"#9500FF\" stop-opacity=\"0.6\"/>\n    </linearGradient>\n  </defs>\n  <rect width=\"600\" height=\"92\" fill=\"#000\"/>\n  <rect class=\"glow\" width=\"600\" height=\"92\" fill=\"url(#glow)\"/>\n  <rect y=\"91\" width=\"600\" height=\"1\" fill=\"url(#rule)\"/>\n  <g transform=\"translate(528,46)\" fill=\"none\" stroke=\"#9500FF\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" opacity=\"0.85\">\n    <circle class=\"ring\" cy=\"2\" r=\"26\" stroke-width=\"1\"/>\n    <path d=\"M-20 -2 L0 -20 L20 -2\"/>\n    <path d=\"M-15 -6 V18 H15 V-6\"/>\n    <path class=\"door\" d=\"M-5 18 V6 H5 V18\" fill=\"#9500FF\" fill-opacity=\"0.35\"/>\n  </g>\n</svg>\n"
+    },
+    {
+      "phase": 2,
+      "name": "Write frontend-react-js/src/components/banners/banner_notifications.svg",
+      "file": "frontend-react-js/src/components/banners/banner_notifications.svg",
+      "mode": "replace the ENTIRE file with the content below, byte for byte (LF line endings, exactly one trailing newline)",
+      "content": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 600 92\" width=\"600\" height=\"92\" preserveAspectRatio=\"xMaxYMid slice\">\n  <style>\n    .glow { animation: breathe 5s ease-in-out infinite; }\n    .bell { transform-box: fill-box; transform-origin: 50% 0%; animation: ring 5s ease-in-out infinite; }\n    .wave { animation: wave 5s ease-out infinite; }\n    @keyframes breathe { 0%,100% { opacity: .55 } 70% { opacity: .6 } 80% { opacity: 1 } }\n    @keyframes ring { 0%,68% { transform: rotate(0) } 72% { transform: rotate(14deg) } 76% { transform: rotate(-12deg) } 80% { transform: rotate(8deg) } 84% { transform: rotate(-5deg) } 88% { transform: rotate(2deg) } 92%,100% { transform: rotate(0) } }\n    @keyframes wave { 0%,68% { opacity: 0 } 74% { opacity: .7 } 90% { opacity: .5 } 100% { opacity: 0 } }\n    @media (prefers-reduced-motion: reduce) { .glow, .bell, .wave { animation: none } .wave { opacity: .6 } }\n  </style>\n  <defs>\n    <radialGradient id=\"glow\" cx=\"88%\" cy=\"50%\" r=\"45%\">\n      <stop offset=\"0\" stop-color=\"#9500FF\" stop-opacity=\"0.28\"/>\n      <stop offset=\"1\" stop-color=\"#9500FF\" stop-opacity=\"0\"/>\n    </radialGradient>\n    <linearGradient id=\"rule\" x1=\"0\" x2=\"1\">\n      <stop offset=\"0.35\" stop-color=\"#9500FF\" stop-opacity=\"0\"/>\n      <stop offset=\"1\" stop-color=\"#9500FF\" stop-opacity=\"0.6\"/>\n    </linearGradient>\n  </defs>\n  <rect width=\"600\" height=\"92\" fill=\"#000\"/>\n  <rect class=\"glow\" width=\"600\" height=\"92\" fill=\"url(#glow)\"/>\n  <rect y=\"91\" width=\"600\" height=\"1\" fill=\"url(#rule)\"/>\n  <g transform=\"translate(528,44)\" fill=\"none\" stroke=\"#9500FF\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" opacity=\"0.85\">\n    <g class=\"bell\">\n      <path d=\"M-14 8 C-12 4 -12 0 -12 -4 A12 12 0 0 1 12 -4 C12 0 12 4 14 8 Z\"/>\n      <path d=\"M-4 13 A4 4 0 0 0 4 13\"/>\n    </g>\n    <path class=\"wave\" d=\"M18 -12 A16 16 0 0 1 22 2\"/>\n    <path class=\"wave\" d=\"M-18 -12 A16 16 0 0 0 -22 2\"/>\n  </g>\n</svg>\n"
+    },
+    {
+      "phase": 3,
+      "name": "Write frontend-react-js/src/components/banners/banner_people.svg",
+      "file": "frontend-react-js/src/components/banners/banner_people.svg",
+      "mode": "replace the ENTIRE file with the content below, byte for byte (LF line endings, exactly one trailing newline)",
+      "content": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 600 92\" width=\"600\" height=\"92\" preserveAspectRatio=\"xMaxYMid slice\">\n  <style>\n    .dot { animation: typing 1.4s ease-in-out infinite; }\n    .d2 { animation-delay: .2s } .d3 { animation-delay: .4s }\n    .dash { animation: flow 2s linear infinite; }\n    .arm { transform-box: fill-box; transform-origin: 0% 100%; animation: wave 3s ease-in-out infinite; }\n    .heart { transform-box: fill-box; transform-origin: center; animation: beat 3s ease-in-out infinite; }\n    @keyframes typing { 0%,60%,100% { opacity: .25 } 30% { opacity: 1 } }\n    @keyframes flow { to { stroke-dashoffset: -14 } }\n    @keyframes wave { 0%,40%,100% { transform: rotate(0) } 50% { transform: rotate(-18deg) } 60% { transform: rotate(8deg) } 70% { transform: rotate(-14deg) } 80% { transform: rotate(0) } }\n    @keyframes beat { 0%,70%,100% { transform: scale(1) } 76% { transform: scale(1.3) } 82% { transform: scale(1) } 88% { transform: scale(1.2) } 94% { transform: scale(1) } }\n    @media (prefers-reduced-motion: reduce) { .dot, .dash, .arm, .heart { animation: none } .dot { opacity: 1 } }\n  </style>\n  <defs>\n    <radialGradient id=\"glow\" cx=\"75%\" cy=\"50%\" r=\"55%\">\n      <stop offset=\"0\" stop-color=\"#9500FF\" stop-opacity=\"0.24\"/>\n      <stop offset=\"1\" stop-color=\"#9500FF\" stop-opacity=\"0\"/>\n    </radialGradient>\n    <linearGradient id=\"rule\" x1=\"0\" x2=\"1\">\n      <stop offset=\"0.35\" stop-color=\"#9500FF\" stop-opacity=\"0\"/>\n      <stop offset=\"1\" stop-color=\"#9500FF\" stop-opacity=\"0.6\"/>\n    </linearGradient>\n  </defs>\n  <rect width=\"600\" height=\"92\" fill=\"#000\"/>\n  <rect width=\"600\" height=\"92\" fill=\"url(#glow)\"/>\n  <rect y=\"91\" width=\"600\" height=\"1\" fill=\"url(#rule)\"/>\n\n  <g fill=\"none\" stroke=\"#9500FF\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n\n    <!-- Person 1 and Person 2 chatting: shared speech bubble (typing dots) -->\n    <g transform=\"translate(330,50)\" opacity=\"0.55\">\n      <circle cy=\"-12\" r=\"7\"/>\n      <path d=\"M-14 18 A14 14 0 0 1 14 18\"/>\n    </g>\n    <g transform=\"translate(382,50)\" opacity=\"0.8\">\n      <circle cy=\"-12\" r=\"7\"/>\n      <path d=\"M-14 18 A14 14 0 0 1 14 18\"/>\n    </g>\n    <g opacity=\"0.7\">\n      <path d=\"M349 30 H364 A7 7 0 0 0 364 14 H349 A7 7 0 0 0 349 30 M352 30 L346 36 L355 30\"/>\n      <g fill=\"#9500FF\" stroke=\"none\">\n        <circle class=\"dot\" cx=\"350\" cy=\"22\" r=\"1.6\"/>\n        <circle class=\"dot d2\" cx=\"356.5\" cy=\"22\" r=\"1.6\"/>\n        <circle class=\"dot d3\" cx=\"363\" cy=\"22\" r=\"1.6\"/>\n      </g>\n    </g>\n\n    <!-- Person 2 and Person 3 connected -->\n    <path class=\"dash\" d=\"M393 34 Q420 18 447 34\" stroke-dasharray=\"2 5\" opacity=\"0.6\"/>\n\n    <!-- Person 3 waving toward Person 4 -->\n    <g transform=\"translate(458,50)\" opacity=\"0.9\">\n      <circle cy=\"-12\" r=\"7\"/>\n      <path d=\"M-14 18 A14 14 0 0 1 14 18\"/>\n      <g class=\"arm\">\n        <path d=\"M10 8 L20 -4\"/>\n        <path d=\"M24 -10 L27 -13 M26 -4 L30 -5\" opacity=\"0.6\"/>\n      </g>\n    </g>\n\n    <!-- Person 4 replying with a heart -->\n    <g transform=\"translate(530,50)\" opacity=\"0.65\">\n      <circle cy=\"-12\" r=\"7\"/>\n      <path d=\"M-14 18 A14 14 0 0 1 14 18\"/>\n    </g>\n    <g opacity=\"0.75\">\n      <path d=\"M546 28 H558 A7 7 0 0 0 558 12 H546 A7 7 0 0 0 546 28 M546 28 L540 34 L551 28\"/>\n      <path class=\"heart\" d=\"M552 24 C546 20 547 15 552 18 C557 15 558 20 552 24 Z\" fill=\"#9500FF\" stroke=\"none\"/>\n    </g>\n  </g>\n</svg>\n"
+    },
+    {
+      "phase": 4,
+      "name": "Write frontend-react-js/src/components/banners/banner_messages.svg",
+      "file": "frontend-react-js/src/components/banners/banner_messages.svg",
+      "mode": "replace the ENTIRE file with the content below, byte for byte (LF line endings, exactly one trailing newline)",
+      "content": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 600 92\" width=\"600\" height=\"92\" preserveAspectRatio=\"xMaxYMid slice\">\n  <style>\n    .dash { animation: flow 1.6s linear infinite; }\n    .sent { animation: sent 6s ease-in-out infinite; }\n    .reply { animation: reply 6s ease-in-out infinite; }\n    .tick { animation: tick 6s ease-in-out infinite; }\n    .static { display: none; }\n    @keyframes flow { to { stroke-dashoffset: -14 } }\n    @keyframes sent { 0%,100% { opacity: .35 } 8%,60% { opacity: .65 } }\n    @keyframes reply { 0%,62% { opacity: .2 } 70%,92% { opacity: .8 } 100% { opacity: .2 } }\n    @keyframes tick { 0%,70% { opacity: 0 } 76%,92% { opacity: .7 } 100% { opacity: 0 } }\n    @media (prefers-reduced-motion: reduce) {\n      .dash, .sent, .reply, .tick { animation: none }\n      .sent { opacity: .65 } .reply { opacity: .8 } .tick { opacity: .6 }\n      .motion { display: none } .static { display: inline }\n    }\n  </style>\n  <defs>\n    <radialGradient id=\"glow\" cx=\"75%\" cy=\"50%\" r=\"55%\">\n      <stop offset=\"0\" stop-color=\"#9500FF\" stop-opacity=\"0.24\"/>\n      <stop offset=\"1\" stop-color=\"#9500FF\" stop-opacity=\"0\"/>\n    </radialGradient>\n    <linearGradient id=\"rule\" x1=\"0\" x2=\"1\">\n      <stop offset=\"0.35\" stop-color=\"#9500FF\" stop-opacity=\"0\"/>\n      <stop offset=\"1\" stop-color=\"#9500FF\" stop-opacity=\"0.6\"/>\n    </linearGradient>\n  </defs>\n  <rect width=\"600\" height=\"92\" fill=\"#000\"/>\n  <rect width=\"600\" height=\"92\" fill=\"url(#glow)\"/>\n  <rect y=\"91\" width=\"600\" height=\"1\" fill=\"url(#rule)\"/>\n\n  <g fill=\"none\" stroke=\"#9500FF\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n\n    <!-- Sender -->\n    <g transform=\"translate(322,50)\" opacity=\"0.6\">\n      <circle cy=\"-12\" r=\"7\"/>\n      <path d=\"M-14 18 A14 14 0 0 1 14 18\"/>\n    </g>\n    <!-- Sender's message bubble -->\n    <g class=\"sent\">\n      <path d=\"M342 26 H362 A6 6 0 0 0 368 20 V16 A6 6 0 0 0 362 10 H342 A6 6 0 0 0 336 16 V20 A6 6 0 0 0 342 26 Z\"/>\n      <path d=\"M341 26 L335 32 L347 26\" fill=\"#000\"/>\n      <path d=\"M343 16 H361 M343 21 H354\" stroke-width=\"1.5\"/>\n    </g>\n\n    <!-- Flight path of the message (dashes flow toward the receiver) -->\n    <path id=\"flight\" class=\"dash\" d=\"M340 46 C390 10 470 80 542 44\" stroke-dasharray=\"2 5\" opacity=\"0.5\"/>\n\n    <!-- Paper plane flies the path, then fades as it arrives -->\n    <g class=\"motion\" opacity=\"0\">\n      <g transform=\"rotate(40)\">\n        <path d=\"M-12 0 L12 -10 L4 10 Z\" fill=\"#000\"/>\n        <path d=\"M12 -10 L-1 2 L4 10\"/>\n      </g>\n      <animateMotion dur=\"6s\" repeatCount=\"indefinite\" rotate=\"auto\" keyPoints=\"0;1;1\" keyTimes=\"0;0.65;1\" calcMode=\"linear\">\n        <mpath href=\"#flight\"/>\n      </animateMotion>\n      <animate attributeName=\"opacity\" dur=\"6s\" repeatCount=\"indefinite\" values=\"0;0.95;0.95;0;0\" keyTimes=\"0;0.06;0.58;0.66;1\"/>\n    </g>\n    <!-- Static plane for reduced motion -->\n    <g class=\"static\" transform=\"translate(433,45) rotate(14)\" opacity=\"0.95\">\n      <path d=\"M-12 0 L12 -10 L4 10 Z\" fill=\"#000\"/>\n      <path d=\"M12 -10 L-1 2 L4 10\"/>\n    </g>\n\n    <!-- Receiver -->\n    <g transform=\"translate(560,50)\" opacity=\"0.85\">\n      <circle cy=\"-12\" r=\"7\"/>\n      <path d=\"M-14 18 A14 14 0 0 1 14 18\"/>\n    </g>\n    <!-- Receiver's reply bubble -->\n    <g class=\"reply\">\n      <path d=\"M518 26 H538 A6 6 0 0 0 544 20 V16 A6 6 0 0 0 538 10 H518 A6 6 0 0 0 512 16 V20 A6 6 0 0 0 518 26 Z\"/>\n      <path d=\"M533 26 L545 32 L539 26\" fill=\"#000\"/>\n      <path d=\"M519 16 H537 M526 21 H537\" stroke-width=\"1.5\"/>\n    </g>\n    <!-- Read receipt -->\n    <path class=\"tick\" d=\"M496 20 L499 23 L504 17 M501 23 L506 17\" stroke-width=\"1.5\"/>\n  </g>\n</svg>\n"
+    },
+    {
+      "phase": 5,
+      "name": "STOP — gates (run all; paste actual output)",
+      "commands": [
+        "cd /home/fento01/aws-bootcamp-cruddur-2023/frontend-react-js/src/components/banners && sha256sum banner_home.svg banner_notifications.svg banner_people.svg banner_messages.svg",
+        "cd /home/fento01/aws-bootcamp-cruddur-2023/frontend-react-js/src/components/banners && grep -c $'\\r' banner_home.svg banner_notifications.svg banner_people.svg banner_messages.svg ; true",
+        "cd /home/fento01/aws-bootcamp-cruddur-2023/frontend-react-js/src/components/banners && echo \"reduced_motion_files=$(grep -l 'prefers-reduced-motion' banner_home.svg banner_notifications.svg banner_people.svg banner_messages.svg | wc -l)\"",
+        "cd /home/fento01/aws-bootcamp-cruddur-2023/frontend-react-js/src/components/banners && for f in banner_home.svg banner_notifications.svg banner_people.svg banner_messages.svg; do python3 -c \"import xml.dom.minidom,sys; xml.dom.minidom.parse(sys.argv[1]); print('XML_OK', sys.argv[1])\" $f; done",
+        "cd /home/fento01/aws-bootcamp-cruddur-2023 && GIT_PAGER=cat git status --short",
+        "cd /home/fento01/aws-bootcamp-cruddur-2023 && GIT_PAGER=cat git diff --stat"
+      ],
+      "expect": {
+        "sha256 (all 4 must match)": {
+          "banner_home.svg": "700304e221ad6632a2d116c56514f4e480a057bfa25c02d87bc8b249156fb685",
+          "banner_notifications.svg": "0c8860b8f731fd87e625fdecb6beba696214d394b9119e4f01081ab3db3824d4",
+          "banner_people.svg": "e85604f7d6e4a0cbd96082c3490c499cdf20138a2ce8da0e1235db5bd376f17a",
+          "banner_messages.svg": "45f72897aefe63e1597caa5b356a1d6de3b577843b5ce0c7cf79683a5d07f8c2"
+        },
+        "CR count": "0 for all 4",
+        "reduced_motion_files": "4",
+        "XML": "XML_OK for all 4",
+        "git status": "exactly 4 lines ' M frontend-react-js/src/components/banners/<name>.svg' (plus any ?? _docs/specs/ line)",
+        "git diff --stat": "4 files changed (all under components/banners/)"
+      },
+      "on_failure": "STOP and report the exact output. If a hash fails ONLY because of CR characters, report it — C will normalise line endings."
+    }
+  ],
+  "must_not": [
+    "Edit any file other than the 4 SVGs.",
+    "Change artwork, colours, ids or viewBox beyond the spec content.",
+    "git add/commit/push or history rewrites.",
+    "docker, AWS CLI, npm install/build, bin/ scripts.",
+    "Write files with shell commands."
+  ],
+  "operator_steps_after_gates (C runs)": [
+    "git add frontend-react-js/src/components/banners _docs/specs/kiro-spec-animated-banners.json && git commit -m 'Animated page banners (SVG-only swap)' && git push origin kiro-dev",
+    "./bin/frontend/build; verify digest (push output = ECR); sed-replace f89bf91a4ddf2f86b85bcfe32cc93d5c1f4588d5b25f2bd0fae816f1a37cc257 with the new digest in aws/cfn/frontend/config.toml; grep to confirm",
+    "./bin/cfn/frontend-deploy; EXECUTE the change set; wait for one healthy FrontendTG target",
+    "Rollback: re-pin sha256:f89bf91a4ddf2f86b85bcfe32cc93d5c1f4588d5b25f2bd0fae816f1a37cc257 (static banners) and redeploy CrdFrontend"
+  ],
+  "verify_next_deploy": [
+    "Hard refresh (Ctrl+Shift+R).",
+    "Home: glow breathes, door glows, occasional ripple. Notifications: bell swings every ~5s. People: typing dots, wave, heart beat. Messages: plane flies sender→receiver, tick appears.",
+    "Banners still pinned while scrolling; popups still above them.",
+    "Optional: turn on Windows 'Animation effects: Off' (Settings → Accessibility → Visual effects) and reload — banners should be still."
+  ]
+}

@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 92" width="600" height="92" preserveAspectRatio="xMaxYMid slice">
+  <style>
+    .glow { animation: breathe 5s ease-in-out infinite; }
+    .bell { transform-box: fill-box; transform-origin: 50% 0%; animation: ring 5s ease-in-out infinite; }
+    .wave { animation: wave 5s ease-out infinite; }
+    @keyframes breathe { 0%,100% { opacity: .55 } 70% { opacity: .6 } 80% { opacity: 1 } }
+    @keyframes ring { 0%,68% { transform: rotate(0) } 72% { transform: rotate(14deg) } 76% { transform: rotate(-12deg) } 80% { transform: rotate(8deg) } 84% { transform: rotate(-5deg) } 88% { transform: rotate(2deg) } 92%,100% { transform: rotate(0) } }
+    @keyframes wave { 0%,68% { opacity: 0 } 74% { opacity: .7 } 90% { opacity: .5 } 100% { opacity: 0 } }
+    @media (prefers-reduced-motion: reduce) { .glow, .bell, .wave { animation: none } .wave { opacity: .6 } }
+  </style>
+  <defs>
+    <radialGradient id="glow" cx="88%" cy="50%" r="45%">
+      <stop offset="0" stop-color="#9500FF" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#9500FF" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="rule" x1="0" x2="1">
+      <stop offset="0.35" stop-color="#9500FF" stop-opacity="0"/>
+      <stop offset="1" stop-color="#9500FF" stop-opacity="0.6"/>
+    </linearGradient>
+  </defs>
+  <rect width="600" height="92" fill="#000"/>
+  <rect class="glow" width="600" height="92" fill="url(#glow)"/>
+  <rect y="91" width="600" height="1" fill="url(#rule)"/>
+  <g transform="translate(528,44)" fill="none" stroke="#9500FF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity="0.85">
+    <g class="bell">
+      <path d="M-14 8 C-12 4 -12 0 -12 -4 A12 12 0 0 1 12 -4 C12 0 12 4 14 8 Z"/>
+      <path d="M-4 13 A4 4 0 0 0 4 13"/>
+    </g>
+    <path class="wave" d="M18 -12 A16 16 0 0 1 22 2"/>
+    <path class="wave" d="M-18 -12 A16 16 0 0 0 -22 2"/>
+  </g>
+</svg>

@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 92" width="600" height="92" preserveAspectRatio="xMaxYMid slice">
+  <style>
+    .glow { animation: breathe 6s ease-in-out infinite; }
+    .door { animation: doorlight 6s ease-in-out infinite; }
+    .ring { transform-box: fill-box; transform-origin: center; animation: ripple 6s ease-out infinite; }
+    @keyframes breathe { 0%,100% { opacity: .55 } 50% { opacity: 1 } }
+    @keyframes doorlight { 0%,100% { opacity: .35 } 50% { opacity: 1 } }
+    @keyframes ripple { 0%,55% { opacity: 0; transform: scale(.6) } 62% { opacity: .5 } 100% { opacity: 0; transform: scale(1.6) } }
+    @media (prefers-reduced-motion: reduce) { .glow, .door, .ring { animation: none } .ring { opacity: 0 } }
+  </style>
+  <defs>
+    <radialGradient id="glow" cx="88%" cy="50%" r="45%">
+      <stop offset="0" stop-color="#9500FF" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#9500FF" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="rule" x1="0" x2="1">
+      <stop offset="0.35" stop-color="#9500FF" stop-opacity="0"/>
+      <stop offset="1" stop-color="#9500FF" stop-opacity="0.6"/>
+    </linearGradient>
+  </defs>
+  <rect width="600" height="92" fill="#000"/>
+  <rect class="glow" width="600" height="92" fill="url(#glow)"/>
+  <rect y="91" width="600" height="1" fill="url(#rule)"/>
+  <g transform="translate(528,46)" fill="none" stroke="#9500FF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity="0.85">
+    <circle class="ring" cy="2" r="26" stroke-width="1"/>
+    <path d="M-20 -2 L0 -20 L20 -2"/>
+    <path d="M-15 -6 V18 H15 V-6"/>
+    <path class="door" d="M-5 18 V6 H5 V18" fill="#9500FF" fill-opacity="0.35"/>
+  </g>
+</svg>

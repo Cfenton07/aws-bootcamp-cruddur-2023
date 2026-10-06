@@ -1,0 +1,172 @@
+{
+  "task": "Page banners (C's 4 SVGs) + locked/sticky page headers in the centre column (backlog #43)",
+  "branch": "kiro-dev",
+  "protocol": "Kiro Supervised. Kiro may run read-only git (log/status/diff); C runs every mutating git, AWS and docker command. Edit/create ONLY the 10 files listed, with the IDE write tool. Do NOT pass the cwd parameter; every command does its own cd. Stop at every STOP and paste actual output verbatim.",
+  "context": {
+    "design": "Each banner is a CSS BACKGROUND image on the page heading; the title text sits on the left. Never inline the SVGs: all four reuse ids 'glow'/'rule' and would collide in one DOM. .content (App.css) is the centre-column scroll container, so position: sticky; top: 0 locks the Home/Notifications/People heading while the feed scrolls. The Messages heading is already locked (only .message_group_feed_collection scrolls) — it just gets its banner. Profile is intentionally unchanged (ActivityFeed without the banner prop renders exactly as before).",
+    "z_index": "Sticky heading z-index 3 sits above the compose form's positioned select (z 1-2). .popup_form_wrap (reply / edit-profile popups) is raised to z-index 1000 so popups stay above the header.",
+    "sizing": "background-size: auto 100% (height-fit, right-anchored): the SVG's purple bottom rule stays visible and its black base continues seamlessly into background-color #000 on the left. Messages column is narrower (~380px): auto 85% + right bottom keeps the artwork clear of the 'Messages' title.",
+    "tested_by_claude": "Rendered in Chromium with these exact CSS rules: all four headings stay pinned after scrolling 300px; title readable; icons visible at 600px, at 420px and in the 380px Messages column; posts never show through. JSX files pass a syntax parse. Not run in the real app — that is the post-deploy verify."
+  },
+  "phases": [
+    {
+      "phase": 0,
+      "name": "STOP 0 — state and anchors (read-only)",
+      "commands": [
+        "cd /home/fento01/aws-bootcamp-cruddur-2023 && GIT_PAGER=cat git status --short",
+        "cd /home/fento01/aws-bootcamp-cruddur-2023 && GIT_PAGER=cat git log --oneline -1",
+        "cd /home/fento01/aws-bootcamp-cruddur-2023/frontend-react-js/src && sha256sum components/ActivityFeed.js components/ActivityFeed.css components/MessageGroupFeed.css pages/HomeFeedPage.js pages/NotificationsFeedPage.js pages/PeoplePage.js",
+        "cd /home/fento01/aws-bootcamp-cruddur-2023/frontend-react-js/src && ls components/banners 2>&1 | cat"
+      ],
+      "expect": {
+        "git status": "empty, or only ?? lines under _docs/specs/",
+        "git log": "a71c1c2 ... Avatar upload: extension from file type ...",
+        "sha256 (all 6 must match)": {
+          "components/ActivityFeed.js": "3dc4a0306f2cd1eae15e0df94cfd3d981dc12a0c7bf9c5ebfca43cb041a3ad3e",
+          "components/ActivityFeed.css": "72ebd4b16eaaac230bbdcab1430106677833e30f0da81a245ad5bd98edd9b130",
+          "components/MessageGroupFeed.css": "48c8bd1bd2fb59200819b488d77670d3440f7c1bb6483ed517eae6170254b6e9",
+          "pages/HomeFeedPage.js": "f6d71f769c1067e5aef041fd033be9b493f886278fefc429ee3606095989c7ac",
+          "pages/NotificationsFeedPage.js": "48bf9c90ffcd63eb1151960fbe7ede703c1e7fb56446c285f9a3a329c26f0fd4",
+          "pages/PeoplePage.js": "9dddb99fe2a9bd4ea38da34f4cca3820f10122258f5e4c01a376def492be4288"
+        },
+        "ls components/banners": "No such file or directory (the folder is new)"
+      },
+      "on_mismatch": "STOP and report. Edit nothing."
+    },
+    {
+      "phase": 1,
+      "name": "Create frontend-react-js/src/components/banners/banner_home.svg",
+      "file": "frontend-react-js/src/components/banners/banner_home.svg",
+      "purpose": "NEW: C's Home banner (exact bytes)",
+      "mode": "create this NEW file with the content below, byte for byte (LF line endings, exactly one trailing newline)",
+      "content": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 600 92\" width=\"600\" height=\"92\" preserveAspectRatio=\"xMaxYMid slice\">\n  <defs>\n    <radialGradient id=\"glow\" cx=\"88%\" cy=\"50%\" r=\"45%\">\n      <stop offset=\"0\" stop-color=\"#9500FF\" stop-opacity=\"0.28\"/>\n      <stop offset=\"1\" stop-color=\"#9500FF\" stop-opacity=\"0\"/>\n    </radialGradient>\n    <linearGradient id=\"rule\" x1=\"0\" x2=\"1\">\n      <stop offset=\"0.35\" stop-color=\"#9500FF\" stop-opacity=\"0\"/>\n      <stop offset=\"1\" stop-color=\"#9500FF\" stop-opacity=\"0.6\"/>\n    </linearGradient>\n  </defs>\n  <rect width=\"600\" height=\"92\" fill=\"#000\"/>\n  <rect width=\"600\" height=\"92\" fill=\"url(#glow)\"/>\n  <rect y=\"91\" width=\"600\" height=\"1\" fill=\"url(#rule)\"/>\n  <g transform=\"translate(528,46)\" fill=\"none\" stroke=\"#9500FF\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" opacity=\"0.85\">\n    <path d=\"M-20 -2 L0 -20 L20 -2\"/>\n    <path d=\"M-15 -6 V18 H15 V-6\"/>\n    <path d=\"M-5 18 V6 H5 V18\"/>\n  </g>\n</svg>\n"
+    },
+    {
+      "phase": 2,
+      "name": "Create frontend-react-js/src/components/banners/banner_notifications.svg",
+      "file": "frontend-react-js/src/components/banners/banner_notifications.svg",
+      "purpose": "NEW: C's Notifications banner (exact bytes)",
+      "mode": "create this NEW file with the content below, byte for byte (LF line endings, exactly one trailing newline)",
+      "content": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 600 92\" width=\"600\" height=\"92\" preserveAspectRatio=\"xMaxYMid slice\">\n  <defs>\n    <radialGradient id=\"glow\" cx=\"88%\" cy=\"50%\" r=\"45%\">\n      <stop offset=\"0\" stop-color=\"#9500FF\" stop-opacity=\"0.28\"/>\n      <stop offset=\"1\" stop-color=\"#9500FF\" stop-opacity=\"0\"/>\n    </radialGradient>\n    <linearGradient id=\"rule\" x1=\"0\" x2=\"1\">\n      <stop offset=\"0.35\" stop-color=\"#9500FF\" stop-opacity=\"0\"/>\n      <stop offset=\"1\" stop-color=\"#9500FF\" stop-opacity=\"0.6\"/>\n    </linearGradient>\n  </defs>\n  <rect width=\"600\" height=\"92\" fill=\"#000\"/>\n  <rect width=\"600\" height=\"92\" fill=\"url(#glow)\"/>\n  <rect y=\"91\" width=\"600\" height=\"1\" fill=\"url(#rule)\"/>\n  <g transform=\"translate(528,44)\" fill=\"none\" stroke=\"#9500FF\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" opacity=\"0.85\">\n    <path d=\"M-14 8 C-12 4 -12 0 -12 -4 A12 12 0 0 1 12 -4 C12 0 12 4 14 8 Z\"/>\n    <path d=\"M-4 13 A4 4 0 0 0 4 13\"/>\n    <path d=\"M18 -12 A16 16 0 0 1 22 2\" opacity=\"0.6\"/>\n    <path d=\"M-18 -12 A16 16 0 0 0 -22 2\" opacity=\"0.6\"/>\n  </g>\n</svg>\n"
+    },
+    {
+      "phase": 3,
+      "name": "Create frontend-react-js/src/components/banners/banner_people.svg",
+      "file": "frontend-react-js/src/components/banners/banner_people.svg",
+      "purpose": "NEW: C's People banner (exact bytes)",
+      "mode": "create this NEW file with the content below, byte for byte (LF line endings, exactly one trailing newline)",
+      "content": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 600 92\" width=\"600\" height=\"92\" preserveAspectRatio=\"xMaxYMid slice\">\n  <defs>\n    <radialGradient id=\"glow\" cx=\"75%\" cy=\"50%\" r=\"55%\">\n      <stop offset=\"0\" stop-color=\"#9500FF\" stop-opacity=\"0.24\"/>\n      <stop offset=\"1\" stop-color=\"#9500FF\" stop-opacity=\"0\"/>\n    </radialGradient>\n    <linearGradient id=\"rule\" x1=\"0\" x2=\"1\">\n      <stop offset=\"0.35\" stop-color=\"#9500FF\" stop-opacity=\"0\"/>\n      <stop offset=\"1\" stop-color=\"#9500FF\" stop-opacity=\"0.6\"/>\n    </linearGradient>\n  </defs>\n  <rect width=\"600\" height=\"92\" fill=\"#000\"/>\n  <rect width=\"600\" height=\"92\" fill=\"url(#glow)\"/>\n  <rect y=\"91\" width=\"600\" height=\"1\" fill=\"url(#rule)\"/>\n\n  <g fill=\"none\" stroke=\"#9500FF\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n\n    <!-- Person 1 and Person 2 chatting: shared speech bubble -->\n    <g transform=\"translate(330,50)\" opacity=\"0.55\">\n      <circle cy=\"-12\" r=\"7\"/>\n      <path d=\"M-14 18 A14 14 0 0 1 14 18\"/>\n    </g>\n    <g transform=\"translate(382,50)\" opacity=\"0.8\">\n      <circle cy=\"-12\" r=\"7\"/>\n      <path d=\"M-14 18 A14 14 0 0 1 14 18\"/>\n    </g>\n    <g opacity=\"0.7\">\n      <path d=\"M349 30 H364 A7 7 0 0 0 364 14 H349 A7 7 0 0 0 349 30 M352 30 L346 36 L355 30\"/>\n      <g fill=\"#9500FF\" stroke=\"none\">\n        <circle cx=\"350\" cy=\"22\" r=\"1.6\"/>\n        <circle cx=\"356.5\" cy=\"22\" r=\"1.6\"/>\n        <circle cx=\"363\" cy=\"22\" r=\"1.6\"/>\n      </g>\n    </g>\n\n    <!-- Person 2 and Person 3 connected -->\n    <path d=\"M393 34 Q420 18 447 34\" stroke-dasharray=\"2 5\" opacity=\"0.6\"/>\n\n    <!-- Person 3 waving toward Person 4 -->\n    <g transform=\"translate(458,50)\" opacity=\"0.9\">\n      <circle cy=\"-12\" r=\"7\"/>\n      <path d=\"M-14 18 A14 14 0 0 1 14 18\"/>\n      <path d=\"M10 8 L20 -4\"/>\n      <path d=\"M24 -10 L27 -13 M26 -4 L30 -5\" opacity=\"0.6\"/>\n    </g>\n\n    <!-- Person 4 replying with a heart -->\n    <g transform=\"translate(530,50)\" opacity=\"0.65\">\n      <circle cy=\"-12\" r=\"7\"/>\n      <path d=\"M-14 18 A14 14 0 0 1 14 18\"/>\n    </g>\n    <g opacity=\"0.75\">\n      <path d=\"M546 28 H558 A7 7 0 0 0 558 12 H546 A7 7 0 0 0 546 28 M546 28 L540 34 L551 28\"/>\n      <path d=\"M552 24 C546 20 547 15 552 18 C557 15 558 20 552 24 Z\" fill=\"#9500FF\" stroke=\"none\"/>\n    </g>\n  </g>\n</svg>\n"
+    },
+    {
+      "phase": 4,
+      "name": "Create frontend-react-js/src/components/banners/banner_messages.svg",
+      "file": "frontend-react-js/src/components/banners/banner_messages.svg",
+      "purpose": "NEW: C's Messages banner (exact bytes)",
+      "mode": "create this NEW file with the content below, byte for byte (LF line endings, exactly one trailing newline)",
+      "content": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 600 92\" width=\"600\" height=\"92\" preserveAspectRatio=\"xMaxYMid slice\">\n  <defs>\n    <radialGradient id=\"glow\" cx=\"75%\" cy=\"50%\" r=\"55%\">\n      <stop offset=\"0\" stop-color=\"#9500FF\" stop-opacity=\"0.24\"/>\n      <stop offset=\"1\" stop-color=\"#9500FF\" stop-opacity=\"0\"/>\n    </radialGradient>\n    <linearGradient id=\"rule\" x1=\"0\" x2=\"1\">\n      <stop offset=\"0.35\" stop-color=\"#9500FF\" stop-opacity=\"0\"/>\n      <stop offset=\"1\" stop-color=\"#9500FF\" stop-opacity=\"0.6\"/>\n    </linearGradient>\n  </defs>\n  <rect width=\"600\" height=\"92\" fill=\"#000\"/>\n  <rect width=\"600\" height=\"92\" fill=\"url(#glow)\"/>\n  <rect y=\"91\" width=\"600\" height=\"1\" fill=\"url(#rule)\"/>\n\n  <g fill=\"none\" stroke=\"#9500FF\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\">\n\n    <!-- Sender -->\n    <g transform=\"translate(322,50)\" opacity=\"0.6\">\n      <circle cy=\"-12\" r=\"7\"/>\n      <path d=\"M-14 18 A14 14 0 0 1 14 18\"/>\n    </g>\n    <!-- Sender's message bubble -->\n    <g opacity=\"0.65\">\n      <path d=\"M342 26 H362 A6 6 0 0 0 368 20 V16 A6 6 0 0 0 362 10 H342 A6 6 0 0 0 336 16 V20 A6 6 0 0 0 342 26 Z\"/>\n      <path d=\"M341 26 L335 32 L347 26\" fill=\"#000\"/>\n      <path d=\"M343 16 H361 M343 21 H354\" stroke-width=\"1.5\"/>\n    </g>\n\n    <!-- Flight path of the message -->\n    <path d=\"M340 46 C390 10 470 80 542 44\" stroke-dasharray=\"2 5\" opacity=\"0.5\"/>\n\n    <!-- Paper plane in flight -->\n    <g transform=\"translate(433,45) rotate(14)\" opacity=\"0.95\">\n      <path d=\"M-12 0 L12 -10 L4 10 Z\" fill=\"#000\"/>\n      <path d=\"M12 -10 L-1 2 L4 10\"/>\n    </g>\n\n    <!-- Receiver -->\n    <g transform=\"translate(560,50)\" opacity=\"0.85\">\n      <circle cy=\"-12\" r=\"7\"/>\n      <path d=\"M-14 18 A14 14 0 0 1 14 18\"/>\n    </g>\n    <!-- Receiver's reply bubble -->\n    <g opacity=\"0.8\">\n      <path d=\"M518 26 H538 A6 6 0 0 0 544 20 V16 A6 6 0 0 0 538 10 H518 A6 6 0 0 0 512 16 V20 A6 6 0 0 0 518 26 Z\"/>\n      <path d=\"M533 26 L545 32 L539 26\" fill=\"#000\"/>\n      <path d=\"M519 16 H537 M526 21 H537\" stroke-width=\"1.5\"/>\n    </g>\n    <!-- Read receipt -->\n    <path d=\"M496 20 L499 23 L504 17 M501 23 L506 17\" stroke-width=\"1.5\" opacity=\"0.6\"/>\n  </g>\n</svg>\n"
+    },
+    {
+      "phase": 5,
+      "name": "Write frontend-react-js/src/components/ActivityFeed.js",
+      "file": "frontend-react-js/src/components/ActivityFeed.js",
+      "purpose": "banner prop → heading gets classes \"banner banner_<name>\"; no prop = unchanged (Profile)",
+      "mode": "replace the ENTIRE file with the content below, byte for byte (LF line endings, exactly one trailing newline)",
+      "content": "import './ActivityFeed.css';\nimport ActivityItem from './ActivityItem';\n\n// props.banner ('home' | 'notifications') adds a page banner and makes the\n// heading sticky (banner CSS in ActivityFeed.css). Without it the heading is\n// unchanged, so the Profile page (no title, no banner) looks the same as before.\nexport default function ActivityFeed(props) {\n  const headingClass = props.banner\n    ? `activity_feed_heading banner banner_${props.banner}`\n    : 'activity_feed_heading';\n  return (\n    <div className='activity_feed'>\n      <div className={headingClass}>\n        <div className='title'>{props.title}</div>\n      </div>\n      <div className='activity_feed_collection'>\n        {props.activities.map(activity => {\n        return  <ActivityItem setReplyActivity={props.setReplyActivity} setPopped={props.setPopped} key={activity.uuid} activity={activity} />\n        })}\n      </div>\n    </div>\n  );\n}\n"
+    },
+    {
+      "phase": 6,
+      "name": "Write frontend-react-js/src/components/ActivityFeed.css",
+      "file": "frontend-react-js/src/components/ActivityFeed.css",
+      "purpose": "APPEND ONLY: sticky banner heading, 3 banner backgrounds, popup z-index above the sticky header",
+      "mode": "replace the ENTIRE file with the content below, byte for byte (LF line endings, exactly one trailing newline)",
+      "content": ".activity_feed {\n  display: flex;\n  flex-direction: column;\n  flex-shrink: 0;\n}\n\n.activity_feed_collection {\n  display: flex;\n  flex-direction: column;\n}\n\n.activity_feed_heading {\n  padding: 16px;\n  padding-bottom: 48px;\n  border-bottom: solid 1px rgb(58,63,78);\n}\n\n.activity_feed_heading .title{\n  color: #fff;\n  font-weight: 800;\n  font-size: 20px;\n}\n\n/* Page banners + locked header (backlog #43, banners by C 2026-10-06).\n   .content is the scroll container (App.css), so position: sticky pins the\n   heading to the top of the centre column while the feed scrolls under it.\n   The SVGs are BACKGROUND images, never inlined: all four reuse the ids\n   \"glow\"/\"rule\", which would collide if two were inlined in one page.\n   Each SVG has an opaque #000 base, so posts never show through. */\n.activity_feed_heading.banner {\n  position: sticky;\n  top: 0;\n  z-index: 3;\n  background-color: #000;\n  background-repeat: no-repeat;\n  background-position: right center;\n  background-size: auto 100%;\n}\n\n.activity_feed_heading.banner_home {\n  background-image: url('./banners/banner_home.svg');\n}\n\n.activity_feed_heading.banner_notifications {\n  background-image: url('./banners/banner_notifications.svg');\n}\n\n.activity_feed_heading.banner_people {\n  background-image: url('./banners/banner_people.svg');\n}\n\n/* Popups (reply, edit profile) must stay above the sticky header (z-index 3). */\n.popup_form_wrap {\n  z-index: 1000;\n}\n"
+    },
+    {
+      "phase": 7,
+      "name": "Write frontend-react-js/src/components/MessageGroupFeed.css",
+      "file": "frontend-react-js/src/components/MessageGroupFeed.css",
+      "purpose": "APPEND ONLY: Messages banner background (heading is already locked)",
+      "mode": "replace the ENTIRE file with the content below, byte for byte (LF line endings, exactly one trailing newline)",
+      "content": "section.message_groups {\n  background: #000;\n  border-right: solid 1px rgb(58,63,78);\n  padding: 0px;\n}\n\n.message_group_feed_heading {\n  padding: 16px;\n  padding-bottom: 48px;\n  border-bottom: solid 1px rgb(58,63,78);\n}\n\n.message_group_feed_heading .title{\n  color: #fff;\n  font-weight: 800;\n  font-size: 20px;\n}\n\n.message_group_feed {\n  display: flex;\n  flex-direction: column;\n  height: 100%;\n}\n\n.message_group_feed_collection {\n  flex-grow: 1;\n  overflow: auto;\n}\n\n/* Messages banner (C 2026-10-06). This heading is already locked: only\n   .message_group_feed_collection scrolls. Background image, not inlined\n   (shared SVG ids). Right-anchored so the icons stay visible in the\n   narrower message column; 85% height keeps the\n   artwork clear of the \"Messages\" title. */\n.message_group_feed_heading {\n  background-color: #000;\n  background-image: url('./banners/banner_messages.svg');\n  background-repeat: no-repeat;\n  background-position: right bottom;\n  background-size: auto 85%;\n}\n"
+    },
+    {
+      "phase": 8,
+      "name": "Write frontend-react-js/src/pages/HomeFeedPage.js",
+      "file": "frontend-react-js/src/pages/HomeFeedPage.js",
+      "purpose": "one added line: banner=\"home\"",
+      "mode": "replace the ENTIRE file with the content below, byte for byte (LF line endings, exactly one trailing newline)",
+      "content": "import './HomeFeedPage.css';\nimport React from \"react\";\nimport { useLocation, useNavigate } from 'react-router-dom';\n\nimport DesktopNavigation  from '../components/DesktopNavigation';\nimport DesktopSidebar     from '../components/DesktopSidebar';\nimport ActivityFeed from '../components/ActivityFeed';\nimport ActivityForm from '../components/ActivityForm';\nimport ReplyForm from '../components/ReplyForm';        \n\nimport { signOut } from 'aws-amplify/auth';\nimport { checkAuth, getAccessToken } from '../components/lib/CheckAuth';\n\nexport default function HomeFeedPage() {\n  const [activities, setActivities] = React.useState([]);\n  const [popped, setPopped] = React.useState(false);\n  const [poppedReply, setPoppedReply] = React.useState(false);\n  const [replyActivity, setReplyActivity] = React.useState({});\n  const [user, setUser] = React.useState(null);\n  const location = useLocation();\n  const navigate = useNavigate();\n\nconst loadData = async () => {\n    console.log('loadData called');\n    const headers = {};\n\n    // Get a fresh access token (auto-refreshes if expired)\n    const accessToken = await getAccessToken();\n    if (accessToken) {\n      headers['Authorization'] = `Bearer ${accessToken}`;\n    }\n\n    const backend_url = `${process.env.REACT_APP_BACKEND_URL}/api/activities/home`;\n\n    try {\n      const res = await fetch(backend_url, {\n        method: \"GET\",\n        headers: headers,\n      });\n\n      const resJson = await res.json();\n      if (res.status === 200) {\n        setActivities(resJson)\n      } else {\n        console.log(res);\n      }\n    } catch (err) {\n      console.log(err);\n    }\n  };\n\n  const handleSignOut = async () => {\n    try {\n      await signOut();\n      window.location.href = \"/\";\n    } catch (error) {\n      console.log('Error signing out: ', error);\n    }\n  };\n\n  React.useEffect(() => {\n    // This useEffect will run once when the component is mounted\n    // to check the user's authentication status and then load data\n    checkAuth(setUser);\n    loadData();\n  }, []);\n\n  // The Crud button on any other page navigates here with { compose: true }\n  // (backlog #40). Open the form, then clear the flag with a replace so a\n  // refresh or Back does not reopen it.\n  React.useEffect(() => {\n    if (location.state && location.state.compose) {\n      setPopped(true);\n      navigate(location.pathname, { replace: true, state: {} });\n    }\n  }, [location.state, location.pathname, navigate]);\n\n  React.useEffect(() => {\n    // This effect runs whenever the `user` state changes\n    // It will trigger loadData only after a user is authenticated\n    if (user) {\n      loadData(user);\n    }\n  }, [user]);\n\n  return (\n    <article>\n      <DesktopNavigation user={user} active={'home'} setPopped={setPopped} handleSignOut={handleSignOut} />\n      <div className='content'>\n        <ActivityForm  \n          popped={popped}\n          setPopped={setPopped} \n          setActivities={setActivities} \n        />\n        <ReplyForm \n          activity={replyActivity} \n          popped={poppedReply} \n          setPopped={setPoppedReply} \n          setActivities={setActivities} \n          activities={activities} \n        />\n        <ActivityFeed \n          title=\"Home\" \n          banner=\"home\" \n          setReplyActivity={setReplyActivity} \n          setPopped={setPoppedReply} \n          activities={activities} \n        />\n      </div>\n      <DesktopSidebar user={user} />\n    </article>\n  );\n}\n"
+    },
+    {
+      "phase": 9,
+      "name": "Write frontend-react-js/src/pages/NotificationsFeedPage.js",
+      "file": "frontend-react-js/src/pages/NotificationsFeedPage.js",
+      "purpose": "one changed line: banner=\"notifications\"",
+      "mode": "replace the ENTIRE file with the content below, byte for byte (LF line endings, exactly one trailing newline)",
+      "content": "import './NotificationsFeedPage.css';\nimport React from \"react\";\n\nimport DesktopNavigation  from '../components/DesktopNavigation';\nimport DesktopSidebar     from '../components/DesktopSidebar';\nimport ActivityFeed from '../components/ActivityFeed';\n\nimport { signOut } from 'aws-amplify/auth';\nimport { checkAuth } from '../components/lib/CheckAuth';\n\n// Notifications are not built yet (backlog #31). The backend endpoint still\n// returns bootcamp demo data, so this page no longer fetches it and shows an\n// empty state instead (backlog #24).\nexport default function NotificationsFeedPage() {\n  const [user, setUser] = React.useState(null);\n  const dataFetchedRef = React.useRef(false);\n\n  const handleSignOut = async () => {\n    try {\n      await signOut();\n      window.location.href = \"/\";\n    } catch (error) {\n      console.log('Error signing out: ', error);\n    }\n  };\n\n  React.useEffect(()=>{\n    //prevents double call\n    if (dataFetchedRef.current) return;\n    dataFetchedRef.current = true;\n\n    checkAuth(setUser);\n  }, [])\n\n  return (\n    <article>\n      <DesktopNavigation user={user} active={'notifications'} handleSignOut={handleSignOut} />\n      <div className='content'>\n        <ActivityFeed title=\"Notifications\" banner=\"notifications\" activities={[]} />\n        <div\n          className='notifications_empty'\n          style={{ padding: '16px', color: 'rgba(255,255,255,0.5)' }}\n        >\n          No notifications yet.\n        </div>\n      </div>\n      <DesktopSidebar user={user} />\n    </article>\n  );\n}\n"
+    },
+    {
+      "phase": 10,
+      "name": "Write frontend-react-js/src/pages/PeoplePage.js",
+      "file": "frontend-react-js/src/pages/PeoplePage.js",
+      "purpose": "one changed line: heading classes \"activity_feed_heading banner banner_people\"",
+      "mode": "replace the ENTIRE file with the content below, byte for byte (LF line endings, exactly one trailing newline)",
+      "content": "import './PeoplePage.css';\nimport React from \"react\";\nimport { Link } from 'react-router-dom';\n\nimport DesktopNavigation  from '../components/DesktopNavigation';\nimport DesktopSidebar     from '../components/DesktopSidebar';\nimport ProfileAvatar from '../components/ProfileAvatar';\n\nimport { signOut } from 'aws-amplify/auth';\nimport { checkAuth, getAccessToken } from '../components/lib/CheckAuth';\n\nexport default function PeoplePage() {\n  const [people, setPeople] = React.useState([]);\n  const [popped, setPopped] = React.useState(false);\n  const [user, setUser] = React.useState(null);\n  const dataFetchedRef = React.useRef(false);\n\n  const loadData = async () => {\n    const headers = {};\n\n    const accessToken = await getAccessToken();\n    if (accessToken) {\n      headers['Authorization'] = `Bearer ${accessToken}`;\n    }\n\n    try {\n      const backend_url = `${process.env.REACT_APP_BACKEND_URL}/api/users`\n      const res = await fetch(backend_url, {\n        method: \"GET\",\n        headers: headers,\n      });\n      let resJson = await res.json();\n      if (res.status === 200) {\n        setPeople(resJson)\n      } else {\n        console.log(res)\n      }\n    } catch (err) {\n      console.log(err);\n    }\n  };\n\n  const handleSignOut = async () => {\n    try {\n      await signOut();\n      window.location.href = \"/\";\n    } catch (error) {\n      console.log('Error signing out: ', error);\n    }\n  };\n\n  React.useEffect(()=>{\n    //prevents double call\n    if (dataFetchedRef.current) return;\n    dataFetchedRef.current = true;\n\n    checkAuth(setUser);\n    loadData();\n  }, [])\n\n  return (\n    <article>\n      <DesktopNavigation user={user} active={'people'} setPopped={setPopped} handleSignOut={handleSignOut} />\n      <div className='content'>\n        <div className='activity_feed'>\n          <div className='activity_feed_heading banner banner_people'>\n            <div className='title'>People</div>\n          </div>\n          <div className='people_list'>\n            {people.map(person => {\n              return (\n                <Link className=\"user\" to={'/@' + person.handle} key={person.uuid}>\n                  <ProfileAvatar id={person.cognito_user_id} name={person.display_name} />\n                  <div className='identity'>\n                    <span className=\"display_name\">{person.display_name}</span>\n                    <span className=\"handle\">@{person.handle}</span>\n                  </div>\n                </Link>\n              );\n            })}\n          </div>\n        </div>\n      </div>\n      <DesktopSidebar user={user} />\n    </article>\n  );\n}\n"
+    },
+    {
+      "phase": 11,
+      "name": "STOP — gates (run all; paste actual output)",
+      "commands": [
+        "cd /home/fento01/aws-bootcamp-cruddur-2023/frontend-react-js/src && sha256sum components/banners/banner_home.svg components/banners/banner_notifications.svg components/banners/banner_people.svg components/banners/banner_messages.svg components/ActivityFeed.js components/ActivityFeed.css components/MessageGroupFeed.css pages/HomeFeedPage.js pages/NotificationsFeedPage.js pages/PeoplePage.js",
+        "cd /home/fento01/aws-bootcamp-cruddur-2023/frontend-react-js/src && grep -c $'\\r' components/banners/banner_home.svg components/banners/banner_notifications.svg components/banners/banner_people.svg components/banners/banner_messages.svg components/ActivityFeed.js components/ActivityFeed.css components/MessageGroupFeed.css pages/HomeFeedPage.js pages/NotificationsFeedPage.js pages/PeoplePage.js ; true",
+        "cd /home/fento01/aws-bootcamp-cruddur-2023/frontend-react-js/src && echo \"inline_svg_in_js=$(grep -l '<svg' components/ActivityFeed.js pages/HomeFeedPage.js pages/NotificationsFeedPage.js pages/PeoplePage.js | wc -l)\"",
+        "cd /home/fento01/aws-bootcamp-cruddur-2023/frontend-react-js/src && echo \"banner_urls=$(grep -o \"url('./banners/banner_[a-z]*.svg')\" components/ActivityFeed.css components/MessageGroupFeed.css | wc -l)\"",
+        "cd /home/fento01/aws-bootcamp-cruddur-2023 && GIT_PAGER=cat git status --short",
+        "cd /home/fento01/aws-bootcamp-cruddur-2023 && GIT_PAGER=cat git diff --stat"
+      ],
+      "expect": {
+        "sha256 (all 10 must match)": {
+          "components/banners/banner_home.svg": "3580e7647d55a7f7d0c672f9b65934403e42f3a5151070b716f855fd76d4da2f",
+          "components/banners/banner_notifications.svg": "66c62da8847885c732675ce13c77b9fc204175676900a445bf3f8cd459ccd16b",
+          "components/banners/banner_people.svg": "1bcf9676683a6bfd92abbc01d88ae1d7a08f7a4224c3cef1e30f64076903073f",
+          "components/banners/banner_messages.svg": "68ac73a9bc0c196e773f8459204c0a421ddd211f24d177ebedaf246191db4255",
+          "components/ActivityFeed.js": "e3adc0477e1a1880a79b9972d7c02fe49b366da3f218a0b5e89420b0ada65428",
+          "components/ActivityFeed.css": "6b5e69f91405e800dc4e7c580492504e47e67e3c46656721c4da85665f10f75b",
+          "components/MessageGroupFeed.css": "9e4a305d050f3476f17088e72e05f33d5551d5a2a4f1c9217f1febe2346a0e39",
+          "pages/HomeFeedPage.js": "35c04c4367ecc33b5ee771a65a528c18bd300df815f6b9128df9b3bb8353f4c3",
+          "pages/NotificationsFeedPage.js": "940f673507453a697e31a1cf233d00fe7e72800aec6b3cadd449d5d39f29be31",
+          "pages/PeoplePage.js": "1bf020fb422e762871bd846bb4a227eb35bf3f46db18db3c4a95a3c24d63340c"
+        },
+        "CR count": "0 for all 10 files",
+        "inline_svg_in_js": "0",
+        "banner_urls": "4",
+        "git status": "6 lines ' M' (ActivityFeed.js, ActivityFeed.css, MessageGroupFeed.css, HomeFeedPage.js, NotificationsFeedPage.js, PeoplePage.js) + '?? frontend-react-js/src/components/banners/' + any '?? _docs/specs/' line; nothing else",
+        "git diff --stat": "6 files changed; ActivityFeed.css and MessageGroupFeed.css insertions only; HomeFeedPage.js 1 insertion; NotificationsFeedPage.js and PeoplePage.js 1 insertion + 1 deletion each"
+      },
+      "note": "ESLint is optional (it hangs in the Kiro terminal); C may run it.",
+      "on_failure": "STOP and report the exact failing output. If a hash fails ONLY because of CR characters, report it — C will normalise line endings; do not attempt delete/recreate."
+    }
+  ],
+  "must_not": [
+    "Edit or create any file other than the 10 listed.",
+    "Inline any SVG into JSX, or change the SVG bytes.",
+    "Touch ProfileHeading, UserFeedPage or any Profile styling.",
+    "git add/commit/push or history rewrites.",
+    "docker, AWS CLI, npm install/build, bin/ scripts.",
+    "Write files with shell commands (redirects, sed, python, tee)."
+  ],
+  "operator_steps_after_gates (C runs)": [
+    "git add frontend-react-js/src _docs/specs/kiro-spec-banners.json && git commit -m 'Page banners + sticky page headers (backlog #43)' && git push origin kiro-dev",
+    "./bin/frontend/build; verify the digest (push output = ECR); sed-replace 5f8a7081e8a9ff99d0526c46d22469f57a9ae1317aa97e3e01bbf76fc4c3f457 with the new digest in aws/cfn/frontend/config.toml; grep to confirm",
+    "./bin/cfn/frontend-deploy; EXECUTE the change set; wait for one healthy FrontendTG target",
+    "Rollback: re-pin sha256:5f8a7081e8a9ff99d0526c46d22469f57a9ae1317aa97e3e01bbf76fc4c3f457 and redeploy CrdFrontend"
+  ],
+  "verify_next_deploy": [
+    "Hard refresh (Ctrl+Shift+R).",
+    "Home, Notifications, People: banner shows with the icon on the right, title on the left; scroll down — the banner stays pinned at the top, posts slide under it.",
+    "Messages: banner shows in the left column; artwork does not overlap the 'Messages' title.",
+    "Profile: looks exactly as before.",
+    "Open a reply popup and Edit Profile while scrolled: the popup is ABOVE the banner.",
+    "Crud button → compose box still opens on Home; posting still works."
+  ]
+}

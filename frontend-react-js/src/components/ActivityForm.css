@@ -100,3 +100,16 @@ form.activity_form select {
   position: relative;
   z-index: 1;
 }
+
+/* Error line under the textarea (backlog #37). */
+form.activity_form .errors {
+  color: rgb(255, 80, 80);
+  font-size: 14px;
+  margin-top: 8px;
+}
+
+/* Over the limit or empty: the button cannot be pressed. */
+form.activity_form button[type='submit']:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
