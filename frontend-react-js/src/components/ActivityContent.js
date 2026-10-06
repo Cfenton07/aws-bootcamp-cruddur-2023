@@ -98,6 +98,20 @@ export default function ActivityContent(props) {
 
   }
 
+  // Profile feeds list replies on their own, so show which post each one
+  // answers (backlog #29). The API sends reply_to only on the profile feed;
+  // the preview is already cut to 80 characters server-side, and CSS keeps
+  // the line to one row. Plain text, not renderMessage: no links in a preview.
+  let replyTo;
+  const parent = props.activity.reply_to;
+  if (parent && parent.handle) {
+    replyTo = <div className='reply_to' title={parent.preview}>
+                {'\u21B3 Replying to '}
+                <Link to={`/@`+parent.handle}>@{parent.handle}</Link>
+                {parent.preview ? ': ' + parent.preview : ''}
+              </div>
+  }
+
   return (
     <div className='activity_content_wrap'>
       <div className='activity_avatar'>
@@ -116,6 +130,7 @@ export default function ActivityContent(props) {
             {expires_at}
           </div>{/* activity_times */}
         </div>{/* activity_meta */}
+        {replyTo}
         <div className="message">{renderMessage(props.activity.message)}</div>
       </div>{/* activity_content */}
     </div>

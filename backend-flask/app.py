@@ -415,7 +415,17 @@ def data_notifications():
 @xray_recorder.capture('user_api_call')  # Track this endpoint in X-Ray
 def data_handle(handle):
     """Get activities for a specific user profile"""
-    model = UserActivities.run(handle)
+    # Public route. Signed in: liked_by_me reflects the viewer (backlog #26).
+    # Logged out or bad token: everyone sees empty hearts. Same pattern as
+    # /api/users/suggested.
+    access_token = extract_access_token(request.headers)
+    cognito_user_id = None
+    try:
+        claims = cognito_jwt_token.verify(access_token)
+        cognito_user_id = claims['sub']
+    except TokenVerifyError as e:
+        app.logger.debug(f'profile: anonymous ({e})')
+    model = UserActivities.run(handle, cognito_user_id=cognito_user_id)
     if model['errors'] is not None:
         return model['errors'], 422
     else:
@@ -463,7 +473,8 @@ def data_activities():
         message = request.json['message']
         ttl = request.json['ttl']  # Time-to-live for activity expiration
         
-        print(f'🔍 Request data - message: {message}, ttl: {ttl}')
+        # Backlog #38: never log the post text (stdout goes to CloudWatch).
+        print(f'🔍 Request data - message length: {len(message) if isinstance(message, str) else "n/a"}, ttl: {ttl}')
         
         # Create activity in database, attributed to the authenticated user
         model = CreateActivity.run(message, cognito_user_id, ttl)
@@ -473,7 +484,9 @@ def data_activities():
             print(f'❌ CreateActivity returned errors: {model["errors"]}')
             return model['errors'], 422
         else:
-            print(f'✅ CreateActivity succeeded: {model["data"]}')
+            # Backlog #38: the created row includes the message; log its uuid only.
+            created_uuid = model['data'].get('uuid') if isinstance(model['data'], dict) else None
+            print(f'✅ CreateActivity succeeded: uuid={created_uuid}')
             return model['data'], 200
     except TokenVerifyError as e:
         # Unauthenticated request - reject rather than attribute the post to anyone
