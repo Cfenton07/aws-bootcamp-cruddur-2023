@@ -1,4 +1,20 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 92" width="600" height="92" preserveAspectRatio="xMaxYMid slice">
+  <style>
+    .dash { animation: flow 1.6s linear infinite; }
+    .sent { animation: sent 6s ease-in-out infinite; }
+    .reply { animation: reply 6s ease-in-out infinite; }
+    .tick { animation: tick 6s ease-in-out infinite; }
+    .static { display: none; }
+    @keyframes flow { to { stroke-dashoffset: -14 } }
+    @keyframes sent { 0%,100% { opacity: .35 } 8%,60% { opacity: .65 } }
+    @keyframes reply { 0%,62% { opacity: .2 } 70%,92% { opacity: .8 } 100% { opacity: .2 } }
+    @keyframes tick { 0%,70% { opacity: 0 } 76%,92% { opacity: .7 } 100% { opacity: 0 } }
+    @media (prefers-reduced-motion: reduce) {
+      .dash, .sent, .reply, .tick { animation: none }
+      .sent { opacity: .65 } .reply { opacity: .8 } .tick { opacity: .6 }
+      .motion { display: none } .static { display: inline }
+    }
+  </style>
   <defs>
     <radialGradient id="glow" cx="75%" cy="50%" r="55%">
       <stop offset="0" stop-color="#9500FF" stop-opacity="0.24"/>
@@ -21,17 +37,28 @@
       <path d="M-14 18 A14 14 0 0 1 14 18"/>
     </g>
     <!-- Sender's message bubble -->
-    <g opacity="0.65">
+    <g class="sent">
       <path d="M342 26 H362 A6 6 0 0 0 368 20 V16 A6 6 0 0 0 362 10 H342 A6 6 0 0 0 336 16 V20 A6 6 0 0 0 342 26 Z"/>
       <path d="M341 26 L335 32 L347 26" fill="#000"/>
       <path d="M343 16 H361 M343 21 H354" stroke-width="1.5"/>
     </g>
 
-    <!-- Flight path of the message -->
-    <path d="M340 46 C390 10 470 80 542 44" stroke-dasharray="2 5" opacity="0.5"/>
+    <!-- Flight path of the message (dashes flow toward the receiver) -->
+    <path id="flight" class="dash" d="M340 46 C390 10 470 80 542 44" stroke-dasharray="2 5" opacity="0.5"/>
 
-    <!-- Paper plane in flight -->
-    <g transform="translate(433,45) rotate(14)" opacity="0.95">
+    <!-- Paper plane flies the path, then fades as it arrives -->
+    <g class="motion" opacity="0">
+      <g transform="rotate(40)">
+        <path d="M-12 0 L12 -10 L4 10 Z" fill="#000"/>
+        <path d="M12 -10 L-1 2 L4 10"/>
+      </g>
+      <animateMotion dur="6s" repeatCount="indefinite" rotate="auto" keyPoints="0;1;1" keyTimes="0;0.65;1" calcMode="linear">
+        <mpath href="#flight"/>
+      </animateMotion>
+      <animate attributeName="opacity" dur="6s" repeatCount="indefinite" values="0;0.95;0.95;0;0" keyTimes="0;0.06;0.58;0.66;1"/>
+    </g>
+    <!-- Static plane for reduced motion -->
+    <g class="static" transform="translate(433,45) rotate(14)" opacity="0.95">
       <path d="M-12 0 L12 -10 L4 10 Z" fill="#000"/>
       <path d="M12 -10 L-1 2 L4 10"/>
     </g>
@@ -42,12 +69,12 @@
       <path d="M-14 18 A14 14 0 0 1 14 18"/>
     </g>
     <!-- Receiver's reply bubble -->
-    <g opacity="0.8">
+    <g class="reply">
       <path d="M518 26 H538 A6 6 0 0 0 544 20 V16 A6 6 0 0 0 538 10 H518 A6 6 0 0 0 512 16 V20 A6 6 0 0 0 518 26 Z"/>
       <path d="M533 26 L545 32 L539 26" fill="#000"/>
       <path d="M519 16 H537 M526 21 H537" stroke-width="1.5"/>
     </g>
     <!-- Read receipt -->
-    <path d="M496 20 L499 23 L504 17 M501 23 L506 17" stroke-width="1.5" opacity="0.6"/>
+    <path class="tick" d="M496 20 L499 23 L504 17 M501 23 L506 17" stroke-width="1.5"/>
   </g>
 </svg>
