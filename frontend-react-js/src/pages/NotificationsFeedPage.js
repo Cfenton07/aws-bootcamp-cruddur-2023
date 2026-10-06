@@ -36,7 +36,7 @@ export default function NotificationsFeedPage() {
     <article>
       <DesktopNavigation user={user} active={'notifications'} handleSignOut={handleSignOut} />
       <div className='content'>
-        <ActivityFeed title="Notifications" activities={[]} />
+        <ActivityFeed title="Notifications" banner="notifications" activities={[]} />
         <div
           className='notifications_empty'
           style={{ padding: '16px', color: 'rgba(255,255,255,0.5)' }}

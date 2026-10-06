@@ -20,3 +20,36 @@
   font-weight: 800;
   font-size: 20px;
 }
+
+/* Page banners + locked header (backlog #43, banners by C 2026-10-06).
+   .content is the scroll container (App.css), so position: sticky pins the
+   heading to the top of the centre column while the feed scrolls under it.
+   The SVGs are BACKGROUND images, never inlined: all four reuse the ids
+   "glow"/"rule", which would collide if two were inlined in one page.
+   Each SVG has an opaque #000 base, so posts never show through. */
+.activity_feed_heading.banner {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background-color: #000;
+  background-repeat: no-repeat;
+  background-position: right center;
+  background-size: auto 100%;
+}
+
+.activity_feed_heading.banner_home {
+  background-image: url('./banners/banner_home.svg');
+}
+
+.activity_feed_heading.banner_notifications {
+  background-image: url('./banners/banner_notifications.svg');
+}
+
+.activity_feed_heading.banner_people {
+  background-image: url('./banners/banner_people.svg');
+}
+
+/* Popups (reply, edit profile) must stay above the sticky header (z-index 3). */
+.popup_form_wrap {
+  z-index: 1000;
+}

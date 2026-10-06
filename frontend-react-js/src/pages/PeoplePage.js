@@ -63,7 +63,7 @@ export default function PeoplePage() {
       <DesktopNavigation user={user} active={'people'} setPopped={setPopped} handleSignOut={handleSignOut} />
       <div className='content'>
         <div className='activity_feed'>
-          <div className='activity_feed_heading'>
+          <div className='activity_feed_heading banner banner_people'>
             <div className='title'>People</div>
           </div>
           <div className='people_list'>

@@ -101,6 +101,7 @@ const loadData = async () => {
         />
         <ActivityFeed 
           title="Home" 
+          banner="home" 
           setReplyActivity={setReplyActivity} 
           setPopped={setPoppedReply} 
           activities={activities} 

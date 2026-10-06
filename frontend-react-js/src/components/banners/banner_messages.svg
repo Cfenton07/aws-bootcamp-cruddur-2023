@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 92" width="600" height="92" preserveAspectRatio="xMaxYMid slice">
+  <defs>
+    <radialGradient id="glow" cx="75%" cy="50%" r="55%">
+      <stop offset="0" stop-color="#9500FF" stop-opacity="0.24"/>
+      <stop offset="1" stop-color="#9500FF" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="rule" x1="0" x2="1">
+      <stop offset="0.35" stop-color="#9500FF" stop-opacity="0"/>
+      <stop offset="1" stop-color="#9500FF" stop-opacity="0.6"/>
+    </linearGradient>
+  </defs>
+  <rect width="600" height="92" fill="#000"/>
+  <rect width="600" height="92" fill="url(#glow)"/>
+  <rect y="91" width="600" height="1" fill="url(#rule)"/>
+
+  <g fill="none" stroke="#9500FF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+
+    <!-- Sender -->
+    <g transform="translate(322,50)" opacity="0.6">
+      <circle cy="-12" r="7"/>
+      <path d="M-14 18 A14 14 0 0 1 14 18"/>
+    </g>
+    <!-- Sender's message bubble -->
+    <g opacity="0.65">
+      <path d="M342 26 H362 A6 6 0 0 0 368 20 V16 A6 6 0 0 0 362 10 H342 A6 6 0 0 0 336 16 V20 A6 6 0 0 0 342 26 Z"/>
+      <path d="M341 26 L335 32 L347 26" fill="#000"/>
+      <path d="M343 16 H361 M343 21 H354" stroke-width="1.5"/>
+    </g>
+
+    <!-- Flight path of the message -->
+    <path d="M340 46 C390 10 470 80 542 44" stroke-dasharray="2 5" opacity="0.5"/>
+
+    <!-- Paper plane in flight -->
+    <g transform="translate(433,45) rotate(14)" opacity="0.95">
+      <path d="M-12 0 L12 -10 L4 10 Z" fill="#000"/>
+      <path d="M12 -10 L-1 2 L4 10"/>
+    </g>
+
+    <!-- Receiver -->
+    <g transform="translate(560,50)" opacity="0.85">
+      <circle cy="-12" r="7"/>
+      <path d="M-14 18 A14 14 0 0 1 14 18"/>
+    </g>
+    <!-- Receiver's reply bubble -->
+    <g opacity="0.8">
+      <path d="M518 26 H538 A6 6 0 0 0 544 20 V16 A6 6 0 0 0 538 10 H518 A6 6 0 0 0 512 16 V20 A6 6 0 0 0 518 26 Z"/>
+      <path d="M533 26 L545 32 L539 26" fill="#000"/>
+      <path d="M519 16 H537 M526 21 H537" stroke-width="1.5"/>
+    </g>
+    <!-- Read receipt -->
+    <path d="M496 20 L499 23 L504 17 M501 23 L506 17" stroke-width="1.5" opacity="0.6"/>
+  </g>
+</svg>

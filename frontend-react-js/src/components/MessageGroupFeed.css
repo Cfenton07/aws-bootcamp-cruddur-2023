@@ -26,3 +26,16 @@ section.message_groups {
   flex-grow: 1;
   overflow: auto;
 }
+
+/* Messages banner (C 2026-10-06). This heading is already locked: only
+   .message_group_feed_collection scrolls. Background image, not inlined
+   (shared SVG ids). Right-anchored so the icons stay visible in the
+   narrower message column; 85% height keeps the
+   artwork clear of the "Messages" title. */
+.message_group_feed_heading {
+  background-color: #000;
+  background-image: url('./banners/banner_messages.svg');
+  background-repeat: no-repeat;
+  background-position: right bottom;
+  background-size: auto 85%;
+}
