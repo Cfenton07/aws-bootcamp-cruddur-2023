@@ -1,0 +1,159 @@
+{
+  "spec": "kiro-spec-release-a.json",
+  "rev": 1,
+  "date": "2026-10-06",
+  "title": "Release A (frontend only): clickable links (#46), compose form below the Home banner (#45), skip avatar requests for non-Cognito ids (#34)",
+  "protocol": "Kiro Supervised. Kiro edits ONLY the 5 files in scope, by writing each file's FULL content exactly as given in edits[].content, using the IDE write/edit tool (not a shell redirect, python or sed). Kiro may run read-only git (status/diff/log with GIT_PAGER=cat) and the read-only gate commands listed here. C runs every mutating git, AWS and docker command. Do not pass a cwd to the terminal tool; every command starts with an absolute cd.",
+  "must_not": [
+    "git add / commit / push / stash / reset / checkout, or any history rewrite",
+    "any AWS CLI, docker, bin/ script, npm install / npx without --no-install",
+    "editing any file not listed in scope (including ActivityForm.js and ActivityForm.css)",
+    "dangerouslySetInnerHTML anywhere",
+    "reformatting, reordering imports, or 'improving' code beyond the given content",
+    "hand-editing a file to force a gate to pass — report the failure instead"
+  ],
+  "scope": [
+    "frontend-react-js/src/components/ActivityContent.js",
+    "frontend-react-js/src/components/ActivityContent.css",
+    "frontend-react-js/src/components/ProfileAvatar.js",
+    "frontend-react-js/src/components/ActivityFeed.js",
+    "frontend-react-js/src/pages/HomeFeedPage.js"
+  ],
+  "stop0": {
+    "purpose": "Confirm the working tree matches what this spec was written against. If ANY check differs, STOP and report — do not edit.",
+    "checks": [
+      {
+        "id": "S0-1",
+        "cmd": "cd ~/aws-bootcamp-cruddur-2023 && GIT_PAGER=cat git status --short",
+        "expect": "empty output (clean tree)"
+      },
+      {
+        "id": "S0-2",
+        "cmd": "cd ~/aws-bootcamp-cruddur-2023 && GIT_PAGER=cat git log --oneline -1",
+        "expect": "eff9d23 (PR #22 merge) at HEAD on kiro-dev"
+      },
+      {
+        "id": "S0-3",
+        "cmd": "cd ~/aws-bootcamp-cruddur-2023 && sha256sum frontend-react-js/src/components/ActivityContent.js frontend-react-js/src/components/ActivityContent.css frontend-react-js/src/components/ProfileAvatar.js frontend-react-js/src/components/ActivityFeed.js frontend-react-js/src/pages/HomeFeedPage.js",
+        "expect": {
+          "frontend-react-js/src/components/ActivityContent.js": "648253433c88f1fe7858231aaaded60d0c7831023b07317081f63e0399f86456",
+          "frontend-react-js/src/components/ActivityContent.css": "516a284d170078e8a1a3f0b10578e83cb0a8ba3329a02c894089b14e7cd044c3",
+          "frontend-react-js/src/components/ProfileAvatar.js": "d0ef67035855c69338b66d9edaaca405b90440dbcfa1f884948e72aac22296fd",
+          "frontend-react-js/src/components/ActivityFeed.js": "e3adc0477e1a1880a79b9972d7c02fe49b366da3f218a0b5e89420b0ada65428",
+          "frontend-react-js/src/pages/HomeFeedPage.js": "35c04c4367ecc33b5ee771a65a528c18bd300df815f6b9128df9b3bb8353f4c3"
+        }
+      },
+      {
+        "id": "S0-4",
+        "cmd": "cd ~/aws-bootcamp-cruddur-2023 && grep -nE '\\.content|activity_feed|article' frontend-react-js/src/components/ActivityForm.css; echo exit=$?",
+        "expect": "Report the output verbatim. exit=1 (no matches) means ActivityForm's styles do not depend on its parent, so moving it inside ActivityFeed is safe. If there ARE matches, STOP and report them — #45 may need a CSS change that is out of scope."
+      },
+      {
+        "id": "S0-5",
+        "cmd": "cd ~/aws-bootcamp-cruddur-2023 && grep -rn 'onClick' frontend-react-js/src/components/ActivityItem.js | head -20",
+        "expect": "Report verbatim (read-only context: does the post body navigate on click? The new link calls stopPropagation either way)."
+      }
+    ],
+    "then": "Reply 'STOP 0 complete' with each check's result, and wait for C to say GO."
+  },
+  "edits": [
+    {
+      "file": "frontend-react-js/src/components/ActivityContent.js",
+      "action": "replace the whole file with content (LF line endings, single trailing newline)",
+      "content": "import './ActivityContent.css';\n\nimport { Link } from \"react-router-dom\";\nimport { timeAgo, formatTimeExpires } from '../lib/DateTimeFormats';\nimport {ReactComponent as BombIcon} from './svg/bomb.svg';\nimport ProfileAvatar from './ProfileAvatar';\n\n// Splits a message into plain text, links and #hashtags. split() with a\n// capturing group keeps the matches at the odd indexes. Links come first in\n// the alternation so a '#' inside a URL stays part of the link. Everything is\n// built as React elements, never as an HTML string, so a message cannot\n// inject markup (XSS). Hashtags: backlog #41. Links: backlog #46.\nconst TOKEN_SPLIT = /(https?:\\/\\/[^\\s<>\"]+|#[\\p{L}\\p{N}_]+)/iu;\nconst LINK_START = /^https?:\\/\\//i;\nconst TRAILING_PUNCT = /[.,!?;:'\"]$/;\nconst LINK_DISPLAY_MAX = 40;\n\n// \"see https://example.com.\" -> the period is sentence punctuation, not part\n// of the link. A closing \")\" is trimmed only when it has no matching \"(\",\n// so Wikipedia-style links such as /wiki/Foo_(bar) stay whole.\nfunction splitTrailing(raw) {\n  let url = raw;\n  let trail = '';\n  for (;;) {\n    const last = url.slice(-1);\n    const unbalanced = last === ')' &&\n      url.split(')').length > url.split('(').length;\n    if (TRAILING_PUNCT.test(url) || unbalanced) {\n      trail = last + trail;\n      url = url.slice(0, -1);\n    } else {\n      return [url, trail];\n    }\n  }\n}\n\nfunction renderLink(raw, key) {\n  const [url, trail] = splitTrailing(raw);\n  let href = null;\n  try {\n    const parsed = new URL(url);\n    // Only web links become clickable; anything else stays plain text.\n    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {\n      href = parsed.href;\n    }\n  } catch (e) {\n    href = null;\n  }\n  if (!href) {\n    return raw;\n  }\n  const bare = Array.from(url.replace(LINK_START, ''));\n  const display = bare.length > LINK_DISPLAY_MAX\n    ? bare.slice(0, LINK_DISPLAY_MAX).join('') + '\\u2026'\n    : bare.join('');\n  return (\n    <span key={key}>\n      <a\n        className='link'\n        href={href}\n        title={url}\n        target='_blank'\n        rel='noopener noreferrer nofollow'\n        onClick={(e) => e.stopPropagation()}\n      >{display}</a>{trail}\n    </span>\n  );\n}\n\nfunction renderMessage(message) {\n  if (typeof message !== 'string' || message === '') {\n    return message;\n  }\n  return message.split(TOKEN_SPLIT).map((part, i) => {\n    if (i % 2 === 0) {\n      return part;\n    }\n    if (LINK_START.test(part)) {\n      return renderLink(part, i);\n    }\n    return <span className='hashtag' key={i}>{part}</span>;\n  });\n}\n\nexport default function ActivityContent(props) {\n\n  // formatTimeExpires returns null once the post has expired; the countdown\n  // is then hidden rather than shown as negative minutes (backlog #25).\n  let expires_at;\n  const expires_label = props.activity.expires_at\n    ? formatTimeExpires(props.activity.expires_at)\n    : null;\n  if (expires_label) {\n    expires_at =  <div className=\"expires_at\" title={props.activity.expires_at}>\n                    <BombIcon className='icon' />\n                    <span className='ago'>{expires_label}</span>\n                  </div>\n\n  }\n\n  return (\n    <div className='activity_content_wrap'>\n      <div className='activity_avatar'>\n  <ProfileAvatar id={props.activity.cognito_user_id} name={props.activity.display_name} />\n</div>\n      <div className='activity_content'>\n        <div className='activity_meta'>\n          <Link className='activity_identity' to={`/@`+props.activity.handle}>\n            <div className='display_name'>{props.activity.display_name}</div>\n            <div className=\"handle\">@{props.activity.handle}</div>\n          </Link>{/* activity_identity */}\n          <div className='activity_times'>\n            <div className=\"created_at\" title={props.activity.created_at}>\n              <span className='ago'>{timeAgo(props.activity.created_at)}</span> \n            </div>\n            {expires_at}\n          </div>{/* activity_times */}\n        </div>{/* activity_meta */}\n        <div className=\"message\">{renderMessage(props.activity.message)}</div>\n      </div>{/* activity_content */}\n    </div>\n  );\n}\n"
+    },
+    {
+      "file": "frontend-react-js/src/components/ActivityContent.css",
+      "action": "replace the whole file with content (LF line endings, single trailing newline)",
+      "content": ".activity_content_wrap {\n  display: flex;\n  flex-direction: row;\n  align-items: start;\n}\n\n.activity_content {\n  flex-grow: 1;\n  padding-left: 12px;\n}\n\n.activity_content_wrap .activity_avatar {\n  background: rgb(149,0,255);\n  height: 60px;\n  width: 60px;\n  border-radius: 999px;\n  flex-shrink: 0;\n}\n\n.activity_content .activity_meta {\n  display: flex;\n  justify-content: space-between;\n}\n\n.activity_content a.activity_identity {\n  flex-grow: 1;\n  text-decoration: none;\n  font-size: 16px;\n}\n\n.activity_content a.activity_identity .display_name {\n  font-weight: 800;\n  color: #fff;\n}\n\n.activity_content  a.activity_identity .handle {\n  color: rgb(255,255,255,0.5);\n}\n\n.activity_content .activity_times {\n  display: flex;\n  flex-direction: column;\n  align-items: flex-end;\n}\n\n.activity_content .activity_times .created_at {\n  color: rgb(72,77,95);\n  font-size: 14px;\n}\n\n.activity_content .activity_times .expires_at {\n  color: rgb(149,0,255);\n  font-size: 14px;\n  display: flex;\n  gap: 2px;\n}\n.activity_content .activity_times .expires_at svg.icon {\n  fill: rgb(149,0,255);\n  width: 14px;\n  height: 14px;\n}\n\n.activity_content .message {\n  color: #fff;\n  font-size: 16px;\n  margin-top: 8px;\n}\n.activity_avatar img {\n  width: 60px;\n  height: 60px;\n  border-radius: 999px;\n  object-fit: cover;\n}\n\n/* #hashtags inside a message (backlog #41). Theme purple; semi-bold because\n   this purple is only 3.7:1 against the black background. */\n.activity_content .message .hashtag {\n  color: rgb(149,0,255);\n  font-weight: 600;\n}\n\n/* Links inside a message (backlog #46). Lighter purple than the hashtags so\n   they pass contrast on black (6.2:1); underline marks them as clickable.\n   overflow-wrap lets a long link wrap instead of widening the column. */\n.activity_content .message a.link {\n  color: rgb(176,102,255);\n  text-decoration: underline;\n  overflow-wrap: anywhere;\n}\n.activity_content .message a.link:hover {\n  color: #fff;\n}\n"
+    },
+    {
+      "file": "frontend-react-js/src/components/ProfileAvatar.js",
+      "action": "replace the whole file with content (LF line endings, single trailing newline)",
+      "content": "import './ProfileAvatar.css';\nimport { useState } from 'react';\n\n// One cache key per page load. Date.now() inside render produced a new URL\n// on every re-render, so the browser re-downloaded every avatar each time\n// (the (canceled) jpg rows in DevTools). A new upload shows after a reload.\nconst AVATAR_VERSION = Date.now();\n\n// Real ids are Cognito subs (UUIDs). Seed rows such as 'MOCK' have no photo,\n// so requesting one only produced a 403 in DevTools (backlog #34).\nconst COGNITO_SUB = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;\n\nexport default function ProfileAvatar({ id, name }) {\n  // Fall back to an initial when there is no real id to build a URL from,\n  // or when the image fails to load because the user never uploaded one.\n  const [failed, setFailed] = useState(false);\n  const initial = (name || '?').trim().charAt(0).toUpperCase() || '?';\n\n  if (!id || !COGNITO_SUB.test(id) || failed) {\n    return (\n      <div className='profile-avatar'>\n        <div className='avatar-fallback' aria-label='User avatar'>{initial}</div>\n      </div>\n    );\n  }\n\n  return (\n    <div className='profile-avatar'>\n      <img\n        src={`https://assets.fentoncruddur.com/avatars/processed/${id}.jpg?v=${AVATAR_VERSION}`}\n        className='avatar-img'\n        alt='User avatar'\n        onError={() => setFailed(true)}\n      />\n    </div>\n  );\n}\n"
+    },
+    {
+      "file": "frontend-react-js/src/components/ActivityFeed.js",
+      "action": "replace the whole file with content (LF line endings, single trailing newline)",
+      "content": "import './ActivityFeed.css';\nimport ActivityItem from './ActivityItem';\n\n// props.banner ('home' | 'notifications') adds a page banner and makes the\n// heading sticky (banner CSS in ActivityFeed.css). Without it the heading is\n// unchanged, so the Profile page (no title, no banner) looks the same as before.\n// props.children (e.g. the Home compose form) renders BELOW the heading, so an\n// open form no longer pushes the sticky banner down (backlog #45).\nexport default function ActivityFeed(props) {\n  const headingClass = props.banner\n    ? `activity_feed_heading banner banner_${props.banner}`\n    : 'activity_feed_heading';\n  return (\n    <div className='activity_feed'>\n      <div className={headingClass}>\n        <div className='title'>{props.title}</div>\n      </div>\n      {props.children}\n      <div className='activity_feed_collection'>\n        {props.activities.map(activity => {\n        return  <ActivityItem setReplyActivity={props.setReplyActivity} setPopped={props.setPopped} key={activity.uuid} activity={activity} />\n        })}\n      </div>\n    </div>\n  );\n}\n"
+    },
+    {
+      "file": "frontend-react-js/src/pages/HomeFeedPage.js",
+      "action": "replace the whole file with content (LF line endings, single trailing newline)",
+      "content": "import './HomeFeedPage.css';\nimport React from \"react\";\nimport { useLocation, useNavigate } from 'react-router-dom';\n\nimport DesktopNavigation  from '../components/DesktopNavigation';\nimport DesktopSidebar     from '../components/DesktopSidebar';\nimport ActivityFeed from '../components/ActivityFeed';\nimport ActivityForm from '../components/ActivityForm';\nimport ReplyForm from '../components/ReplyForm';        \n\nimport { signOut } from 'aws-amplify/auth';\nimport { checkAuth, getAccessToken } from '../components/lib/CheckAuth';\n\nexport default function HomeFeedPage() {\n  const [activities, setActivities] = React.useState([]);\n  const [popped, setPopped] = React.useState(false);\n  const [poppedReply, setPoppedReply] = React.useState(false);\n  const [replyActivity, setReplyActivity] = React.useState({});\n  const [user, setUser] = React.useState(null);\n  const location = useLocation();\n  const navigate = useNavigate();\n\nconst loadData = async () => {\n    console.log('loadData called');\n    const headers = {};\n\n    // Get a fresh access token (auto-refreshes if expired)\n    const accessToken = await getAccessToken();\n    if (accessToken) {\n      headers['Authorization'] = `Bearer ${accessToken}`;\n    }\n\n    const backend_url = `${process.env.REACT_APP_BACKEND_URL}/api/activities/home`;\n\n    try {\n      const res = await fetch(backend_url, {\n        method: \"GET\",\n        headers: headers,\n      });\n\n      const resJson = await res.json();\n      if (res.status === 200) {\n        setActivities(resJson)\n      } else {\n        console.log(res);\n      }\n    } catch (err) {\n      console.log(err);\n    }\n  };\n\n  const handleSignOut = async () => {\n    try {\n      await signOut();\n      window.location.href = \"/\";\n    } catch (error) {\n      console.log('Error signing out: ', error);\n    }\n  };\n\n  React.useEffect(() => {\n    // This useEffect will run once when the component is mounted\n    // to check the user's authentication status and then load data\n    checkAuth(setUser);\n    loadData();\n  }, []);\n\n  // The Crud button on any other page navigates here with { compose: true }\n  // (backlog #40). Open the form, then clear the flag with a replace so a\n  // refresh or Back does not reopen it.\n  React.useEffect(() => {\n    if (location.state && location.state.compose) {\n      setPopped(true);\n      navigate(location.pathname, { replace: true, state: {} });\n    }\n  }, [location.state, location.pathname, navigate]);\n\n  React.useEffect(() => {\n    // This effect runs whenever the `user` state changes\n    // It will trigger loadData only after a user is authenticated\n    if (user) {\n      loadData(user);\n    }\n  }, [user]);\n\n  return (\n    <article>\n      <DesktopNavigation user={user} active={'home'} setPopped={setPopped} handleSignOut={handleSignOut} />\n      <div className='content'>\n        <ReplyForm \n          activity={replyActivity} \n          popped={poppedReply} \n          setPopped={setPoppedReply} \n          setActivities={setActivities} \n          activities={activities} \n        />\n        <ActivityFeed \n          title=\"Home\" \n          banner=\"home\" \n          setReplyActivity={setReplyActivity} \n          setPopped={setPoppedReply} \n          activities={activities} \n        >\n          {/* Compose form renders below the sticky Home banner (backlog #45). */}\n          <ActivityForm\n            popped={popped}\n            setPopped={setPopped}\n            setActivities={setActivities}\n          />\n        </ActivityFeed>\n      </div>\n      <DesktopSidebar user={user} />\n    </article>\n  );\n}\n"
+    }
+  ],
+  "gates": [
+    {
+      "id": "G1",
+      "name": "exact content",
+      "cmd": "cd ~/aws-bootcamp-cruddur-2023 && sha256sum frontend-react-js/src/components/ActivityContent.js frontend-react-js/src/components/ActivityContent.css frontend-react-js/src/components/ProfileAvatar.js frontend-react-js/src/components/ActivityFeed.js frontend-react-js/src/pages/HomeFeedPage.js",
+      "expect": {
+        "frontend-react-js/src/components/ActivityContent.js": "bac5fc82bbd53968e3e514af9a610faf3e98f48b01d1c78f8bbfc901469dab9b",
+        "frontend-react-js/src/components/ActivityContent.css": "7ecbc744df883062c445027ccb0bceae71a54b45b40449f8be4adae1b664f981",
+        "frontend-react-js/src/components/ProfileAvatar.js": "e83870153a203ce5484868299e1cd4ea9e167578c276df541105d2c874802683",
+        "frontend-react-js/src/components/ActivityFeed.js": "787394406123c3c3d4a0a8ae156810755f3b2ce2d544363247c5e5f91a05993a",
+        "frontend-react-js/src/pages/HomeFeedPage.js": "a6ac712d4fe41728b3ca4a75b386dee8663c5599e219c1d13e243d177eca391b"
+      },
+      "on_fail": "Report which file differs and show `diff` against the spec content. Only CRLF or a missing/extra trailing newline may be corrected (then re-run G1). Anything else: STOP."
+    },
+    {
+      "id": "G2",
+      "name": "no CRLF",
+      "cmd": "cd ~/aws-bootcamp-cruddur-2023 && grep -c $'\\r' frontend-react-js/src/components/ActivityContent.js frontend-react-js/src/components/ActivityContent.css frontend-react-js/src/components/ProfileAvatar.js frontend-react-js/src/components/ActivityFeed.js frontend-react-js/src/pages/HomeFeedPage.js",
+      "expect": "every file :0 (grep exits 1 — that is the pass)"
+    },
+    {
+      "id": "G3",
+      "name": "diff shape",
+      "cmd": "cd ~/aws-bootcamp-cruddur-2023 && GIT_PAGER=cat git diff --numstat",
+      "expect": [
+        "12\t0\tfrontend-react-js/src/components/ActivityContent.css",
+        "70\t10\tfrontend-react-js/src/components/ActivityContent.js",
+        "3\t0\tfrontend-react-js/src/components/ActivityFeed.js",
+        "7\t3\tfrontend-react-js/src/components/ProfileAvatar.js",
+        "8\t6\tfrontend-react-js/src/pages/HomeFeedPage.js"
+      ],
+      "note": "exactly these 5 lines, nothing else"
+    },
+    {
+      "id": "G4",
+      "name": "no HTML injection",
+      "cmd": "cd ~/aws-bootcamp-cruddur-2023 && grep -rn dangerouslySetInnerHTML frontend-react-js/src; echo exit=$?",
+      "expect": "exit=1"
+    },
+    {
+      "id": "G5",
+      "name": "safe link attributes",
+      "cmd": "cd ~/aws-bootcamp-cruddur-2023 && grep -cF \"rel='noopener noreferrer nofollow'\" frontend-react-js/src/components/ActivityContent.js && grep -cF \"parsed.protocol === 'http:' || parsed.protocol === 'https:'\" frontend-react-js/src/components/ActivityContent.js",
+      "expect": "1 then 1"
+    },
+    {
+      "id": "G6",
+      "name": "compose form moved",
+      "cmd": "cd ~/aws-bootcamp-cruddur-2023 && grep -c '<ActivityForm' frontend-react-js/src/pages/HomeFeedPage.js && grep -cF '{props.children}' frontend-react-js/src/components/ActivityFeed.js && grep -cF '</ActivityFeed>' frontend-react-js/src/pages/HomeFeedPage.js",
+      "expect": "1, 1, 1"
+    },
+    {
+      "id": "G7",
+      "name": "eslint",
+      "cmd": "cd ~/aws-bootcamp-cruddur-2023/frontend-react-js && npx --no-install eslint src/components/ActivityContent.js src/components/ProfileAvatar.js src/components/ActivityFeed.js src/pages/HomeFeedPage.js",
+      "expect": "no errors. Pre-existing warnings on untouched lines are allowed — report them verbatim."
+    }
+  ],
+  "report": "Paste every STOP 0 and gate command with its full output. Do not summarise outputs.",
+  "c_after_kiro": [
+    "Review: cd ~/aws-bootcamp-cruddur-2023 && GIT_PAGER=cat git diff",
+    "Commit (C): git add the 5 files && git commit -m 'Release A: clickable links (#46), compose below Home banner (#45), skip non-Cognito avatar ids (#34)' && git push origin kiro-dev",
+    "./bin/frontend/build → record digest from push output AND aws ecr describe-images; pin aws/cfn/frontend/config.toml line 10 (rollback digest: sha256:fe95cf82a6a739961a2efa91835d8cb73fc7e6154e4876b7b34caf32b3c7ab30)",
+    "./bin/cfn/frontend-deploy → change set must show only TaskDefinition (Replace) + Service (Modify) → execute"
+  ],
+  "verify_after_deploy": [
+    "Post: 'Test link https://aws.amazon.com/ecs/. and #Crud' → link is lighter purple + underlined, the trailing period is NOT part of the link, #Crud still purple; click opens a NEW tab; the original tab stays on Cruddur",
+    "Post a long URL (60+ chars) → shown shortened with …, hover shows the full URL, column does not widen",
+    "Post 'javascript:alert(1)' → plain text, not clickable",
+    "Open the Crud compose form on Home → it appears BELOW the Home banner; banner stays pinned while scrolling; posting still adds the Crud to the top of the feed; Crud button from another page still opens it",
+    "Seed user Trinidad James → 'T' initial, and DevTools Network shows NO request for MOCK.jpg; real users' photos still load (users with a real id but no photo, e.g. Andrew Hutt, still make one 403 request — expected, needs a backend flag)",
+    "Reply popup and Notifications/People/Profile pages look unchanged"
+  ]
+}

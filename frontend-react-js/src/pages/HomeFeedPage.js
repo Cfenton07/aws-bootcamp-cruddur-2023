@@ -87,11 +87,6 @@ const loadData = async () => {
     <article>
       <DesktopNavigation user={user} active={'home'} setPopped={setPopped} handleSignOut={handleSignOut} />
       <div className='content'>
-        <ActivityForm  
-          popped={popped}
-          setPopped={setPopped} 
-          setActivities={setActivities} 
-        />
         <ReplyForm 
           activity={replyActivity} 
           popped={poppedReply} 
@@ -105,7 +100,14 @@ const loadData = async () => {
           setReplyActivity={setReplyActivity} 
           setPopped={setPoppedReply} 
           activities={activities} 
-        />
+        >
+          {/* Compose form renders below the sticky Home banner (backlog #45). */}
+          <ActivityForm
+            popped={popped}
+            setPopped={setPopped}
+            setActivities={setActivities}
+          />
+        </ActivityFeed>
       </div>
       <DesktopSidebar user={user} />
     </article>

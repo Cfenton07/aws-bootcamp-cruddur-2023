@@ -78,3 +78,15 @@
   color: rgb(149,0,255);
   font-weight: 600;
 }
+
+/* Links inside a message (backlog #46). Lighter purple than the hashtags so
+   they pass contrast on black (6.2:1); underline marks them as clickable.
+   overflow-wrap lets a long link wrap instead of widening the column. */
+.activity_content .message a.link {
+  color: rgb(176,102,255);
+  text-decoration: underline;
+  overflow-wrap: anywhere;
+}
+.activity_content .message a.link:hover {
+  color: #fff;
+}

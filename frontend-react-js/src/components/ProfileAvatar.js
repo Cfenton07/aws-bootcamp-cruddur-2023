@@ -6,13 +6,17 @@ import { useState } from 'react';
 // (the (canceled) jpg rows in DevTools). A new upload shows after a reload.
 const AVATAR_VERSION = Date.now();
 
+// Real ids are Cognito subs (UUIDs). Seed rows such as 'MOCK' have no photo,
+// so requesting one only produced a 403 in DevTools (backlog #34).
+const COGNITO_SUB = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export default function ProfileAvatar({ id, name }) {
-  // Fall back to an initial when there is no id to build a URL from, or
-  // when the image fails to load because the user never uploaded one.
+  // Fall back to an initial when there is no real id to build a URL from,
+  // or when the image fails to load because the user never uploaded one.
   const [failed, setFailed] = useState(false);
   const initial = (name || '?').trim().charAt(0).toUpperCase() || '?';
 
-  if (!id || failed) {
+  if (!id || !COGNITO_SUB.test(id) || failed) {
     return (
       <div className='profile-avatar'>
         <div className='avatar-fallback' aria-label='User avatar'>{initial}</div>

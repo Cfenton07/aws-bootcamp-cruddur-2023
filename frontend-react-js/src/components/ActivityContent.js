@@ -5,21 +5,81 @@ import { timeAgo, formatTimeExpires } from '../lib/DateTimeFormats';
 import {ReactComponent as BombIcon} from './svg/bomb.svg';
 import ProfileAvatar from './ProfileAvatar';
 
-// Splits a message into plain text and #hashtags. split() with a capturing
-// group keeps the matches at the odd indexes; those become purple spans
-// (backlog #41). Built as React elements, never as an HTML string, so a
-// message cannot inject markup (XSS).
-const HASHTAG_SPLIT = /(#[\p{L}\p{N}_]+)/u;
+// Splits a message into plain text, links and #hashtags. split() with a
+// capturing group keeps the matches at the odd indexes. Links come first in
+// the alternation so a '#' inside a URL stays part of the link. Everything is
+// built as React elements, never as an HTML string, so a message cannot
+// inject markup (XSS). Hashtags: backlog #41. Links: backlog #46.
+const TOKEN_SPLIT = /(https?:\/\/[^\s<>"]+|#[\p{L}\p{N}_]+)/iu;
+const LINK_START = /^https?:\/\//i;
+const TRAILING_PUNCT = /[.,!?;:'"]$/;
+const LINK_DISPLAY_MAX = 40;
+
+// "see https://example.com." -> the period is sentence punctuation, not part
+// of the link. A closing ")" is trimmed only when it has no matching "(",
+// so Wikipedia-style links such as /wiki/Foo_(bar) stay whole.
+function splitTrailing(raw) {
+  let url = raw;
+  let trail = '';
+  for (;;) {
+    const last = url.slice(-1);
+    const unbalanced = last === ')' &&
+      url.split(')').length > url.split('(').length;
+    if (TRAILING_PUNCT.test(url) || unbalanced) {
+      trail = last + trail;
+      url = url.slice(0, -1);
+    } else {
+      return [url, trail];
+    }
+  }
+}
+
+function renderLink(raw, key) {
+  const [url, trail] = splitTrailing(raw);
+  let href = null;
+  try {
+    const parsed = new URL(url);
+    // Only web links become clickable; anything else stays plain text.
+    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+      href = parsed.href;
+    }
+  } catch (e) {
+    href = null;
+  }
+  if (!href) {
+    return raw;
+  }
+  const bare = Array.from(url.replace(LINK_START, ''));
+  const display = bare.length > LINK_DISPLAY_MAX
+    ? bare.slice(0, LINK_DISPLAY_MAX).join('') + '\u2026'
+    : bare.join('');
+  return (
+    <span key={key}>
+      <a
+        className='link'
+        href={href}
+        title={url}
+        target='_blank'
+        rel='noopener noreferrer nofollow'
+        onClick={(e) => e.stopPropagation()}
+      >{display}</a>{trail}
+    </span>
+  );
+}
 
 function renderMessage(message) {
   if (typeof message !== 'string' || message === '') {
     return message;
   }
-  return message.split(HASHTAG_SPLIT).map((part, i) =>
-    i % 2 === 1
-      ? <span className='hashtag' key={i}>{part}</span>
-      : part
-  );
+  return message.split(TOKEN_SPLIT).map((part, i) => {
+    if (i % 2 === 0) {
+      return part;
+    }
+    if (LINK_START.test(part)) {
+      return renderLink(part, i);
+    }
+    return <span className='hashtag' key={i}>{part}</span>;
+  });
 }
 
 export default function ActivityContent(props) {
