@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { timeAgo } from '../lib/DateTimeFormats';
 import { useParams } from 'react-router-dom';
 import ProfileAvatar from './ProfileAvatar';
+import { renderEmoji } from '../lib/emoji';
 
 export default function MessageGroupItem(props) {
   const params = useParams();
@@ -31,7 +32,7 @@ export default function MessageGroupItem(props) {
             <div className="handle">@{props.message_group.handle}</div>
           </div>{/* activity_identity */}
         </div>{/* message_meta */}
-        <div className="message">{props.message_group.message}</div>
+        <div className="message">{renderEmoji(props.message_group.message, 'g')}</div>
         <div className="created_at" title={props.message_group.created_at}>
           <span className='ago'>{timeAgo(props.message_group.created_at)}</span> 
         </div>{/* created_at */}

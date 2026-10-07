@@ -1,0 +1,6 @@
+/* Emoji 20% larger than the surrounding text (backlog #51). line-height: 1
+   keeps a line that contains an emoji from pushing the lines around it apart. */
+.cruddur_emoji {
+  font-size: 1.2em;
+  line-height: 1;
+}

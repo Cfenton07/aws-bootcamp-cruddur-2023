@@ -4,12 +4,14 @@ import { Link } from "react-router-dom";
 import { timeAgo, formatTimeExpires } from '../lib/DateTimeFormats';
 import {ReactComponent as BombIcon} from './svg/bomb.svg';
 import ProfileAvatar from './ProfileAvatar';
+import { renderEmoji } from '../lib/emoji';
 
 // Splits a message into plain text, links and #hashtags. split() with a
 // capturing group keeps the matches at the odd indexes. Links come first in
 // the alternation so a '#' inside a URL stays part of the link. Everything is
 // built as React elements, never as an HTML string, so a message cannot
 // inject markup (XSS). Hashtags: backlog #41. Links: backlog #46.
+// Plain-text pieces also get their emoji enlarged 20% (backlog #51).
 const TOKEN_SPLIT = /(https?:\/\/[^\s<>"]+|#[\p{L}\p{N}_]+)/iu;
 const LINK_START = /^https?:\/\//i;
 const TRAILING_PUNCT = /[.,!?;:'"]$/;
@@ -73,7 +75,7 @@ function renderMessage(message) {
   }
   return message.split(TOKEN_SPLIT).map((part, i) => {
     if (i % 2 === 0) {
-      return part;
+      return renderEmoji(part, `t${i}`);
     }
     if (LINK_START.test(part)) {
       return renderLink(part, i);
