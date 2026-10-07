@@ -7,6 +7,16 @@ SELECT
   replies.replies_count,
   replies.reposts_count,
   replies.likes_count,
+  -- Same rule as home.sql and users/show.sql: true only for the signed-in
+  -- viewer's own like; NULL viewer (signed out) gives false. Without this,
+  -- every reply loaded by "View N more replies" showed an empty heart.
+  EXISTS (
+    SELECT 1
+    FROM public.likes
+    JOIN public.users likers ON likers.uuid = likes.user_uuid
+    WHERE likes.activity_uuid = replies.uuid
+      AND likers.cognito_user_id = %(cognito_user_id)s
+  ) AS liked_by_me,
   replies.reply_to_activity_uuid,
   replies.created_at
 FROM public.activities replies

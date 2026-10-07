@@ -59,8 +59,10 @@ const loadData = async () => {
   };
 
   React.useEffect(() => {
-    // This useEffect will run once when the component is mounted
-    // to check the user's authentication status and then load data
+    // Runs once on mount: check auth for the navigation, and load the feed.
+    // loadData sends the token whenever a session exists, so one fetch
+    // serves signed-in and signed-out visitors alike (backlog #22: a second
+    // fetch after checkAuth duplicated every home request).
     checkAuth(setUser);
     loadData();
   }, []);
@@ -75,23 +77,10 @@ const loadData = async () => {
     }
   }, [location.state, location.pathname, navigate]);
 
-  React.useEffect(() => {
-    // This effect runs whenever the `user` state changes
-    // It will trigger loadData only after a user is authenticated
-    if (user) {
-      loadData(user);
-    }
-  }, [user]);
-
   return (
     <article>
       <DesktopNavigation user={user} active={'home'} setPopped={setPopped} handleSignOut={handleSignOut} />
       <div className='content'>
-        <ActivityForm  
-          popped={popped}
-          setPopped={setPopped} 
-          setActivities={setActivities} 
-        />
         <ReplyForm 
           activity={replyActivity} 
           popped={poppedReply} 
@@ -105,7 +94,14 @@ const loadData = async () => {
           setReplyActivity={setReplyActivity} 
           setPopped={setPoppedReply} 
           activities={activities} 
-        />
+        >
+          {/* Compose form renders below the sticky Home banner (backlog #45). */}
+          <ActivityForm
+            popped={popped}
+            setPopped={setPopped}
+            setActivities={setActivities}
+          />
+        </ActivityFeed>
       </div>
       <DesktopSidebar user={user} />
     </article>

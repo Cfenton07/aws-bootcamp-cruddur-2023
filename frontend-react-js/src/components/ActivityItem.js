@@ -6,6 +6,7 @@ import ActivityActionReply  from '../components/ActivityActionReply';
 import ActivityActionRepost  from '../components/ActivityActionRepost';
 import ActivityActionLike  from '../components/ActivityActionLike';
 import ActivityActionShare  from '../components/ActivityActionShare';
+import { getAccessToken } from './lib/CheckAuth';
 
 export default function ActivityItem(props) {
   // Single-level threading. A child is an ActivityItem rendered by another
@@ -29,7 +30,14 @@ export default function ActivityItem(props) {
     setRepliesError(null);
     try {
       const backend_url = `${process.env.REACT_APP_BACKEND_URL}/api/activities/${props.activity.uuid}/replies`;
-      const res = await fetch(backend_url, { method: "GET" });
+      // Send the token when signed in so the API can fill liked_by_me;
+      // without it every expanded reply showed an empty heart.
+      const headers = {};
+      const accessToken = await getAccessToken();
+      if (accessToken) {
+        headers['Authorization'] = `Bearer ${accessToken}`;
+      }
+      const res = await fetch(backend_url, { method: "GET", headers: headers });
       if (res.status !== 200) {
         throw new Error(`HTTP ${res.status}`);
       }

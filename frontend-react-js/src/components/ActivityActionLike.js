@@ -1,5 +1,5 @@
 import './ActivityActionLike.css';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import process from 'process';
 import {ReactComponent as HeartIcon} from './svg/heart.svg';
 import {ReactComponent as HeartFilledIcon} from './svg/heart-filled.svg';
@@ -14,6 +14,16 @@ export default function ActivityActionLike(props) {
   const [liked, setLiked] = useState(Boolean(props.liked));
   const [count, setCount] = useState(props.count || 0);
   const [busy, setBusy] = useState(false);
+
+  // useState reads props only on first render. When the parent hands down
+  // newer data for the same post (a feed reload, a profile change, "View N
+  // more replies"), follow it so the heart never shows stale state.
+  useEffect(() => {
+    setLiked(Boolean(props.liked));
+  }, [props.liked]);
+  useEffect(() => {
+    setCount(props.count || 0);
+  }, [props.count]);
 
   const onclick = async (event) => {
     event.preventDefault();
