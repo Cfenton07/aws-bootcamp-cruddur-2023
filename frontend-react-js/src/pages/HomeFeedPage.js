@@ -59,8 +59,10 @@ const loadData = async () => {
   };
 
   React.useEffect(() => {
-    // This useEffect will run once when the component is mounted
-    // to check the user's authentication status and then load data
+    // Runs once on mount: check auth for the navigation, and load the feed.
+    // loadData sends the token whenever a session exists, so one fetch
+    // serves signed-in and signed-out visitors alike (backlog #22: a second
+    // fetch after checkAuth duplicated every home request).
     checkAuth(setUser);
     loadData();
   }, []);
@@ -74,14 +76,6 @@ const loadData = async () => {
       navigate(location.pathname, { replace: true, state: {} });
     }
   }, [location.state, location.pathname, navigate]);
-
-  React.useEffect(() => {
-    // This effect runs whenever the `user` state changes
-    // It will trigger loadData only after a user is authenticated
-    if (user) {
-      loadData(user);
-    }
-  }, [user]);
 
   return (
     <article>

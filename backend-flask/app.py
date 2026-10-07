@@ -511,7 +511,16 @@ def data_show_activity(activity_uuid):
 @app.route("/api/activities/<string:activity_uuid>/replies", methods=['GET'])
 def data_activity_replies(activity_uuid):
     """All direct replies to one root activity, oldest first (backs "View N more replies")."""
-    model = ActivityReplies.run(activity_uuid)
+    # Public route. Signed in: liked_by_me reflects the viewer. Logged out or
+    # bad token: everyone sees empty hearts. Same pattern as the profile route.
+    access_token = extract_access_token(request.headers)
+    cognito_user_id = None
+    try:
+        claims = cognito_jwt_token.verify(access_token)
+        cognito_user_id = claims['sub']
+    except TokenVerifyError as e:
+        app.logger.debug(f'replies: anonymous ({e})')
+    model = ActivityReplies.run(activity_uuid, cognito_user_id=cognito_user_id)
     if model['errors'] is not None:
         return {'errors': model['errors']}, 400
     return model['data'], 200

@@ -3,7 +3,9 @@ import uuid
 from lib.db import db
 
 class ActivityReplies:
-  def run(activity_uuid):
+  # cognito_user_id is the signed-in viewer (None when signed out); it only
+  # drives liked_by_me. The replies themselves are public.
+  def run(activity_uuid, cognito_user_id=None):
     """
     Every direct reply to one root activity, oldest first.
 
@@ -26,5 +28,8 @@ class ActivityReplies:
       return model
 
     sql = db.template('activities','replies')
-    model['data'] = db.query_array_json(sql, {'activity_uuid': activity_uuid}) or []
+    model['data'] = db.query_array_json(sql, {
+      'activity_uuid': activity_uuid,
+      'cognito_user_id': cognito_user_id
+    }) or []
     return model
