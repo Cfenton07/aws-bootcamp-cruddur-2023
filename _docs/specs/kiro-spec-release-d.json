@@ -1,0 +1,99 @@
+{
+  "spec": "kiro-spec-release-d.json",
+  "rev": 2,
+  "date": "2026-10-07",
+  "title": "Release D (frontend only): heart shows 'liked by others' as a subtly bolder light-purple outline; my like stays solid purple",
+  "protocol": "Kiro Supervised. Kiro edits ONLY the 2 files in scope, writing each file's FULL content exactly as given in edits[].content with the IDE write tool. Read-only git (GIT_PAGER=cat) and the gate commands below only. C runs every mutating git, AWS and docker command. No cwd parameter; every command starts with an absolute cd. Run commands one at a time. Run G5 (eslint) through the background-process tool wrapped in bash -c.",
+  "must_not": [
+    "git add/commit/push/stash/reset/checkout or history rewrite",
+    "any AWS CLI, docker, bin/ script, install, npx without --no-install",
+    "editing any file not in scope (heart.svg and heart-filled.svg are NOT edited)",
+    "hand-editing a file to force a gate to pass — report the failure instead"
+  ],
+  "scope": [
+    "frontend-react-js/src/components/ActivityActionLike.js",
+    "frontend-react-js/src/components/ActivityActionLike.css"
+  ],
+  "stop0": {
+    "checks": [
+      {
+        "id": "S0-1",
+        "cmd": "cd ~/aws-bootcamp-cruddur-2023 && GIT_PAGER=cat git status --short",
+        "expect": "only '?? _docs/specs/kiro-spec-release-d.json'"
+      },
+      {
+        "id": "S0-2",
+        "cmd": "cd ~/aws-bootcamp-cruddur-2023 && GIT_PAGER=cat git log --oneline -1",
+        "expect": "59133f9 (PR #23 merge) at HEAD on kiro-dev"
+      },
+      {
+        "id": "S0-3",
+        "cmd": "cd ~/aws-bootcamp-cruddur-2023 && sha256sum frontend-react-js/src/components/ActivityActionLike.js frontend-react-js/src/components/ActivityActionLike.css",
+        "expect": {
+          "frontend-react-js/src/components/ActivityActionLike.js": "b391e11e1f8e5e18b9246c0bbabc668ca61d0b555b437418a837d04069c60ff0",
+          "frontend-react-js/src/components/ActivityActionLike.css": "1e7c4a85da1b2b59e9f2c0ce96ebb5795c89158ae0bd82ec5896f234b72f29ca"
+        }
+      }
+    ],
+    "then": "Reply 'STOP 0 complete' with each result and wait for GO."
+  },
+  "edits": [
+    {
+      "file": "frontend-react-js/src/components/ActivityActionLike.js",
+      "action": "replace the whole file with content (LF, trailing newline exactly as shown)",
+      "content": "import './ActivityActionLike.css';\nimport { useEffect, useState } from 'react';\nimport process from 'process';\nimport {ReactComponent as HeartIcon} from './svg/heart.svg';\nimport {ReactComponent as HeartFilledIcon} from './svg/heart-filled.svg';\nimport { getAccessToken } from './lib/CheckAuth';\n\n// Like / unlike toggle (backlog #18). Outline heart when not liked, solid\n// theme-purple heart when liked (heart-filled.svg is heart.svg's outer\n// outline without the cut-out). The server is the source of truth: the\n// heart and the count change only after the API answers, so a failed request\n// never leaves the UI showing something the database does not have.\nexport default function ActivityActionLike(props) {\n  const [liked, setLiked] = useState(Boolean(props.liked));\n  const [count, setCount] = useState(props.count || 0);\n  const [busy, setBusy] = useState(false);\n\n  // useState reads props only on first render. When the parent hands down\n  // newer data for the same post (a feed reload, a profile change, \"View N\n  // more replies\"), follow it so the heart never shows stale state.\n  useEffect(() => {\n    setLiked(Boolean(props.liked));\n  }, [props.liked]);\n  useEffect(() => {\n    setCount(props.count || 0);\n  }, [props.count]);\n\n  const onclick = async (event) => {\n    event.preventDefault();\n    event.stopPropagation();\n    if (busy) return;\n\n    const accessToken = await getAccessToken();\n    if (!accessToken) {\n      console.log('like: not signed in');\n      return;\n    }\n\n    setBusy(true);\n    try {\n      const action = liked ? 'unlike' : 'like';\n      const backend_url = `${process.env.REACT_APP_BACKEND_URL}/api/activities/${props.activity_uuid}/${action}`;\n      const res = await fetch(backend_url, {\n        method: 'POST',\n        headers: {\n          'Accept': 'application/json',\n          'Authorization': `Bearer ${accessToken}`\n        }\n      });\n      if (!res.ok) {\n        console.log('like failed', res.status);\n        return;\n      }\n      const data = await res.json();\n      setLiked(Boolean(data.liked));\n      setCount(data.likes_count);\n    } catch (err) {\n      console.log('like failed', err);\n    } finally {\n      setBusy(false);\n    }\n  };\n\n  let counter;\n  if (count > 0) {\n    counter = <div className=\"counter\">{count}</div>;\n  }\n\n  // Three looks: no likes = white outline; liked by others but not me =\n  // light-purple outline, a touch bolder; liked by me = solid theme purple.\n  const classes = ['action', 'activity_action_heart'];\n  if (liked) {\n    classes.push('liked');\n  } else if (count > 0) {\n    classes.push('liked_by_others');\n  }\n\n  return (\n    <div onClick={onclick} className={classes.join(' ')} role=\"button\" aria-pressed={liked} aria-label={liked ? 'Unlike' : 'Like'}>\n      {liked ? <HeartFilledIcon className='icon' /> : <HeartIcon className='icon' />}\n      {counter}\n    </div>\n  );\n}\n"
+    },
+    {
+      "file": "frontend-react-js/src/components/ActivityActionLike.css",
+      "action": "replace the whole file with content (LF, trailing newline exactly as shown)",
+      "content": "/* Liked heart (backlog #18): solid heart (heart-filled.svg) in the app's\n   theme purple, rgb(149,0,255), the same as the Crud button and avatar\n   circles. These selectors are more specific than the generic rules in\n   ActivityItem.css (.activity_item .activity_actions .icon and\n   .action .counter), so they win regardless of which file loads last. */\n.activity_item .activity_actions .activity_action_heart.liked .icon {\n  fill: rgb(149,0,255);\n}\n\n.activity_item .activity_actions .activity_action_heart.liked .counter {\n  color: rgb(149,0,255);\n}\n\n/* Liked by other people but not by me: the outline heart in the lighter\n   link purple, rgb(176,102,255), so it is clearly different from my own\n   solid like. The stroke is in SVG units (viewBox 512 wide, drawn at 18px),\n   so 8 thickens the outline by about a quarter of a pixel: subtle on purpose. */\n.activity_item .activity_actions .activity_action_heart.liked_by_others .icon {\n  fill: rgb(176,102,255);\n  stroke: rgb(176,102,255);\n  stroke-width: 8;\n  stroke-linejoin: round;\n}\n\n.activity_item .activity_actions .activity_action_heart.liked_by_others .counter {\n  color: rgb(176,102,255);\n}\n"
+    }
+  ],
+  "gates": [
+    {
+      "id": "G1",
+      "cmd": "cd ~/aws-bootcamp-cruddur-2023 && sha256sum frontend-react-js/src/components/ActivityActionLike.js frontend-react-js/src/components/ActivityActionLike.css",
+      "expect": {
+        "frontend-react-js/src/components/ActivityActionLike.js": "fabb20194f888f70a92b4948bb76cf09fcd54433de07558ff6b202031b62ed3b",
+        "frontend-react-js/src/components/ActivityActionLike.css": "f92af2a73b17b734e8df99efc05c1d0bc837899c1ee5df45763f3b8e5a1f999d"
+      },
+      "on_fail": "Report the diff; only CRLF / trailing-newline may be corrected. Otherwise STOP."
+    },
+    {
+      "id": "G2",
+      "cmd": "cd ~/aws-bootcamp-cruddur-2023 && grep -c $'\\r' frontend-react-js/src/components/ActivityActionLike.js frontend-react-js/src/components/ActivityActionLike.css; echo exit=$?",
+      "expect": "both :0 and exit=1"
+    },
+    {
+      "id": "G3",
+      "cmd": "cd ~/aws-bootcamp-cruddur-2023 && GIT_PAGER=cat git diff --numstat",
+      "expect": [
+        "15\t0\tfrontend-react-js/src/components/ActivityActionLike.css",
+        "4\t0\tfrontend-react-js/src/components/ActivityActionLike.js"
+      ]
+    },
+    {
+      "id": "G4",
+      "cmd": "cd ~/aws-bootcamp-cruddur-2023 && grep -c 'liked_by_others' frontend-react-js/src/components/ActivityActionLike.js frontend-react-js/src/components/ActivityActionLike.css",
+      "expect": "ActivityActionLike.js:1 and ActivityActionLike.css:2"
+    },
+    {
+      "id": "G5",
+      "cmd": "bash -c 'cd ~/aws-bootcamp-cruddur-2023/frontend-react-js && npx --no-install eslint src/components/ActivityActionLike.js; echo exit=$?'",
+      "expect": "exit=0, no errors"
+    }
+  ],
+  "tested_by_claude": "Rendered heart.svg at its real 18px size in Chromium with stroke-width 0/8/12/16/24 on black; C chose 8 from the render: a subtle step up from the plain outline. Hover rule .action:hover .icon (specificity 0,4,0) does not override the new rule (0,5,0).",
+  "report": "Paste every STOP 0 and gate command with full output.",
+  "c_after_kiro": {
+    "1_commit": "git add the 2 files + _docs/specs/kiro-spec-release-d.json; git commit -m 'Release D: liked-by-others heart (light-purple, subtly bolder outline)'; git push origin kiro-dev",
+    "2_frontend": "./bin/frontend/build, then:\nREPO=frontend-react-js; CFG=aws/cfn/frontend/config.toml\nNEW=$(aws ecr describe-images --repository-name $REPO --query 'sort_by(imageDetails,&imagePushedAt)[-1].imageDigest' --output text)\naws ecr describe-images --repository-name $REPO --image-ids imageDigest=$NEW --query 'imageDetails[0].[imagePushedAt,imageTags]' --output text\necho \"$NEW\"; echo -n \"${NEW#sha256:}\" | wc -c\ngrep -n EcrImage $CFG\n# CHECK: pushed a minute ago, 64 chars, NOT the current digest (d56787a8…). Then:\nsed -i \"s|$REPO@sha256:[^']*'|$REPO@$NEW'|\" $CFG\ngrep -n EcrImage $CFG\n./bin/cfn/frontend-deploy",
+    "rollback": "frontend sha256:d56787a8…b375 (Release C)"
+  },
+  "verify_after_deploy": [
+    "Hard refresh. A post only someone else liked ('New Crud no Dud!'): light-purple, slightly bolder outline with a light-purple count",
+    "A post I liked: solid purple heart (unchanged)",
+    "A post with no likes: white outline, no count (unchanged)",
+    "Like the 'others' post → solid; unlike → back to light-purple outline (count > 0) or white (count 0)"
+  ]
+}
