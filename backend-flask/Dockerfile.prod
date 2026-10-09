@@ -1,8 +1,12 @@
-FROM 931637612335.dkr.ecr.us-east-1.amazonaws.com/cruddur-python:3.10-slim-buster
+# Base image pinned by digest (Release F). The tag alone could be overwritten;
+# the digest cannot. This is the image the tag has pointed at since 2026-01-17.
+FROM 931637612335.dkr.ecr.us-east-1.amazonaws.com/cruddur-python:3.10-slim-buster@sha256:68f714f81d6522d6ad2156abee2535307c2be24a96781f4823c06422dfff3a2c
 
 WORKDIR /backend-flask
 
 # Install dependencies
+# requirements.txt is the full lock (every package pinned), so a rebuild
+# installs exactly what the proven image has.
 COPY requirements.txt requirements.txt
 RUN pip3 install -r requirements.txt
 
