@@ -1,0 +1,205 @@
+{
+  "spec": "kiro-spec-release-g.json",
+  "rev": 2,
+  "date": "2026-10-10",
+  "title": "Release G (#50): one public.users row per Cognito account. Lambda skips non-sign-up triggers and inserts only if no row exists; DB gets a UNIQUE constraint (migration 17800000000000003); seed.sql gets distinct placeholders; first unit tests for a Lambda.",
+  "why": "Incident 2026-10-07: Cognito fires PostConfirmation for a password reset (PostConfirmation_ConfirmForgotPassword) as well as a sign-up. The Lambda inserted on every trigger, so Michael M.'s reset created a second users row with the same cognito_user_id and his profile returned 500. Data was fixed by hand; this is the permanent fix.",
+  "design": [
+    "Defence 1 (Lambda): return the event unchanged unless triggerSource == PostConfirmation_ConfirmSignUp. Returning (not raising) lets the password reset complete.",
+    "Defence 2 (Lambda SQL): INSERT ... SELECT ... WHERE NOT EXISTS (same cognito_user_id). Works with OR without the constraint, so deploy order does not matter (expand/contract). Replaces the rev-0 idea of ON CONFLICT (cognito_user_id), which fails outright until the constraint exists.",
+    "Defence 3 (database): UNIQUE constraint users_cognito_user_id_key. Backstop for two simultaneous invocations. The Lambda treats a unique violation as 'already exists' ONLY when it names this constraint; any other violation (e.g. a future unique handle) still raises.",
+    "seed.sql: the three seed users all had cognito_user_id 'MOCK', which the constraint rejects (proven in Postgres 16); local bin/db/setup would fail at the seed step. Now 'MOCK-<handle>'; bin/db/update_cognito_user_ids still replaces them by handle."
+  ],
+  "protocol": "Kiro Supervised. Kiro writes the FULL content of each in-scope file exactly as given in edits[] using the IDE write tool (create the 4 new files, replace the 3 existing). Read-only git (GIT_PAGER=cat), the gate commands, and ONE permitted execution: the unit tests in G4 (python3 -B, standard library only, no network, no install). C runs every mutating git, docker and AWS command. No cwd parameter; every command starts with an absolute cd. One command at a time.",
+  "must_not": [
+    "git add/commit/push/stash/reset/checkout or history rewrite",
+    "any AWS CLI, docker, pip/npm install, bin/ script, psql, or database connection",
+    "running python other than the G3 ast check and the G4 unit-test command",
+    "editing any file not in scope",
+    "creating any file inside aws/lambdas/cruddur-post-confirmation/ other than lambda_function.py (that folder is zipped into the Lambda by cloudformation package)",
+    "hand-editing a file to force a gate to pass - report the failure instead"
+  ],
+  "scope": [
+    "aws/lambdas/cruddur-post-confirmation/lambda_function.py",
+    "aws/lambdas/tests/test_post_confirmation.py",
+    "aws/lambdas/tests/events/confirm_signup.json",
+    "aws/lambdas/tests/events/confirm_forgot_password.json",
+    "backend-flask/db/migrations/17800000000000003_unique_users_cognito_user_id.py",
+    "backend-flask/db/schema.sql",
+    "backend-flask/db/seed.sql"
+  ],
+  "stop0": {
+    "checks": [
+      {
+        "id": "S0-1",
+        "cmd": "cd ~/aws-bootcamp-cruddur-2023 && GIT_PAGER=cat git status --short",
+        "expect": "only '?? _docs/specs/kiro-spec-release-g.json'"
+      },
+      {
+        "id": "S0-2",
+        "cmd": "cd ~/aws-bootcamp-cruddur-2023 && GIT_PAGER=cat git log --oneline -1",
+        "expect": "2914efa (Release F 2/2) at HEAD on kiro-dev"
+      },
+      {
+        "id": "S0-3",
+        "cmd": "cd ~/aws-bootcamp-cruddur-2023 && sha256sum aws/lambdas/cruddur-post-confirmation/lambda_function.py backend-flask/db/schema.sql backend-flask/db/seed.sql",
+        "expect": {
+          "aws/lambdas/cruddur-post-confirmation/lambda_function.py": "7af6674ec96c7f9e9da3ba2064ddedede7737a6935e773315764072fc16bd4f0",
+          "backend-flask/db/schema.sql": "ae247412d82324a5d862bf415fd94f045bf3a0422fba77e75fa142e6bc3c1105",
+          "backend-flask/db/seed.sql": "c63525ea600a021ad56f59122778c50e7d92470b46d77ae2730f99884fd9243b"
+        }
+      },
+      {
+        "id": "S0-4",
+        "cmd": "cd ~/aws-bootcamp-cruddur-2023 && ls aws/lambdas/tests backend-flask/db/migrations/17800000000000003_unique_users_cognito_user_id.py; echo exit=$?",
+        "expect": "both 'No such file or directory', exit=2"
+      },
+      {
+        "id": "S0-5",
+        "cmd": "cd ~/aws-bootcamp-cruddur-2023 && ls -A aws/lambdas/cruddur-post-confirmation; ls backend-flask/db/migrations",
+        "expect": "Lambda folder: exactly lambda_function.py. Migrations: 17749981238427508_add_bio_column.py, 17800000000000000_alter_reply_to_activity_uuid.py, 17800000000000001_backfill_replies_count.py, 17800000000000002_create_likes.py (nothing newer)."
+      },
+      {
+        "id": "S0-6",
+        "cmd": "cd ~/aws-bootcamp-cruddur-2023 && grep -rn \"'MOCK'\" backend-flask bin aws --include=*.sql --include=*.py; echo exit=$?",
+        "expect": "exactly the 3 lines in backend-flask/db/seed.sql (4, 5, 6), then exit=0. Any other use of 'MOCK' -> STOP."
+      }
+    ],
+    "then": "Reply 'STOP 0 complete' with each result and wait for C to say GO."
+  },
+  "edits": [
+    {
+      "file": "aws/lambdas/cruddur-post-confirmation/lambda_function.py",
+      "action": "replace the whole file with content (LF; trailing newline exactly as shown - schema.sql has none and must stay that way)",
+      "content": "import json\nimport os\n\nimport boto3\nimport psycopg2\n\n# Cached for the life of the execution environment, so the secret is fetched\n# once per cold start rather than once per signup.\n_credentials = None\n\n\ndef _load_credentials() -> dict:\n    global _credentials\n    if _credentials is None:\n        client = boto3.client('secretsmanager')\n        raw = client.get_secret_value(SecretId=os.environ['DB_SECRET_ARN'])\n        _credentials = json.loads(raw['SecretString'])\n    return _credentials\n\n\ndef _clear_credentials() -> None:\n    global _credentials\n    _credentials = None\n\n\ndef _connect():\n    creds = _load_credentials()\n    # connect_timeout turns an unreachable database into a fast, labelled\n    # failure instead of a silent hang that ends as a Lambda timeout.\n    return psycopg2.connect(\n        host=os.environ['PG_HOST'],\n        port=int(os.environ.get('PG_PORT', '5432')),\n        dbname=os.environ.get('PG_DATABASE', 'cruddur'),\n        user=creds['username'],\n        password=creds['password'],\n        connect_timeout=5,\n    )\n\n\ndef lambda_handler(event: dict, context) -> dict:\n    user = event['request']['userAttributes']\n    trigger = event.get('triggerSource')\n    # Audit HIGH-02: userAttributes holds email and name. Log the sub only.\n    print(f\"PostConfirmation {trigger} for sub={user.get('sub')}\")\n\n    # Backlog #50: Cognito fires PostConfirmation for a confirmed SIGN-UP\n    # (PostConfirmation_ConfirmSignUp) AND for a confirmed PASSWORD RESET\n    # (PostConfirmation_ConfirmForgotPassword). Only a sign-up creates a user.\n    # Return the event (do not raise) so the password reset completes.\n    if trigger != 'PostConfirmation_ConfirmSignUp':\n        print(f\"Skipping {trigger}: only a sign-up creates a public.users row\")\n        return event\n\n    try:\n        display_name    = user['name']\n        email           = user['email']\n        handle          = user['preferred_username']\n        cognito_user_id = user['sub']\n    except KeyError as error:\n        print(f\"FATAL: missing required Cognito attribute: {error}\")\n        raise\n\n    # Insert only if this Cognito account has no row yet (backlog #50).\n    # WHERE NOT EXISTS works with or without the unique constraint added by\n    # migration 17800000000000003, so deploy order does not matter. The\n    # constraint is the backstop for two simultaneous invocations; that case\n    # is handled by name below.\n    sql = \"\"\"\n        INSERT INTO public.users (\n            display_name,\n            email,\n            handle,\n            cognito_user_id\n        )\n        SELECT %s, %s, %s, %s\n        WHERE NOT EXISTS (\n            SELECT 1 FROM public.users WHERE cognito_user_id = %s\n        )\n    \"\"\"\n    params = [display_name, email, handle, cognito_user_id, cognito_user_id]\n\n    # Two attempts: if the cached password was invalidated by the 7-day managed\n    # rotation between cold start and now, refresh it once and retry.\n    for attempt in (1, 2):\n        conn = None\n        try:\n            conn = _connect()\n            with conn.cursor() as cur:\n                cur.execute(sql, params)\n                inserted = cur.rowcount\n            conn.commit()\n            if inserted == 1:\n                print(f\"Inserted user handle={handle} sub={cognito_user_id}\")\n            else:\n                # Already has a row (e.g. Cognito retried the trigger). The\n                # goal - exactly one row per account - is met. Not an error.\n                print(f\"User row already exists for sub={cognito_user_id}; nothing inserted\")\n            return event\n\n        except psycopg2.OperationalError as error:\n            message = str(error).lower()\n            if attempt == 1 and 'authentication failed' in message:\n                print(\"Cached credentials rejected; refreshing secret and retrying once.\")\n                _clear_credentials()\n                continue\n            print(f\"FATAL: could not connect to the database: {error}\")\n            raise\n\n        except psycopg2.Error as error:\n            # The ONE unique violation that means \"row already exists\": a\n            # concurrent invocation inserted it first. Matched by constraint\n            # NAME so any other violation (e.g. a future unique handle) still\n            # raises below instead of silently skipping the insert.\n            diag = getattr(error, 'diag', None)\n            if (getattr(error, 'pgcode', None) == '23505'\n                    and getattr(diag, 'constraint_name', None) == 'users_cognito_user_id_key'):\n                print(f\"User row already exists for sub={cognito_user_id} (concurrent insert); nothing inserted\")\n                return event\n            # Do NOT swallow. The row is a precondition for the application\n            # working, not an optional side effect. A swallowed failure is what\n            # let the August 2026 incident run undetected.\n            print(f\"FATAL: insert into public.users failed: {error}\")\n            raise\n\n        finally:\n            if conn is not None:\n                conn.close()\n                print('Database connection closed.')\n\n    return event\n"
+    },
+    {
+      "file": "aws/lambdas/tests/test_post_confirmation.py",
+      "action": "create the new file with content (LF; trailing newline exactly as shown - schema.sql has none and must stay that way)",
+      "content": "\"\"\"Unit tests for aws/lambdas/cruddur-post-confirmation/lambda_function.py.\n\nBacklog #50. Standard library only: psycopg2 and boto3 are replaced by small\nfakes, so this runs on any machine with python3 and touches no AWS service and\nno database. The events in events/ have the shape Cognito sends (fake values).\n\nRun from the repo root:\n    python3 -B -m unittest discover -s aws/lambdas/tests -v\n\"\"\"\nimport importlib.util\nimport json\nimport os\nimport sys\nimport types\nimport unittest\n\nsys.dont_write_bytecode = True  # keep __pycache__ out of the Lambda folder\n\nHERE = os.path.dirname(os.path.abspath(__file__))\nLAMBDA_FILE = os.path.join(HERE, '..', 'cruddur-post-confirmation', 'lambda_function.py')\n\n\n# ---------- fakes ----------------------------------------------------------\nclass FakePgError(Exception):\n    def __init__(self, msg='', pgcode=None, constraint_name=None):\n        super().__init__(msg)\n        self.pgcode = pgcode\n        self.diag = types.SimpleNamespace(constraint_name=constraint_name)\n\n\nclass FakeOperationalError(FakePgError):\n    pass\n\n\nclass FakeCursor:\n    def __init__(self, db):\n        self.db = db\n        self.rowcount = -1\n\n    def __enter__(self):\n        return self\n\n    def __exit__(self, *exc):\n        return False\n\n    def execute(self, sql, params):\n        self.db.executed.append((sql, list(params)))\n        if self.db.raise_on_execute is not None:\n            raise self.db.raise_on_execute\n        self.rowcount = self.db.rowcount\n\n\nclass FakeConn:\n    def __init__(self, db):\n        self.db = db\n\n    def cursor(self):\n        return FakeCursor(self.db)\n\n    def commit(self):\n        self.db.commits += 1\n\n    def close(self):\n        self.db.closes += 1\n\n\nclass FakeDb:\n    def __init__(self):\n        self.reset()\n\n    def reset(self, rowcount=1, raise_on_execute=None):\n        self.connects = 0\n        self.commits = 0\n        self.closes = 0\n        self.executed = []\n        self.rowcount = rowcount\n        self.raise_on_execute = raise_on_execute\n\n    def connect(self, **kwargs):\n        self.connects += 1\n        return FakeConn(self)\n\n\nFAKE_DB = FakeDb()\n\n\ndef load_lambda():\n    psycopg2 = types.ModuleType('psycopg2')\n    psycopg2.Error = FakePgError\n    psycopg2.OperationalError = FakeOperationalError\n    psycopg2.connect = FAKE_DB.connect\n    boto3 = types.ModuleType('boto3')\n\n    class FakeSecrets:\n        def get_secret_value(self, SecretId):\n            return {'SecretString': json.dumps({'username': 'u', 'password': 'p'})}\n\n    boto3.client = lambda name: FakeSecrets()\n    sys.modules['psycopg2'] = psycopg2\n    sys.modules['boto3'] = boto3\n    os.environ.setdefault('DB_SECRET_ARN', 'arn:aws:secretsmanager:us-east-1:000000000000:secret:fake')\n    os.environ.setdefault('PG_HOST', 'fake-host')\n    spec = importlib.util.spec_from_file_location('lambda_function_under_test', LAMBDA_FILE)\n    module = importlib.util.module_from_spec(spec)\n    spec.loader.exec_module(module)\n    return module\n\n\nLAMBDA = load_lambda()\n\n\ndef event(name):\n    with open(os.path.join(HERE, 'events', name)) as f:\n        return json.load(f)\n\n\n# ---------- tests ----------------------------------------------------------\nclass PostConfirmationTests(unittest.TestCase):\n\n    def setUp(self):\n        FAKE_DB.reset()\n\n    def test_signup_inserts_one_row_guarded_by_not_exists(self):\n        ev = event('confirm_signup.json')\n        self.assertIs(LAMBDA.lambda_handler(ev, None), ev)\n        self.assertEqual(FAKE_DB.connects, 1)\n        self.assertEqual(FAKE_DB.commits, 1)\n        sql, params = FAKE_DB.executed[0]\n        self.assertIn('WHERE NOT EXISTS', sql)\n        self.assertIn('SELECT 1 FROM public.users WHERE cognito_user_id = %s', sql)\n        sub = ev['request']['userAttributes']['sub']\n        self.assertEqual(params, ['Test User', 'test.user@example.com', 'testuser', sub, sub])\n\n    def test_password_reset_is_skipped_and_never_touches_the_database(self):\n        # The #50 incident: this trigger used to insert a second row.\n        ev = event('confirm_forgot_password.json')\n        self.assertIs(LAMBDA.lambda_handler(ev, None), ev)\n        self.assertEqual(FAKE_DB.connects, 0)\n        self.assertEqual(FAKE_DB.executed, [])\n\n    def test_unknown_trigger_is_skipped(self):\n        ev = event('confirm_signup.json')\n        ev['triggerSource'] = 'PostConfirmation_SomethingNew'\n        self.assertIs(LAMBDA.lambda_handler(ev, None), ev)\n        self.assertEqual(FAKE_DB.connects, 0)\n\n    def test_existing_row_is_not_an_error(self):\n        FAKE_DB.reset(rowcount=0)  # NOT EXISTS was false: row already there\n        ev = event('confirm_signup.json')\n        self.assertIs(LAMBDA.lambda_handler(ev, None), ev)\n        self.assertEqual(FAKE_DB.commits, 1)\n\n    def test_concurrent_insert_on_our_constraint_is_not_an_error(self):\n        FAKE_DB.reset(raise_on_execute=FakePgError(\n            'duplicate key', pgcode='23505', constraint_name='users_cognito_user_id_key'))\n        ev = event('confirm_signup.json')\n        self.assertIs(LAMBDA.lambda_handler(ev, None), ev)\n        self.assertEqual(FAKE_DB.commits, 0)\n        self.assertEqual(FAKE_DB.closes, 1)\n\n    def test_other_unique_violation_still_raises(self):\n        # e.g. a future unique handle: must NOT be silently skipped.\n        FAKE_DB.reset(raise_on_execute=FakePgError(\n            'duplicate key', pgcode='23505', constraint_name='users_handle_key'))\n        with self.assertRaises(FakePgError):\n            LAMBDA.lambda_handler(event('confirm_signup.json'), None)\n\n    def test_other_database_error_still_raises(self):\n        FAKE_DB.reset(raise_on_execute=FakePgError('relation does not exist', pgcode='42P01'))\n        with self.assertRaises(FakePgError):\n            LAMBDA.lambda_handler(event('confirm_signup.json'), None)\n\n    def test_missing_attribute_on_signup_raises(self):\n        ev = event('confirm_signup.json')\n        del ev['request']['userAttributes']['preferred_username']\n        with self.assertRaises(KeyError):\n            LAMBDA.lambda_handler(ev, None)\n        self.assertEqual(FAKE_DB.connects, 0)\n\n\nif __name__ == '__main__':\n    unittest.main()\n"
+    },
+    {
+      "file": "aws/lambdas/tests/events/confirm_signup.json",
+      "action": "create the new file with content (LF; trailing newline exactly as shown - schema.sql has none and must stay that way)",
+      "content": "{\n  \"version\": \"1\",\n  \"region\": \"us-east-1\",\n  \"userPoolId\": \"us-east-1_EXAMPLE\",\n  \"userName\": \"11111111-2222-3333-4444-555555555555\",\n  \"callerContext\": {\n    \"awsSdkVersion\": \"aws-sdk-unknown-unknown\",\n    \"clientId\": \"exampleclientid\"\n  },\n  \"triggerSource\": \"PostConfirmation_ConfirmSignUp\",\n  \"request\": {\n    \"userAttributes\": {\n      \"sub\": \"11111111-2222-3333-4444-555555555555\",\n      \"email_verified\": \"true\",\n      \"cognito:user_status\": \"CONFIRMED\",\n      \"name\": \"Test User\",\n      \"email\": \"test.user@example.com\",\n      \"preferred_username\": \"testuser\"\n    }\n  },\n  \"response\": {}\n}\n"
+    },
+    {
+      "file": "aws/lambdas/tests/events/confirm_forgot_password.json",
+      "action": "create the new file with content (LF; trailing newline exactly as shown - schema.sql has none and must stay that way)",
+      "content": "{\n  \"version\": \"1\",\n  \"region\": \"us-east-1\",\n  \"userPoolId\": \"us-east-1_EXAMPLE\",\n  \"userName\": \"11111111-2222-3333-4444-555555555555\",\n  \"callerContext\": {\n    \"awsSdkVersion\": \"aws-sdk-unknown-unknown\",\n    \"clientId\": \"exampleclientid\"\n  },\n  \"triggerSource\": \"PostConfirmation_ConfirmForgotPassword\",\n  \"request\": {\n    \"userAttributes\": {\n      \"sub\": \"11111111-2222-3333-4444-555555555555\",\n      \"email_verified\": \"true\",\n      \"cognito:user_status\": \"CONFIRMED\",\n      \"name\": \"Test User\",\n      \"email\": \"test.user@example.com\",\n      \"preferred_username\": \"testuser\"\n    }\n  },\n  \"response\": {}\n}\n"
+    },
+    {
+      "file": "backend-flask/db/migrations/17800000000000003_unique_users_cognito_user_id.py",
+      "action": "create the new file with content (LF; trailing newline exactly as shown - schema.sql has none and must stay that way)",
+      "content": "from lib.db import db\n\n# Backlog #50: one public.users row per Cognito account. A password reset\n# fired the post-confirmation trigger and inserted a second row for the same\n# cognito_user_id (incident 2026-10-07). The Lambda now skips non-sign-up\n# triggers; this constraint makes a duplicate impossible at the database.\n# Fails loudly (and is not recorded) if duplicates already exist - run the\n# duplicate check first. Folded into schema.sql with the stamp bumped.\nclass UniqueUsersCognitoUserIdMigration:\n  def migrate_sql():\n    data = \"\"\"\n    ALTER TABLE public.users\n      ADD CONSTRAINT users_cognito_user_id_key UNIQUE (cognito_user_id);\n    \"\"\"\n    return data\n\n  def rollback_sql():\n    data = \"\"\"\n    ALTER TABLE public.users\n      DROP CONSTRAINT IF EXISTS users_cognito_user_id_key;\n    \"\"\"\n    return data\n\n  def migrate():\n    db.query_commit(UniqueUsersCognitoUserIdMigration.migrate_sql(), {})\n\n  def rollback():\n    db.query_commit(UniqueUsersCognitoUserIdMigration.rollback_sql(), {})\n"
+    },
+    {
+      "file": "backend-flask/db/schema.sql",
+      "action": "replace the whole file with content (LF; trailing newline exactly as shown - schema.sql has none and must stay that way)",
+      "content": "-- https://www.postgresql.org/docs/current/uuid-ossp.html\nCREATE EXTENSION IF NOT EXISTS \"uuid-ossp\";\n\n-- forcefully drop our tables if they already exist\n-- likes first: it references users and activities.\nDROP TABLE IF EXISTS public.likes;\nDROP TABLE IF EXISTS public.users cascade;\nDROP TABLE IF EXISTS public.activities;\n\nCREATE TABLE public.users (\n  uuid UUID DEFAULT uuid_generate_v4() PRIMARY KEY,\n  display_name text NOT NULL,\n  email text NOT NULL,\n  handle text NOT NULL,\n  -- UNIQUE (backlog #50): one row per Cognito account. Same constraint name\n  -- (users_cognito_user_id_key) as migration 17800000000000003 creates.\n  cognito_user_id text NOT NULL UNIQUE,\n  created_at TIMESTAMP default current_timestamp NOT NULL,\n  bio text\n);\n\nCREATE TABLE public.activities (\n  uuid UUID DEFAULT uuid_generate_v4() PRIMARY KEY,\n  user_uuid UUID NOT NULL,\n  message text NOT NULL,\n  replies_count integer DEFAULT 0,\n  reposts_count integer DEFAULT 0,\n  likes_count integer DEFAULT 0,\n  reply_to_activity_uuid UUID,\n  expires_at TIMESTAMP,\n  created_at TIMESTAMP default current_timestamp NOT NULL\n);\n\n-- One row per (user, activity). The primary key makes a double like\n-- impossible; activities.likes_count is kept in step by like.sql/unlike.sql.\nCREATE TABLE public.likes (\n  user_uuid UUID NOT NULL REFERENCES public.users(uuid) ON DELETE CASCADE,\n  activity_uuid UUID NOT NULL REFERENCES public.activities(uuid) ON DELETE CASCADE,\n  created_at TIMESTAMP default current_timestamp NOT NULL,\n  PRIMARY KEY (user_uuid, activity_uuid)\n);\n\n-- Migration tracking table \u2014 DO NOT DROP this table\n-- It persists across schema reloads to track which migrations have run\nCREATE TABLE IF NOT EXISTS public.schema_information (\n  id integer UNIQUE,\n  last_successful_run varchar(256)\n);\n\n-- This file creates the tables in their CURRENT shape: every migration up to\n-- and including the prefix below is already folded in (users.bio, uuid\n-- reply_to_activity_uuid, likes table, unique users.cognito_user_id). Loading it must therefore RESET the stamp to that\n-- prefix. Otherwise bin/db/migrate would re-run folded migrations and fail\n-- (\"column bio already exists\"), or a stale stamp would skip real ones.\n-- When you add a migration: fold it in here AND bump this value.\nINSERT INTO public.schema_information (id, last_successful_run)\nVALUES (1, '17800000000000003')\nON CONFLICT (id) DO UPDATE SET last_successful_run = EXCLUDED.last_successful_run;"
+    },
+    {
+      "file": "backend-flask/db/seed.sql",
+      "action": "replace the whole file with content (LF; trailing newline exactly as shown - schema.sql has none and must stay that way)",
+      "content": "-- this file was manually created\n-- cognito_user_id is UNIQUE (backlog #50), so each seed user needs its own\n-- placeholder. bin/db/update_cognito_user_ids replaces them by handle.\nINSERT INTO public.users (display_name, email, handle, cognito_user_id)\nVALUES\n  ('Chris Fenton', 'cfenton07@yahoo.com' ,'chrisfenton' ,'MOCK-chrisfenton'),\n  ('Antwuan Jacobs', 'fentonmgmt@gmail.com', 'Aj-skynet' ,'MOCK-Aj-skynet'),\n  ('Trinidad James', 'TrinidadJ@example.com', 'goldgrill' ,'MOCK-goldgrill');\n\nINSERT INTO public.activities (user_uuid, message, expires_at)\nVALUES\n  (\n    (SELECT uuid from public.users WHERE users.handle = 'chrisfenton' LIMIT 1),\n    'This was imported as seed data!',\n    current_timestamp + interval '10 day'\n  )"
+    }
+  ],
+  "gates": [
+    {
+      "id": "G1",
+      "name": "exact content",
+      "cmd": "cd ~/aws-bootcamp-cruddur-2023 && sha256sum aws/lambdas/cruddur-post-confirmation/lambda_function.py aws/lambdas/tests/test_post_confirmation.py aws/lambdas/tests/events/confirm_signup.json aws/lambdas/tests/events/confirm_forgot_password.json backend-flask/db/migrations/17800000000000003_unique_users_cognito_user_id.py backend-flask/db/schema.sql backend-flask/db/seed.sql",
+      "expect": {
+        "aws/lambdas/cruddur-post-confirmation/lambda_function.py": "6a83f2a58638300247c1ebe9c68ca03f1cdf70cc0ea5c9311d4ee581d2bf37a6",
+        "aws/lambdas/tests/test_post_confirmation.py": "799c57bda84abbb2fcf7e6a4800f77e85c621cd9b1889cdd8124afbbac3e3616",
+        "aws/lambdas/tests/events/confirm_signup.json": "08f4c82896749d58baa19dfba40e28d5579907cd0d9042c2ca841096fa3d2ae6",
+        "aws/lambdas/tests/events/confirm_forgot_password.json": "a400ca0bcd32aab2210640280b21ef308e79bebcfdd14d6726d35ef41aa95aad",
+        "backend-flask/db/migrations/17800000000000003_unique_users_cognito_user_id.py": "584ab7117dad02f598cda43045ed1b1482e361cfcbc21622d6b6f522786f40c8",
+        "backend-flask/db/schema.sql": "e5a44d58c99b66399a1d3255ac2e431b987afe0f5ddc5c4e7143d1d3dd449e13",
+        "backend-flask/db/seed.sql": "e75d231885e17430782e7ed9de3c3dc5a39ff1e9899a6f6663add876a0f41ed9"
+      },
+      "on_fail": "Report the diff; only CRLF / trailing newline may be corrected. Otherwise STOP."
+    },
+    {
+      "id": "G2",
+      "name": "no CRLF; no NEW non-ASCII",
+      "cmd": "cd ~/aws-bootcamp-cruddur-2023 && grep -c $'\\r' aws/lambdas/cruddur-post-confirmation/lambda_function.py aws/lambdas/tests/test_post_confirmation.py aws/lambdas/tests/events/confirm_signup.json aws/lambdas/tests/events/confirm_forgot_password.json backend-flask/db/migrations/17800000000000003_unique_users_cognito_user_id.py backend-flask/db/schema.sql backend-flask/db/seed.sql; grep -nP '[^\\x00-\\x7F]' aws/lambdas/cruddur-post-confirmation/lambda_function.py aws/lambdas/tests/test_post_confirmation.py aws/lambdas/tests/events/confirm_signup.json aws/lambdas/tests/events/confirm_forgot_password.json backend-flask/db/migrations/17800000000000003_unique_users_cognito_user_id.py backend-flask/db/schema.sql backend-flask/db/seed.sql; echo exit=$?",
+      "expect": "all seven :0; then exactly ONE non-ASCII line, pre-existing and untouched: 'backend-flask/db/schema.sql:43:-- Migration tracking table \\u2014 DO NOT DROP this table' (an em dash), then exit=0"
+    },
+    {
+      "id": "G3",
+      "name": "python parses, JSON valid",
+      "cmd": "cd ~/aws-bootcamp-cruddur-2023 && python3 -B -c \"import ast; [ast.parse(open(f).read(), f) for f in ('aws/lambdas/cruddur-post-confirmation/lambda_function.py','aws/lambdas/tests/test_post_confirmation.py','backend-flask/db/migrations/17800000000000003_unique_users_cognito_user_id.py')]; print('ast ok')\" && python3 -m json.tool aws/lambdas/tests/events/confirm_signup.json >/dev/null && python3 -m json.tool aws/lambdas/tests/events/confirm_forgot_password.json >/dev/null && echo json-ok",
+      "expect": "ast ok, then json-ok"
+    },
+    {
+      "id": "G4",
+      "name": "unit tests (the only permitted execution)",
+      "cmd": "cd ~/aws-bootcamp-cruddur-2023 && python3 -B -m unittest discover -s aws/lambdas/tests -v 2>&1 >/dev/null | tail -4; find aws backend-flask -name __pycache__ -newer _docs/specs/kiro-spec-release-g.json; echo pycache-check-done",
+      "expect": "'Ran 8 tests', blank line, 'OK'; then NO __pycache__ path printed; then pycache-check-done. (The tests replace psycopg2/boto3 with fakes: no network, no database, no AWS.)"
+    },
+    {
+      "id": "G5",
+      "name": "the #50 logic is present",
+      "cmd": "cd ~/aws-bootcamp-cruddur-2023 && grep -n \"if trigger != 'PostConfirmation_ConfirmSignUp':\\|WHERE NOT EXISTS\\|users_cognito_user_id_key\" aws/lambdas/cruddur-post-confirmation/lambda_function.py; grep -n 'cognito_user_id text NOT NULL UNIQUE\\|17800000000000003' backend-flask/db/schema.sql; grep -c \"'MOCK'\" backend-flask/db/seed.sql",
+      "expect": "lambda_function.py: exactly 4 lines - 50 (the trigger guard), 64 (comment mentioning WHERE NOT EXISTS), 76 (WHERE NOT EXISTS in the SQL), 116 (constraint-name check). schema.sql: exactly 3 lines - 16 (comment naming migration 17800000000000003), 17 (cognito_user_id text NOT NULL UNIQUE,), 57 (VALUES (1, '17800000000000003')). seed.sql count: 0"
+    },
+    {
+      "id": "G6",
+      "name": "Lambda folder still holds only the handler",
+      "cmd": "cd ~/aws-bootcamp-cruddur-2023 && ls -A aws/lambdas/cruddur-post-confirmation",
+      "expect": "lambda_function.py (nothing else - this folder is what gets zipped and deployed)"
+    },
+    {
+      "id": "G7",
+      "name": "diff shape",
+      "cmd": "cd ~/aws-bootcamp-cruddur-2023 && GIT_PAGER=cat git diff --numstat; GIT_PAGER=cat git status --short --untracked-files=all",
+      "expect": [
+        "36\t4\taws/lambdas/cruddur-post-confirmation/lambda_function.py",
+        "5\t3\tbackend-flask/db/schema.sql",
+        "5\t3\tbackend-flask/db/seed.sql",
+        " M aws/lambdas/cruddur-post-confirmation/lambda_function.py",
+        " M backend-flask/db/schema.sql",
+        " M backend-flask/db/seed.sql",
+        "?? _docs/specs/kiro-spec-release-g.json",
+        "?? aws/lambdas/tests/events/confirm_forgot_password.json",
+        "?? aws/lambdas/tests/events/confirm_signup.json",
+        "?? aws/lambdas/tests/test_post_confirmation.py",
+        "?? backend-flask/db/migrations/17800000000000003_unique_users_cognito_user_id.py"
+      ],
+      "note": "order may differ; nothing else"
+    }
+  ],
+  "tested_by_claude": {
+    "unit": "8/8 pass against the new Lambda. Run against the OLD Lambda: 3 fail + 1 error, including test_password_reset_is_skipped_and_never_touches_the_database (the #50 bug). No __pycache__ is written (-B plus sys.dont_write_bytecode).",
+    "postgres_16": "A) old schema + old seed: duplicate check shows MOCK x3; migration fails 'Key (cognito_user_id)=(MOCK) is duplicated' (not recorded by bin/db/migrate). B) after de-duplicating: migration creates users_cognito_user_id_key. C) Lambda SQL run twice WITH constraint: 1 row. D) unguarded duplicate insert: ERROR 23505 naming users_cognito_user_id_key (what the Lambda matches). E) rollback SQL, then Lambda SQL twice WITHOUT constraint: still 1 row. F) new schema.sql + new seed.sql load; constraint present; stamp 17800000000000003; seeds MOCK-<handle>. G) migration SQL on an already-folded schema fails loudly (migrate stops; nothing double-applied).",
+    "diff": "Hashes and numstat computed by applying the edits to a clone of 2914efa."
+  },
+  "report": "Paste every STOP 0 and gate command with its full output. Do not summarise outputs.",
+  "c_after_kiro": {
+    "1_commit": "cd ~/aws-bootcamp-cruddur-2023\ngit add aws/lambdas/cruddur-post-confirmation/lambda_function.py aws/lambdas/tests backend-flask/db/migrations/17800000000000003_unique_users_cognito_user_id.py backend-flask/db/schema.sql backend-flask/db/seed.sql _docs/specs/kiro-spec-release-g.json\ngit commit -m 'Release G (#50): one users row per Cognito account - skip non-sign-up triggers, insert-if-absent, unique cognito_user_id, Lambda unit tests'\ngit push origin kiro-dev",
+    "2_build_backend": "./bin/backend/build\n# The backend image must contain migration 17800000000000003 so it can be run with ECS Exec. This image = Release F code + G migration files. Save the printed EcrImage line; it REPLACES F's ae772719 for the bring-up.",
+    "3_freeze_check": "diff <(docker run --rm --entrypoint python 9ce1a1f2b413 -m pip freeze) <(docker run --rm --entrypoint python backend-flask:$(git rev-parse --short=7 HEAD) -m pip freeze) && echo IDENTICAL"
+  },
+  "bring_up_runbook": {
+    "cost": "about $0.12 per running hour; plan 2-3 hours",
+    "1_pin": "Pin the G backend digest (from c_after_kiro.2) in aws/cfn/service/config.toml with the F0 procedure (select by commit tag). Frontend stays on Release E b26597dd (already pinned). grep -n EcrImage both config.toml files.",
+    "2_stacks": "./bin/cfn/deploy-all   # restores snapshot cruddur-crddb-2026-10-07-pilot5; review and execute each change set",
+    "3_verify_F": "Release F verify_after_deploy: plain 404 at api.../api/does-not-exist; Messages lists conversations and opens one; a DM sends; backend log shows 'list_message_groups: N groups' and no DM text; no claim dumps in log group 'cruddur'. Also: aws cloudformation detect-stack-drift --stack-name CrdService",
+    "4_precheck_db (ECS Exec, read-only)": "CLUSTER=CrdClusterFargateCluster\nTASK=$(aws ecs list-tasks --cluster $CLUSTER --service-name backend-flask --query 'taskArns[0]' --output text)\naws ecs execute-command --cluster $CLUSTER --task \"$TASK\" --container backend-flask --interactive --command \"/bin/bash\"\n# inside the container (never run env/printenv):\npython - <<'PY'\nimport os, psycopg\nurl = f\"postgresql://{os.environ['PG_USER']}:{os.environ['PG_PASSWORD']}@{os.environ['PG_HOST']}:5432/cruddur\"\nwith psycopg.connect(url) as c:\n    print('stamp:', c.execute(\"SELECT last_successful_run FROM public.schema_information WHERE id = 1\").fetchone())\n    print('duplicates:', c.execute(\"SELECT cognito_user_id, count(*) FROM public.users GROUP BY 1 HAVING count(*) > 1\").fetchall())\n    print('mock_rows:', c.execute(\"SELECT count(*) FROM public.users WHERE cognito_user_id LIKE 'MOCK%%'\").fetchone())\n    print('unique_constraints:', c.execute(\"SELECT conname FROM pg_constraint WHERE conrelid = 'public.users'::regclass AND contype = 'u'\").fetchall())\nPY\n# EXPECT: stamp ('17800000000000002',), duplicates [], mock_rows (0,), unique_constraints []. ANY duplicate or MOCK row -> STOP, paste, decide before migrating.",
+    "5_migrate (inside the same ECS Exec shell)": "cd /backend-flask\nCONNECTION_URL=\"postgresql://${PG_USER}:${PG_PASSWORD}@${PG_HOST}:5432/cruddur\" python bin/db/migrate\n# EXPECT: '=== Running migration: 17800000000000003_unique_users_cognito_user_id ===', the ALTER TABLE text, '--- Migration complete'. Then re-run the step 4 python: stamp ('17800000000000003',), unique_constraints [('users_cognito_user_id_key',)]. Leave the shell with: exit",
+    "6_lambda": "./bin/cfn/auth-deploy   # review the CrdAuth change set (expect Modify on PostConfirmationFunction), execute",
+    "7_verify_G": [
+      "Password reset on a TEST account (not a pilot user's): Cognito -> forgot password -> confirm. EXPECT reset succeeds; /aws/lambda/cruddur-post-confirmation shows 'PostConfirmation PostConfirmation_ConfirmForgotPassword ...' then 'Skipping ...'; profile still loads (no 500).",
+      "Optional new sign-up with a new test address: log shows 'Inserted user handle=...'; profile loads.",
+      "Re-run the step 4 python: duplicates [] still."
+    ],
+    "8_teardown": "Snapshot cruddur-crddb-2026-10-10-g (it now contains the constraint), set DBSnapshotIdentifier, commit config.toml, ./bin/cfn/teardown-all, zero-cost check.",
+    "rollback": "Lambda: the new code works with or without the constraint, so a rollback is rarely needed; if required, redeploy CrdAuth from commit 2914efa. Constraint: inside ECS Exec, CONNECTION_URL=... python bin/db/rollback (runs rollback_sql: DROP CONSTRAINT IF EXISTS). Backend image: F-only ae772719 or pre-F 9ce1a1f2."
+  },
+  "notes": [
+    "aws/lambdas/tests/ is deliberately OUTSIDE the Lambda folder: cloudformation package zips everything in aws/lambdas/cruddur-post-confirmation/.",
+    "Cognito user-pool handle uniqueness (SRE review Q1) is not addressed here; a unique handle would be its own release - and the Lambda already raises on any non-cognito_user_id unique violation."
+  ],
+  "rev2_note": "Rev 2: G4 only. Rev 1 piped stdout AND stderr into tail -4; the Lambda's print() lines (stdout, block-buffered when piped) were flushed after unittest's summary (stderr), so tail showed log lines instead of 'Ran 8 tests / OK'. Kiro diagnosed it at G4 and proposed this fix (2>&1 >/dev/null: unittest's stderr to the pipe, stdout discarded). Edits, hashes and all other gates unchanged; G1-G3 results from rev 1 remain valid."
+}

@@ -12,7 +12,9 @@ CREATE TABLE public.users (
   display_name text NOT NULL,
   email text NOT NULL,
   handle text NOT NULL,
-  cognito_user_id text NOT NULL,
+  -- UNIQUE (backlog #50): one row per Cognito account. Same constraint name
+  -- (users_cognito_user_id_key) as migration 17800000000000003 creates.
+  cognito_user_id text NOT NULL UNIQUE,
   created_at TIMESTAMP default current_timestamp NOT NULL,
   bio text
 );
@@ -47,10 +49,10 @@ CREATE TABLE IF NOT EXISTS public.schema_information (
 
 -- This file creates the tables in their CURRENT shape: every migration up to
 -- and including the prefix below is already folded in (users.bio, uuid
--- reply_to_activity_uuid, likes table). Loading it must therefore RESET the stamp to that
+-- reply_to_activity_uuid, likes table, unique users.cognito_user_id). Loading it must therefore RESET the stamp to that
 -- prefix. Otherwise bin/db/migrate would re-run folded migrations and fail
 -- ("column bio already exists"), or a stale stamp would skip real ones.
 -- When you add a migration: fold it in here AND bump this value.
 INSERT INTO public.schema_information (id, last_successful_run)
-VALUES (1, '17800000000000002')
+VALUES (1, '17800000000000003')
 ON CONFLICT (id) DO UPDATE SET last_successful_run = EXCLUDED.last_successful_run;
