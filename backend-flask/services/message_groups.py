@@ -19,7 +19,9 @@ class MessageGroups:
 
     ddb = Ddb.client()
     data = Ddb.list_message_groups(ddb, my_user_uuid)
-    print("list_message_groups:",data)
+    # Audit HIGH-02 / SRE review S3: never log the groups themselves; they
+    # carry DM preview text, handles and display names. Count only.
+    print(f"list_message_groups: {len(data)} groups")
 
     # DynamoDB message-group items carry handle and display name but not the
     # Cognito id the frontend needs to build an avatar URL. Enrich at read

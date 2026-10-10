@@ -42,16 +42,10 @@ class CreateMessage:
         'cognito_user_id': cognito_user_id,
         'user_receiver_handle': rev_handle
       })
-      print("USERS =-=-=-=-==")
-      print(users)
-
+      # Audit HIGH-02: do not print the user rows (uuid, handle, display
+      # name) on every DM; stdout goes to CloudWatch.
       my_user    = next((item for item in users if item["kind"] == 'sender'), None)
       other_user = next((item for item in users if item["kind"] == 'recv')  , None)
-
-      print("USERS=[my-user]==")
-      print(my_user)
-      print("USERS=[other-user]==")
-      print(other_user)
 
       # The sender must exist in public.users. If the Cognito post-confirmation
       # sync failed, they are authenticated but absent from the database.

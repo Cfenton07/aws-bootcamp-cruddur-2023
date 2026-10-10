@@ -18,20 +18,20 @@ class Ddb:
     return dynamodb
   @staticmethod
   def list_message_groups(client,my_user_uuid):
-    year = str(datetime.now().year)
+    # Backlog #30: no year filter. The old begins_with(sk, <current year>)
+    # hid every conversation whose last message was in a previous year (on
+    # Jan 1 every inbox would look empty). Newest-first plus Limit already
+    # returns the most recent groups, and Limit caps the read cost.
     table_name = 'cruddur-messages'
     query_params = {
       'TableName': table_name,
-      'KeyConditionExpression': 'pk = :pkey AND begins_with(sk,:year)',
+      'KeyConditionExpression': 'pk = :pkey',
       'ScanIndexForward': False,
       'Limit': 20,
       'ExpressionAttributeValues': {
-        ':year': {'S': year },
         ':pkey': {'S': f"GRP#{my_user_uuid}"}
       }
     }
-    print('query-params:',query_params)
-    print(query_params)
     # query the table
     response = client.query(**query_params)
     items = response['Items']
@@ -50,15 +50,15 @@ class Ddb:
     return results
   @staticmethod
   def list_messages(client,message_group_uuid):
-    year = str(datetime.now().year)
+    # Backlog #30: no year filter (see list_message_groups). Without this fix
+    # a conversation's earlier-year messages would vanish from the thread.
     table_name = 'cruddur-messages'
     query_params = {
       'TableName': table_name,
-      'KeyConditionExpression': 'pk = :pkey AND begins_with(sk,:year)',
+      'KeyConditionExpression': 'pk = :pkey',
       'ScanIndexForward': False,
       'Limit': 20,
       'ExpressionAttributeValues': {
-        ':year': {'S': year },
         ':pkey': {'S': f"MSG#{message_group_uuid}"}
       }
     }

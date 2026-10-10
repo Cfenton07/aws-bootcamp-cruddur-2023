@@ -84,7 +84,11 @@ CLOUDWATCH_LOG_STREAM = os.environ.get('CLOUDWATCH_LOG_STREAM', f"app-instance-{
 # ============================================================
 # Configure Python logger to write to both console (STDOUT) and CloudWatch
 LOGGER = logging.getLogger(__name__)
-LOGGER.setLevel(logging.DEBUG)
+# LOG_LEVEL env var (default INFO). Under gunicorn this logger IS Flask's
+# app.logger (both are named 'app'), so DEBUG would also emit every
+# app.logger.debug() call to CloudWatch. Set LOG_LEVEL=DEBUG locally only.
+LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO').upper()
+LOGGER.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
 
 # Console handler - logs appear in docker logs
 console_handler = logging.StreamHandler(sys.stdout)
@@ -260,7 +264,6 @@ def data_message_groups():
         claims = cognito_jwt_token.verify(access_token)
         # authenicatied request
         app.logger.debug("authenicated")
-        app.logger.debug(claims)
         cognito_user_id = claims['sub']
         model = MessageGroups.run(cognito_user_id=cognito_user_id)
         if model['errors'] is not None:
@@ -282,7 +285,6 @@ def data_messages(message_group_uuid):
         claims = cognito_jwt_token.verify(access_token)
         # authenticated request
         app.logger.debug("authenticated")
-        app.logger.debug(claims)
         cognito_user_id = claims['sub']
         model = Messages.run(
             cognito_user_id=cognito_user_id, 
@@ -311,7 +313,6 @@ def data_create_message():
     claims = cognito_jwt_token.verify(access_token)
     # authenicatied request
     app.logger.debug("authenicated")
-    app.logger.debug(claims)
     cognito_user_id = claims['sub']
     if message_group_uuid == None:
       # Create for the first time
@@ -371,8 +372,6 @@ def data_home():
 
         # Authenticated request - log user info
         app.logger.debug("authenticated")
-        app.logger.debug(claims)
-        app.logger.debug(claims['username'])
 
         # Return personalized feed with user's Cognito ID
         # users.cognito_user_id stores the token's 'sub' (the reply route uses
