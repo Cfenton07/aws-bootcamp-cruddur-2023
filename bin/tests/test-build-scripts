@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# Offline test for bin/backend/build and bin/frontend/build.
+#
+# Runs each build script with FAKE 'aws' and 'docker' commands placed first on
+# PATH, so nothing is built, pushed or sent to AWS. Checks three cases:
+#   notfound - commit not in ECR yet: build once, push ONLY the commit tag
+#   exists   - commit already in ECR: no build, no push, exit 0
+#   expired  - any other ECR error: stop before building, exit non-zero
+#
+# Usage: bin/tests/test-build-scripts            (exit 0 = all pass)
+set -uo pipefail
+
+ABS_PATH=$(readlink -f "$0")
+PROJECT_PATH=$(dirname "$(dirname "$(dirname "$ABS_PATH")")")
+
+# The build scripts refuse a dirty folder, which would hide the real result.
+DIRTY=$(git -C "$PROJECT_PATH" status --porcelain -- backend-flask frontend-react-js)
+if [ -n "$DIRTY" ]; then
+  echo "CANNOT TEST: backend-flask/ or frontend-react-js/ has uncommitted changes:" >&2
+  echo "$DIRTY" >&2
+  exit 2
+fi
+
+WORK=$(mktemp -d)
+trap 'rm -rf "$WORK"' EXIT
+SHIM="$WORK/shim"
+mkdir -p "$SHIM"
+
+cat > "$SHIM/aws" <<'EOF'
+#!/usr/bin/env bash
+echo "aws $*" >> "$LOG"
+case "$*" in
+  *get-login-password*) echo fake-password ;;
+  *describe-images*)
+    if [ "$MODE" = exists ] || [ -f "$STATE/pushed" ]; then
+      printf 'sha256:%064d\n' 0; exit 0
+    fi
+    if [ "$MODE" = expired ]; then
+      echo "An error occurred (ExpiredTokenException) when calling the DescribeImages operation: The security token included in the request is expired" >&2
+      exit 254
+    fi
+    echo "An error occurred (ImageNotFoundException) when calling the DescribeImages operation: The image does not exist" >&2
+    exit 254 ;;
+  *) echo "fake aws: unexpected call: $*" >&2; exit 99 ;;
+esac
+EOF
+
+cat > "$SHIM/docker" <<'EOF'
+#!/usr/bin/env bash
+echo "docker $1 ${*: -1}" >> "$LOG"
+case "$1" in
+  push)  touch "$STATE/pushed" ;;
+  login) cat > /dev/null ;;
+esac
+exit 0
+EOF
+chmod +x "$SHIM/aws" "$SHIM/docker"
+
+# Safety: never run the build scripts unless the fakes win on PATH.
+for c in aws docker; do
+  if [ "$(PATH="$SHIM:$PATH" command -v "$c")" != "$SHIM/$c" ]; then
+    echo "ABORT: fake $c is not first on PATH; refusing to run a real build." >&2
+    exit 2
+  fi
+done
+
+SHA=$(git -C "$PROJECT_PATH" rev-parse --short=7 HEAD)
+FAILS=0
+
+check() {  # check SCRIPT MODE WANT_RC WANT_BUILDS WANT_PUSHES
+  local script=$1 mode=$2 want_rc=$3 want_builds=$4 want_pushes=$5
+  local log state rc builds pushes
+  log="$WORK/log.$RANDOM"; state=$(mktemp -d -p "$WORK"); : > "$log"
+  MODE=$mode LOG=$log STATE=$state PATH="$SHIM:$PATH" \
+    bash "$PROJECT_PATH/$script" > "$log.out" 2>&1
+  rc=$?
+  builds=$(grep -c '^docker build' "$log")
+  pushes=$(grep '^docker push' "$log" | sed 's/.*://' | paste -sd, -)
+  [ "$rc" -ne 0 ] && rc=nonzero
+  if [ "$rc" = "$want_rc" ] && [ "$builds" = "$want_builds" ] && [ "$pushes" = "$want_pushes" ]; then
+    echo "PASS $script [$mode] rc=$rc builds=$builds pushes=[$pushes]"
+  else
+    echo "FAIL $script [$mode] rc=$rc builds=$builds pushes=[$pushes]  (want rc=$want_rc builds=$want_builds pushes=[$want_pushes])"
+    FAILS=$((FAILS + 1))
+  fi
+}
+
+for s in bin/backend/build bin/frontend/build; do
+  check "$s" notfound 0       1 "$SHA"
+  check "$s" exists   0       0 ""
+  check "$s" expired  nonzero 0 ""
+done
+
+echo "RESULT: $FAILS failed"
+[ "$FAILS" -eq 0 ]

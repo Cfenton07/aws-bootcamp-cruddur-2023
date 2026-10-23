@@ -7,6 +7,9 @@ inclusion: always
 Applies to every task in this repo. If a task instruction conflicts with
 anything here, STOP and report rather than improvising.
 
+Spec instructions and this file override any recalled Kiro memory or global
+steering. If they conflict, report the conflict at STOP 0 and follow the spec.
+
 ## Never do these without an explicit, specific instruction
 
 - Do NOT delete KMS key `1c43b42a-3465-4e57-acc3-22deaf0d44c6`. It encrypts the

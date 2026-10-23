@@ -14,6 +14,10 @@ set -euo pipefail
 # stray CodeBuild image), and no deploy uses it: the stacks pin @sha256 digests
 # (the ':latest' mentions under aws/cfn are documentation examples only). The
 # LOCAL 'backend-flask' tag is kept because bin/backend/run uses it.
+#
+# The date tag (:YYYY-MM-DD) was dropped on 2026-10-23. With immutable ECR tags
+# a second build on the same day would fail, and the commit tag already names
+# the image exactly.
 
 ABS_PATH=$(readlink -f "$0")
 BACKEND_PATH=$(dirname "$ABS_PATH")
@@ -39,7 +43,34 @@ if [ -n "$DIRTY" ]; then
 fi
 
 GIT_SHA=$(git -C "$PROJECT_PATH" rev-parse --short=7 HEAD)
-DATE_TAG=$(date +%Y-%m-%d)
+
+# ECR tags are IMMUTABLE (Phase 0, 2026-10-23): a tag can be pushed only once.
+# Check first. If this commit is already in ECR, print its digest and stop
+# instead of rebuilding and then failing on the push. Only ImageNotFound means
+# "not built yet"; any other error (expired credentials, wrong region) stops.
+set +e
+EXISTING=$(aws ecr describe-images \
+  --repository-name "$REPO" \
+  --region "$AWS_REGION" \
+  --image-ids imageTag="$GIT_SHA" \
+  --query 'imageDetails[0].imageDigest' \
+  --output text 2>&1)
+RC=$?
+set -e
+if [ "$RC" -eq 0 ]; then
+  if [[ "$EXISTING" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+    echo "== $REPO:$GIT_SHA is already in ECR. Nothing to build (tags are immutable)."
+    echo "   Digest: $EXISTING"
+    echo "   EcrImage = '$ECR_URL@$EXISTING'"
+    exit 0
+  fi
+  echo "ERROR: unexpected ECR answer for $REPO:$GIT_SHA (got: $EXISTING)" >&2
+  exit 1
+elif [[ "$EXISTING" != *ImageNotFoundException* ]]; then
+  echo "ERROR: could not check ECR for $REPO:$GIT_SHA. Fix this first:" >&2
+  echo "$EXISTING" >&2
+  exit 1
+fi
 
 echo "== Building $REPO from commit $GIT_SHA"
 docker build \
@@ -52,11 +83,9 @@ echo "== Logging in to ECR"
 aws ecr get-login-password --region "$AWS_REGION" | \
   docker login --username AWS --password-stdin "$REGISTRY"
 
-echo "== Tagging and pushing $ECR_URL:$GIT_SHA (and :$DATE_TAG)"
+echo "== Tagging and pushing $ECR_URL:$GIT_SHA"
 docker tag "$REPO:$GIT_SHA" "$ECR_URL:$GIT_SHA"
-docker tag "$REPO:$GIT_SHA" "$ECR_URL:$DATE_TAG"
 docker push "$ECR_URL:$GIT_SHA"
-docker push "$ECR_URL:$DATE_TAG"
 
 # Resolve the digest FOR THIS COMMIT'S TAG, and refuse anything that is not a
 # well-formed digest (a placeholder or an empty value once caused a rollback).
