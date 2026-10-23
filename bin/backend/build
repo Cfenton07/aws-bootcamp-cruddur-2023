@@ -1,44 +1,83 @@
 #!/usr/bin/env bash
-set -e
+set -euo pipefail
+
+# Build the production backend image and push it to ECR, tagged with the git
+# commit it was built from.
+#
+# Release F0 (deploy safety): deploys select an image BY THIS COMMIT TAG, never
+# by "most recently pushed". On 2026-10-07 a CodeBuild PR webhook pushed a
+# debug-mode dev image 28 minutes after the real build; a newest-pushed lookup
+# would have deployed it. The webhook is deleted, and the commit tag makes any
+# stray push impossible to select.
+#
+# ':latest' is no longer pushed. In ECR it is ambiguous (it still points at that
+# stray CodeBuild image), and no deploy uses it: the stacks pin @sha256 digests
+# (the ':latest' mentions under aws/cfn are documentation examples only). The
+# LOCAL 'backend-flask' tag is kept because bin/backend/run uses it.
 
 ABS_PATH=$(readlink -f "$0")
-BACKEND_PATH=$(dirname $ABS_PATH)
-BIN_PATH=$(dirname $BACKEND_PATH)
-PROJECT_PATH=$(dirname $BIN_PATH)
+BACKEND_PATH=$(dirname "$ABS_PATH")
+BIN_PATH=$(dirname "$BACKEND_PATH")
+PROJECT_PATH=$(dirname "$BIN_PATH")
 BACKEND_FLASK_PATH="$PROJECT_PATH/backend-flask"
-
-echo "🔨 Building Backend Docker Image..."
 
 AWS_ACCOUNT_ID="931637612335"
 AWS_REGION="us-east-1"
-ECR_URL="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/backend-flask"
+REPO="backend-flask"
+REGISTRY="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com"
+ECR_URL="$REGISTRY/$REPO"
+
+# The commit tag only means something if the build context IS that commit.
+# Refuse when anything under backend-flask/ differs from HEAD, including
+# untracked files (Dockerfile.prod copies the whole folder). Ignored files such
+# as __pycache__ are excluded by backend-flask/.gitignore and .dockerignore.
+DIRTY=$(git -C "$PROJECT_PATH" status --porcelain -- backend-flask)
+if [ -n "$DIRTY" ]; then
+  echo "ERROR: backend-flask/ has uncommitted changes. Commit first, then build:" >&2
+  echo "$DIRTY" >&2
+  exit 1
+fi
+
+GIT_SHA=$(git -C "$PROJECT_PATH" rev-parse --short=7 HEAD)
 DATE_TAG=$(date +%Y-%m-%d)
 
-echo "🔐 Logging in to ECR..."
-aws ecr get-login-password --region $AWS_REGION | \
-  docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
-
-echo "🐳 Building Docker image..."
+echo "== Building $REPO from commit $GIT_SHA"
 docker build \
   -f "$BACKEND_FLASK_PATH/Dockerfile.prod" \
-  -t backend-flask \
+  -t "$REPO" \
+  -t "$REPO:$GIT_SHA" \
   "$BACKEND_FLASK_PATH/."
 
-echo "🏷️  Tagging image..."
-docker tag backend-flask:latest $ECR_URL:latest
-docker tag backend-flask:latest $ECR_URL:$DATE_TAG
+echo "== Logging in to ECR"
+aws ecr get-login-password --region "$AWS_REGION" | \
+  docker login --username AWS --password-stdin "$REGISTRY"
 
+echo "== Tagging and pushing $ECR_URL:$GIT_SHA (and :$DATE_TAG)"
+docker tag "$REPO:$GIT_SHA" "$ECR_URL:$GIT_SHA"
+docker tag "$REPO:$GIT_SHA" "$ECR_URL:$DATE_TAG"
+docker push "$ECR_URL:$GIT_SHA"
+docker push "$ECR_URL:$DATE_TAG"
 
-echo "📤 Pushing to ECR..."
-docker push $ECR_URL:latest
-docker push $ECR_URL:$DATE_TAG
+# Resolve the digest FOR THIS COMMIT'S TAG, and refuse anything that is not a
+# well-formed digest (a placeholder or an empty value once caused a rollback).
+DIGEST=$(aws ecr describe-images \
+  --repository-name "$REPO" \
+  --region "$AWS_REGION" \
+  --image-ids imageTag="$GIT_SHA" \
+  --query 'imageDetails[0].imageDigest' \
+  --output text)
+if ! [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+  echo "ERROR: could not resolve a valid digest for $REPO:$GIT_SHA (got: $DIGEST)" >&2
+  exit 1
+fi
 
 echo ""
-echo "✅ Backend build complete!"
-echo "   Image: $ECR_URL:latest"
-echo "   Image: $ECR_URL:$DATE_TAG"
+echo "== Backend build complete"
+echo "   Commit: $GIT_SHA"
+echo "   Digest: $DIGEST"
+echo "   Pin in aws/cfn/service/config.toml:"
+echo "   EcrImage = '$ECR_URL@$DIGEST'"
 echo ""
-echo "⚡ Next: capture the digest and update aws/cfn/service/config.toml,"
-echo "   then run ./bin/cfn/deploy-all. Do NOT use bin/ecs/deploy-backend —"
-echo "   it was deleted in 50f33c6 because it hardcoded the default VPC and"
-echo "   overwrote the fentoncruddur.com DNS records."
+echo "Next: pin that digest, then ./bin/cfn/service-deploy. Do NOT use"
+echo "bin/ecs/deploy-backend (deleted in 50f33c6: it hardcoded the default VPC"
+echo "and overwrote the fentoncruddur.com DNS records)."

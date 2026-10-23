@@ -66,9 +66,13 @@ export default function ActivityActionLike(props) {
     counter = <div className="counter">{count}</div>;
   }
 
+  // Three looks: no likes = white outline; liked by others but not me =
+  // light-purple outline, a touch bolder; liked by me = solid theme purple.
   const classes = ['action', 'activity_action_heart'];
   if (liked) {
     classes.push('liked');
+  } else if (count > 0) {
+    classes.push('liked_by_others');
   }
 
   return (

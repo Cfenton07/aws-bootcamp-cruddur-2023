@@ -1,26 +1,37 @@
 #!/usr/bin/env bash
-set -eo pipefail
+set -euo pipefail
 
-echo "🔨 Building Frontend Docker Image..."
+# Build the production frontend image and push it to ECR, tagged with the git
+# commit it was built from.
+#
+# Release F0 (deploy safety): deploys select an image BY THIS COMMIT TAG, never
+# by "most recently pushed" (see bin/backend/build for the 2026-10-07 near
+# miss). ':latest' is no longer pushed; no deploy uses it (the stacks pin
+# @sha256 digests; ':latest' under aws/cfn appears only in doc examples).
+#
+# Paths are now absolute, so this script works from any directory (it used to
+# require being run from the repo root).
+
+ABS_PATH=$(readlink -f "$0")
+FRONTEND_BIN_PATH=$(dirname "$ABS_PATH")
+BIN_PATH=$(dirname "$FRONTEND_BIN_PATH")
+PROJECT_PATH=$(dirname "$BIN_PATH")
+FRONTEND_PATH="$PROJECT_PATH/frontend-react-js"
+
+AWS_ACCOUNT_ID="931637612335"
+AWS_REGION="us-east-1"
+REPO="frontend-react-js"
+REGISTRY="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com"
+ECR_URL="$REGISTRY/$REPO"
 
 # ========================================
-# BACKEND URL
+# BUILD VALUES (public: they ship to every browser)
 # ========================================
 BACKEND_URL="https://api.fentoncruddur.com"
-echo "✅ Using backend URL: $BACKEND_URL"
-
-# ========================================
-# COGNITO CONFIGURATION
-# ========================================
-AWS_REGION="us-east-1"
 USER_POOL_ID="us-east-1_wAg3Cr3Px"
 CLIENT_ID="12va2n69rq2of98ivm60b9625v"
-
-# ========================================
-# API GATEWAY (avatar upload)
-# ========================================
 # Audit HIGH-07: without this build-arg the bundle bakes "undefined" into the
-# avatar upload URL (ProfileForm.js). Public value: it ships to every browser.
+# avatar upload URL (ProfileForm.js).
 API_GATEWAY_URL="https://rtvb6kbife.execute-api.us-east-1.amazonaws.com"
 
 # An empty REACT_APP_* value does not fail the build; it silently produces a
@@ -32,13 +43,20 @@ for v in BACKEND_URL AWS_REGION USER_POOL_ID CLIENT_ID API_GATEWAY_URL; do
   fi
 done
 
-# ========================================
-# BUILD THE IMAGE
-# ========================================
-echo "🐳 Building Docker image..."
+# The commit tag only means something if the build context IS that commit.
+# Refuse when anything under frontend-react-js/ differs from HEAD, including
+# untracked files. node_modules/ and build/ are ignored by .gitignore.
+DIRTY=$(git -C "$PROJECT_PATH" status --porcelain -- frontend-react-js)
+if [ -n "$DIRTY" ]; then
+  echo "ERROR: frontend-react-js/ has uncommitted changes. Commit first, then build:" >&2
+  echo "$DIRTY" >&2
+  exit 1
+fi
 
-cd frontend-react-js
+GIT_SHA=$(git -C "$PROJECT_PATH" rev-parse --short=7 HEAD)
+DATE_TAG=$(date +%Y-%m-%d)
 
+echo "== Building $REPO from commit $GIT_SHA (backend URL: $BACKEND_URL)"
 docker build \
   --build-arg REACT_APP_BACKEND_URL="$BACKEND_URL" \
   --build-arg REACT_APP_AWS_PROJECT_REGION="$AWS_REGION" \
@@ -46,34 +64,38 @@ docker build \
   --build-arg REACT_APP_AWS_USER_POOLS_ID="$USER_POOL_ID" \
   --build-arg REACT_APP_CLIENT_ID="$CLIENT_ID" \
   --build-arg REACT_APP_API_GATEWAY_ENDPOINT_URL="$API_GATEWAY_URL" \
-  -t frontend-react-js \
-  -f Dockerfile.prod \
-  .
+  -f "$FRONTEND_PATH/Dockerfile.prod" \
+  -t "$REPO" \
+  -t "$REPO:$GIT_SHA" \
+  "$FRONTEND_PATH/."
 
-cd ..
+echo "== Logging in to ECR"
+aws ecr get-login-password --region "$AWS_REGION" | \
+  docker login --username AWS --password-stdin "$REGISTRY"
 
-# ========================================
-# TAG FOR ECR
-# ========================================
-ECR_URL="931637612335.dkr.ecr.us-east-1.amazonaws.com/frontend-react-js"
-DATE_TAG=$(date +%Y-%m-%d)
+echo "== Tagging and pushing $ECR_URL:$GIT_SHA (and :$DATE_TAG)"
+docker tag "$REPO:$GIT_SHA" "$ECR_URL:$GIT_SHA"
+docker tag "$REPO:$GIT_SHA" "$ECR_URL:$DATE_TAG"
+docker push "$ECR_URL:$GIT_SHA"
+docker push "$ECR_URL:$DATE_TAG"
 
-echo "🏷️  Tagging image..."
-docker tag frontend-react-js:latest $ECR_URL:latest
-docker tag frontend-react-js:latest $ECR_URL:$DATE_TAG
-
-# ========================================
-# PUSH TO ECR
-# ========================================
-echo "📤 Pushing to ECR..."
-aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 931637612335.dkr.ecr.us-east-1.amazonaws.com
-
-docker push $ECR_URL:latest
-docker push $ECR_URL:$DATE_TAG
+# Resolve the digest FOR THIS COMMIT'S TAG and refuse anything malformed.
+DIGEST=$(aws ecr describe-images \
+  --repository-name "$REPO" \
+  --region "$AWS_REGION" \
+  --image-ids imageTag="$GIT_SHA" \
+  --query 'imageDetails[0].imageDigest' \
+  --output text)
+if ! [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+  echo "ERROR: could not resolve a valid digest for $REPO:$GIT_SHA (got: $DIGEST)" >&2
+  exit 1
+fi
 
 echo ""
-echo "✅ Frontend build complete!"
-echo "   Image: $ECR_URL:latest"
-echo "   Image: $ECR_URL:$DATE_TAG"
-echo "   Backend URL: $BACKEND_URL"
-echo "   API Gateway URL: $API_GATEWAY_URL"
+echo "== Frontend build complete"
+echo "   Commit: $GIT_SHA"
+echo "   Digest: $DIGEST"
+echo "   Pin in aws/cfn/frontend/config.toml:"
+echo "   EcrImage = '$ECR_URL@$DIGEST'"
+echo ""
+echo "Next: pin that digest, then ./bin/cfn/frontend-deploy."

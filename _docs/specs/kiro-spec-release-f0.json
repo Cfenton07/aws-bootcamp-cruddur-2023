@@ -1,0 +1,147 @@
+{
+  "spec": "kiro-spec-release-f0.json",
+  "rev": 2,
+  "date": "2026-10-09",
+  "title": "Release F0 (deploy tooling only): tag every image with its git commit; deploys select by that tag, never by newest-pushed. No app code, no AWS changes.",
+  "why": "2026-10-07 near miss: CodeBuild project cruddur-backend-flask-bake-image (own GitHub PR webhook, now deleted) pushed a debug-mode dev image (28101cf4, tagged latest) to backend-flask 28 minutes after the real build (9ce1a1f2). The deploy procedure picked the most recently pushed image, so the next backend deploy would have pinned the debug image. F0 removes the newest-pushed selection entirely.",
+  "protocol": "Kiro Supervised. Kiro replaces the 2 files in scope with the FULL content given in edits[], using the IDE write tool. Keep the executable bit (both files are mode 100755 in git). Read-only git (GIT_PAGER=cat) and the gate commands below only. C runs every mutating git, AWS and docker command. No cwd parameter; every command starts with an absolute cd. Run commands one at a time.",
+  "must_not": [
+    "git add/commit/push/stash/reset/checkout or history rewrite",
+    "any AWS CLI, docker, bin/ script (including the two files being edited), install",
+    "editing any file not in scope",
+    "hand-editing a file to force a gate to pass - report the failure instead"
+  ],
+  "scope": [
+    "bin/backend/build",
+    "bin/frontend/build"
+  ],
+  "stop0": {
+    "purpose": "Confirm the tree matches what this spec was written against. If any check differs, STOP and report - do not edit.",
+    "checks": [
+      {
+        "id": "S0-1",
+        "cmd": "cd ~/aws-bootcamp-cruddur-2023 && GIT_PAGER=cat git status --short",
+        "expect": "only '?? _docs/specs/kiro-spec-release-f0.json'"
+      },
+      {
+        "id": "S0-2",
+        "cmd": "cd ~/aws-bootcamp-cruddur-2023 && GIT_PAGER=cat git log --oneline -1",
+        "expect": "17d5dbf (Release E) at HEAD on kiro-dev"
+      },
+      {
+        "id": "S0-3",
+        "cmd": "cd ~/aws-bootcamp-cruddur-2023 && sha256sum bin/backend/build bin/frontend/build",
+        "expect": {
+          "bin/backend/build": "be441a94ae2647675e3696462f5d3d67750069ff6e919d8c3dc0f3e75a8cd87a",
+          "bin/frontend/build": "9044480c0a92ff7e28436ede5cd62c6c06173e3c937da5932f356eb9d896a99c"
+        }
+      },
+      {
+        "id": "S0-4",
+        "cmd": "cd ~/aws-bootcamp-cruddur-2023 && GIT_PAGER=cat git ls-files -s bin/backend/build bin/frontend/build",
+        "expect": "both lines start with 100755"
+      },
+      {
+        "id": "S0-5",
+        "cmd": "cd ~/aws-bootcamp-cruddur-2023 && grep -rn 'bin/backend/build\\|bin/frontend/build' bin aws --include=* ; echo exit=$?",
+        "expect": "Exactly 2 hits, both comments: 'bin/frontend/run:12:#   3. Build the production image: bin/frontend/build' and 'bin/backend/run:13:#   3. Build the production image: bin/backend/build', then exit=0. Any other caller -> STOP and report."
+      }
+    ],
+    "then": "Reply 'STOP 0 complete' with each result and wait for C to say GO."
+  },
+  "edits": [
+    {
+      "file": "bin/backend/build",
+      "action": "replace the whole file with content (LF, trailing newline exactly as shown); keep mode 100755",
+      "content": "#!/usr/bin/env bash\nset -euo pipefail\n\n# Build the production backend image and push it to ECR, tagged with the git\n# commit it was built from.\n#\n# Release F0 (deploy safety): deploys select an image BY THIS COMMIT TAG, never\n# by \"most recently pushed\". On 2026-10-07 a CodeBuild PR webhook pushed a\n# debug-mode dev image 28 minutes after the real build; a newest-pushed lookup\n# would have deployed it. The webhook is deleted, and the commit tag makes any\n# stray push impossible to select.\n#\n# ':latest' is no longer pushed. In ECR it is ambiguous (it still points at that\n# stray CodeBuild image), and no deploy uses it: the stacks pin @sha256 digests\n# (the ':latest' mentions under aws/cfn are documentation examples only). The\n# LOCAL 'backend-flask' tag is kept because bin/backend/run uses it.\n\nABS_PATH=$(readlink -f \"$0\")\nBACKEND_PATH=$(dirname \"$ABS_PATH\")\nBIN_PATH=$(dirname \"$BACKEND_PATH\")\nPROJECT_PATH=$(dirname \"$BIN_PATH\")\nBACKEND_FLASK_PATH=\"$PROJECT_PATH/backend-flask\"\n\nAWS_ACCOUNT_ID=\"931637612335\"\nAWS_REGION=\"us-east-1\"\nREPO=\"backend-flask\"\nREGISTRY=\"$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com\"\nECR_URL=\"$REGISTRY/$REPO\"\n\n# The commit tag only means something if the build context IS that commit.\n# Refuse when anything under backend-flask/ differs from HEAD, including\n# untracked files (Dockerfile.prod copies the whole folder). Ignored files such\n# as __pycache__ are excluded by backend-flask/.gitignore and .dockerignore.\nDIRTY=$(git -C \"$PROJECT_PATH\" status --porcelain -- backend-flask)\nif [ -n \"$DIRTY\" ]; then\n  echo \"ERROR: backend-flask/ has uncommitted changes. Commit first, then build:\" >&2\n  echo \"$DIRTY\" >&2\n  exit 1\nfi\n\nGIT_SHA=$(git -C \"$PROJECT_PATH\" rev-parse --short=7 HEAD)\nDATE_TAG=$(date +%Y-%m-%d)\n\necho \"== Building $REPO from commit $GIT_SHA\"\ndocker build \\\n  -f \"$BACKEND_FLASK_PATH/Dockerfile.prod\" \\\n  -t \"$REPO\" \\\n  -t \"$REPO:$GIT_SHA\" \\\n  \"$BACKEND_FLASK_PATH/.\"\n\necho \"== Logging in to ECR\"\naws ecr get-login-password --region \"$AWS_REGION\" | \\\n  docker login --username AWS --password-stdin \"$REGISTRY\"\n\necho \"== Tagging and pushing $ECR_URL:$GIT_SHA (and :$DATE_TAG)\"\ndocker tag \"$REPO:$GIT_SHA\" \"$ECR_URL:$GIT_SHA\"\ndocker tag \"$REPO:$GIT_SHA\" \"$ECR_URL:$DATE_TAG\"\ndocker push \"$ECR_URL:$GIT_SHA\"\ndocker push \"$ECR_URL:$DATE_TAG\"\n\n# Resolve the digest FOR THIS COMMIT'S TAG, and refuse anything that is not a\n# well-formed digest (a placeholder or an empty value once caused a rollback).\nDIGEST=$(aws ecr describe-images \\\n  --repository-name \"$REPO\" \\\n  --region \"$AWS_REGION\" \\\n  --image-ids imageTag=\"$GIT_SHA\" \\\n  --query 'imageDetails[0].imageDigest' \\\n  --output text)\nif ! [[ \"$DIGEST\" =~ ^sha256:[0-9a-f]{64}$ ]]; then\n  echo \"ERROR: could not resolve a valid digest for $REPO:$GIT_SHA (got: $DIGEST)\" >&2\n  exit 1\nfi\n\necho \"\"\necho \"== Backend build complete\"\necho \"   Commit: $GIT_SHA\"\necho \"   Digest: $DIGEST\"\necho \"   Pin in aws/cfn/service/config.toml:\"\necho \"   EcrImage = '$ECR_URL@$DIGEST'\"\necho \"\"\necho \"Next: pin that digest, then ./bin/cfn/service-deploy. Do NOT use\"\necho \"bin/ecs/deploy-backend (deleted in 50f33c6: it hardcoded the default VPC\"\necho \"and overwrote the fentoncruddur.com DNS records).\"\n"
+    },
+    {
+      "file": "bin/frontend/build",
+      "action": "replace the whole file with content (LF, trailing newline exactly as shown); keep mode 100755",
+      "content": "#!/usr/bin/env bash\nset -euo pipefail\n\n# Build the production frontend image and push it to ECR, tagged with the git\n# commit it was built from.\n#\n# Release F0 (deploy safety): deploys select an image BY THIS COMMIT TAG, never\n# by \"most recently pushed\" (see bin/backend/build for the 2026-10-07 near\n# miss). ':latest' is no longer pushed; no deploy uses it (the stacks pin\n# @sha256 digests; ':latest' under aws/cfn appears only in doc examples).\n#\n# Paths are now absolute, so this script works from any directory (it used to\n# require being run from the repo root).\n\nABS_PATH=$(readlink -f \"$0\")\nFRONTEND_BIN_PATH=$(dirname \"$ABS_PATH\")\nBIN_PATH=$(dirname \"$FRONTEND_BIN_PATH\")\nPROJECT_PATH=$(dirname \"$BIN_PATH\")\nFRONTEND_PATH=\"$PROJECT_PATH/frontend-react-js\"\n\nAWS_ACCOUNT_ID=\"931637612335\"\nAWS_REGION=\"us-east-1\"\nREPO=\"frontend-react-js\"\nREGISTRY=\"$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com\"\nECR_URL=\"$REGISTRY/$REPO\"\n\n# ========================================\n# BUILD VALUES (public: they ship to every browser)\n# ========================================\nBACKEND_URL=\"https://api.fentoncruddur.com\"\nUSER_POOL_ID=\"us-east-1_wAg3Cr3Px\"\nCLIENT_ID=\"12va2n69rq2of98ivm60b9625v\"\n# Audit HIGH-07: without this build-arg the bundle bakes \"undefined\" into the\n# avatar upload URL (ProfileForm.js).\nAPI_GATEWAY_URL=\"https://rtvb6kbife.execute-api.us-east-1.amazonaws.com\"\n\n# An empty REACT_APP_* value does not fail the build; it silently produces a\n# broken bundle. Refuse to build instead.\nfor v in BACKEND_URL AWS_REGION USER_POOL_ID CLIENT_ID API_GATEWAY_URL; do\n  if [ -z \"${!v}\" ]; then\n    echo \"ERROR: required build value ${v} is empty. Aborting.\" >&2\n    exit 1\n  fi\ndone\n\n# The commit tag only means something if the build context IS that commit.\n# Refuse when anything under frontend-react-js/ differs from HEAD, including\n# untracked files. node_modules/ and build/ are ignored by .gitignore.\nDIRTY=$(git -C \"$PROJECT_PATH\" status --porcelain -- frontend-react-js)\nif [ -n \"$DIRTY\" ]; then\n  echo \"ERROR: frontend-react-js/ has uncommitted changes. Commit first, then build:\" >&2\n  echo \"$DIRTY\" >&2\n  exit 1\nfi\n\nGIT_SHA=$(git -C \"$PROJECT_PATH\" rev-parse --short=7 HEAD)\nDATE_TAG=$(date +%Y-%m-%d)\n\necho \"== Building $REPO from commit $GIT_SHA (backend URL: $BACKEND_URL)\"\ndocker build \\\n  --build-arg REACT_APP_BACKEND_URL=\"$BACKEND_URL\" \\\n  --build-arg REACT_APP_AWS_PROJECT_REGION=\"$AWS_REGION\" \\\n  --build-arg REACT_APP_AWS_COGNITO_REGION=\"$AWS_REGION\" \\\n  --build-arg REACT_APP_AWS_USER_POOLS_ID=\"$USER_POOL_ID\" \\\n  --build-arg REACT_APP_CLIENT_ID=\"$CLIENT_ID\" \\\n  --build-arg REACT_APP_API_GATEWAY_ENDPOINT_URL=\"$API_GATEWAY_URL\" \\\n  -f \"$FRONTEND_PATH/Dockerfile.prod\" \\\n  -t \"$REPO\" \\\n  -t \"$REPO:$GIT_SHA\" \\\n  \"$FRONTEND_PATH/.\"\n\necho \"== Logging in to ECR\"\naws ecr get-login-password --region \"$AWS_REGION\" | \\\n  docker login --username AWS --password-stdin \"$REGISTRY\"\n\necho \"== Tagging and pushing $ECR_URL:$GIT_SHA (and :$DATE_TAG)\"\ndocker tag \"$REPO:$GIT_SHA\" \"$ECR_URL:$GIT_SHA\"\ndocker tag \"$REPO:$GIT_SHA\" \"$ECR_URL:$DATE_TAG\"\ndocker push \"$ECR_URL:$GIT_SHA\"\ndocker push \"$ECR_URL:$DATE_TAG\"\n\n# Resolve the digest FOR THIS COMMIT'S TAG and refuse anything malformed.\nDIGEST=$(aws ecr describe-images \\\n  --repository-name \"$REPO\" \\\n  --region \"$AWS_REGION\" \\\n  --image-ids imageTag=\"$GIT_SHA\" \\\n  --query 'imageDetails[0].imageDigest' \\\n  --output text)\nif ! [[ \"$DIGEST\" =~ ^sha256:[0-9a-f]{64}$ ]]; then\n  echo \"ERROR: could not resolve a valid digest for $REPO:$GIT_SHA (got: $DIGEST)\" >&2\n  exit 1\nfi\n\necho \"\"\necho \"== Frontend build complete\"\necho \"   Commit: $GIT_SHA\"\necho \"   Digest: $DIGEST\"\necho \"   Pin in aws/cfn/frontend/config.toml:\"\necho \"   EcrImage = '$ECR_URL@$DIGEST'\"\necho \"\"\necho \"Next: pin that digest, then ./bin/cfn/frontend-deploy.\"\n"
+    }
+  ],
+  "gates": [
+    {
+      "id": "G1",
+      "name": "exact content",
+      "cmd": "cd ~/aws-bootcamp-cruddur-2023 && sha256sum bin/backend/build bin/frontend/build",
+      "expect": {
+        "bin/backend/build": "180fc488bef274b6e41accffca3c2b6f38482598481ba937029f572de37c5196",
+        "bin/frontend/build": "49bdeaaea2c680da42187a0efc75e04af7988261bf26861c58bbd605dd3d674b"
+      },
+      "on_fail": "Report which file differs with a diff against the spec content. Only CRLF or a trailing-newline difference may be corrected, then re-run G1. Anything else: STOP."
+    },
+    {
+      "id": "G2",
+      "name": "no CRLF",
+      "cmd": "cd ~/aws-bootcamp-cruddur-2023 && grep -c $'\\r' bin/backend/build bin/frontend/build; echo exit=$?",
+      "expect": "both :0 and exit=1"
+    },
+    {
+      "id": "G3",
+      "name": "diff shape",
+      "cmd": "cd ~/aws-bootcamp-cruddur-2023 && GIT_PAGER=cat git diff --numstat",
+      "expect": [
+        "65\t26\tbin/backend/build",
+        "67\t45\tbin/frontend/build"
+      ],
+      "note": "exactly these 2 lines"
+    },
+    {
+      "id": "G4",
+      "name": "mode unchanged",
+      "cmd": "cd ~/aws-bootcamp-cruddur-2023 && GIT_PAGER=cat git diff --summary; echo exit=$?; test -x bin/backend/build && test -x bin/frontend/build && echo both-executable",
+      "expect": "no output from git diff --summary (no 'mode change' line), exit=0, then both-executable",
+      "on_fail": "If the executable bit was lost (a 'mode change' line, or test -x fails): STOP. Do not chmod. C runs: chmod +x bin/backend/build bin/frontend/build, then Kiro re-runs G4. Any other G4 failure: STOP and report."
+    },
+    {
+      "id": "G5",
+      "name": "bash syntax (does not run the scripts)",
+      "cmd": "cd ~/aws-bootcamp-cruddur-2023 && bash -n bin/backend/build && bash -n bin/frontend/build && echo syntax-ok",
+      "expect": "syntax-ok"
+    },
+    {
+      "id": "G6",
+      "name": "pure ASCII",
+      "cmd": "cd ~/aws-bootcamp-cruddur-2023 && grep -nP '[^\\x00-\\x7F]' bin/backend/build bin/frontend/build; echo exit=$?",
+      "expect": "exit=1"
+    },
+    {
+      "id": "G7",
+      "name": "no :latest pushed, commit tag used",
+      "cmd": "cd ~/aws-bootcamp-cruddur-2023 && grep -n 'push.*latest\\|:latest\"' bin/backend/build bin/frontend/build; echo exit=$?; grep -c 'GIT_SHA' bin/backend/build bin/frontend/build",
+      "expect": "exit=1, then bin/backend/build:10 and bin/frontend/build:10"
+    },
+    {
+      "id": "G8",
+      "name": "git status",
+      "cmd": "cd ~/aws-bootcamp-cruddur-2023 && GIT_PAGER=cat git status --short",
+      "expect": [
+        " M bin/backend/build",
+        " M bin/frontend/build",
+        "?? _docs/specs/kiro-spec-release-f0.json"
+      ],
+      "note": "order may differ; exactly these 3 lines"
+    }
+  ],
+  "tested_by_claude": "Both exact files run in a copy of the repo at 17d5dbf with docker and aws replaced by stubs: (1) clean tree, run from / -> tags backend-flask:<sha> and :<date>, resolves the digest BY THE COMMIT TAG, prints the EcrImage pin line, exit 0; (2) modified tracked file in backend-flask/ -> refuses before docker, exit 1; (3) untracked file in backend-flask/ (e.g. a new requirements.in) -> refuses, exit 1; (4) untracked file outside the folder (a spec in _docs/) -> allowed; (5) describe-images returns None -> refuses, exit 1; (6) frontend run from /tmp -> works (paths now absolute), same -f Dockerfile.prod and build context as before, same 6 build-args; (7) frontend dirty -> refuses. bash -n clean, pure ASCII.",
+  "report": "Paste every STOP 0 and gate command with its full output. Do not summarise outputs.",
+  "c_after_kiro": {
+    "1_commit": "git add bin/backend/build bin/frontend/build _docs/specs/kiro-spec-release-f0.json\ngit commit -m 'Release F0: tag images with git commit; select deploys by commit tag, not newest push'\ngit push origin kiro-dev",
+    "2_refusal_probe (no docker, no AWS: the script must stop at the dirty check)": "cd ~/aws-bootcamp-cruddur-2023\ntouch backend-flask/f0-probe\n./bin/backend/build; echo exit=$?\nrm backend-flask/f0-probe\ntouch frontend-react-js/f0-probe\n./bin/frontend/build; echo exit=$?\nrm frontend-react-js/f0-probe\ngit status --short\n# EXPECT: each prints 'ERROR: ... has uncommitted changes' listing '?? .../f0-probe', exit=1, and NO '== Building' line. git status clean afterwards.",
+    "3_first_real_use": "Release F is the first build with F0. No build or deploy is needed for F0 itself (no image content changes)."
+  },
+  "new_deploy_procedure": {
+    "replaces": "the sort_by(imageDetails,&imagePushedAt)[-1] lookup in all earlier specs and the handoff",
+    "backend": "cd ~/aws-bootcamp-cruddur-2023\n./bin/backend/build    # must be run on a committed tree; prints Commit and Digest\nREPO=backend-flask; CFG=aws/cfn/service/config.toml\nSHA=$(git rev-parse --short=7 HEAD)\nNEW=$(aws ecr describe-images --repository-name $REPO --image-ids imageTag=$SHA --query 'imageDetails[0].imageDigest' --output text)\necho \"$SHA $NEW\"    # CHECK: same digest the build printed\ngrep -n EcrImage $CFG\nsed -i \"s|$REPO@sha256:[^']*'|$REPO@$NEW'|\" $CFG\ngrep -n EcrImage $CFG\n./bin/cfn/service-deploy",
+    "frontend": "Same with ./bin/frontend/build, REPO=frontend-react-js, CFG=aws/cfn/frontend/config.toml, ./bin/cfn/frontend-deploy",
+    "why_safe": "An image can only be selected if it carries the tag of the commit you are standing on, and the build refuses to run unless that commit is exactly what is in the folder. A stray push from anywhere else can never match."
+  },
+  "not_in_scope_noted": [
+    "aws:json/task-definitions/frontend-react-js.json still says :latest - legacy file, unused by CFN; leave for the cleanup pass",
+    "aws/cfn/service/config.toml.example and service/template.yaml description still show a :latest example - doc-only; fix with the I1/IaC cleanup",
+    "backend-flask/buildspec.yml (dev Dockerfile, pushes :latest) - its webhook and the old pipeline are already disabled; delete with the CI/CD rebuild (#23)"
+  ],
+  "rev2_note": "Rev 2: the header comments no longer claim 'nothing under aws/cfn references :latest' (Kiro flagged at STOP 0: config.toml.example and a template.yaml Description show :latest as doc examples). Wording now says no DEPLOY uses :latest because the stacks pin @sha256 digests. Comment-only change: G1 hashes and G3 counts updated; behaviour identical (re-tested with stubs: clean build exit 0 for both, dirty tree refused exit 1). STOP 0 results from rev 1 remain valid (same tree, same S0 checks); Kiro may proceed to edits once C says GO."
+}

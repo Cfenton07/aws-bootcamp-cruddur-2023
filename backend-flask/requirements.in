@@ -1,0 +1,29 @@
+# requirements.in - the packages Cruddur chooses on purpose (unpinned intent).
+# NOT installed by any Dockerfile. requirements.txt is the lock that is
+# installed. To change a dependency: edit this file, rebuild in a scratch
+# environment, regenerate requirements.txt from `pip freeze`, and prove the
+# change with a freeze diff (Release F).
+
+flask
+flask-cors
+gunicorn==23.0.0
+
+opentelemetry-api
+opentelemetry-sdk
+opentelemetry-instrumentation-flask
+opentelemetry-instrumentation-requests
+opentelemetry-exporter-otlp-proto-http
+
+aws-xray-sdk
+
+watchtower
+
+blinker
+rollbar
+
+Flask-AWSCognito
+
+psycopg[binary]
+psycopg[pool]
+
+boto3

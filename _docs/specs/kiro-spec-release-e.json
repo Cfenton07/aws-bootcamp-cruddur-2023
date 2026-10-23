@@ -1,0 +1,153 @@
+{
+  "spec": "kiro-spec-release-e.json",
+  "rev": 2,
+  "date": "2026-10-07",
+  "title": "Release E (frontend only): emoji 20% larger in posts, replies, DMs and the conversation list (backlog #51)",
+  "protocol": "Kiro Supervised. Kiro creates the 2 new files and replaces the 3 existing files with the FULL content given in edits[], using the IDE write tool. Read-only git (GIT_PAGER=cat) and the gate commands below only. C runs every mutating git, AWS and docker command. No cwd parameter; every command starts with an absolute cd. Run commands one at a time. Run G6 (eslint) through the background-process tool wrapped in bash -c.",
+  "must_not": [
+    "git add/commit/push/stash/reset/checkout or history rewrite",
+    "any AWS CLI, docker, bin/ script, install, npx without --no-install",
+    "editing any file not in scope",
+    "dangerouslySetInnerHTML anywhere",
+    "hand-editing a file to force a gate to pass — report the failure instead"
+  ],
+  "scope": [
+    "frontend-react-js/src/components/ActivityContent.js",
+    "frontend-react-js/src/components/MessageItem.js",
+    "frontend-react-js/src/components/MessageGroupItem.js",
+    "frontend-react-js/src/lib/emoji.js",
+    "frontend-react-js/src/lib/emoji.css"
+  ],
+  "stop0": {
+    "checks": [
+      {
+        "id": "S0-1",
+        "cmd": "cd ~/aws-bootcamp-cruddur-2023 && GIT_PAGER=cat git status --short",
+        "expect": "only '?? _docs/specs/kiro-spec-release-e.json'"
+      },
+      {
+        "id": "S0-2",
+        "cmd": "cd ~/aws-bootcamp-cruddur-2023 && GIT_PAGER=cat git log --oneline -1",
+        "expect": "e7148ff (Release D) at HEAD on kiro-dev"
+      },
+      {
+        "id": "S0-3",
+        "cmd": "cd ~/aws-bootcamp-cruddur-2023 && sha256sum frontend-react-js/src/components/ActivityContent.js frontend-react-js/src/components/MessageItem.js frontend-react-js/src/components/MessageGroupItem.js",
+        "expect": {
+          "frontend-react-js/src/components/ActivityContent.js": "3db2e72066c4aa7e0af26edd4643dd1b5dc684a1cca008d5d876a6dbd5b96860",
+          "frontend-react-js/src/components/MessageItem.js": "ddf4e68c46addcc4576badbdae7f2ea3e30c3921159677826d8c1bc697bedb9c",
+          "frontend-react-js/src/components/MessageGroupItem.js": "3c9a105a7c5d3c29b3890178d88848f4cbd8d156866f32103658813941905910"
+        }
+      },
+      {
+        "id": "S0-4",
+        "cmd": "cd ~/aws-bootcamp-cruddur-2023 && ls frontend-react-js/src/lib/; ls frontend-react-js/src/lib/emoji.js frontend-react-js/src/lib/emoji.css; echo exit=$?",
+        "expect": "Report verbatim. The lib folder exists (DateTimeFormats.js lives there); emoji.js and emoji.css must NOT exist yet (ls errors, exit=2)."
+      },
+      {
+        "id": "S0-5",
+        "cmd": "cd ~/aws-bootcamp-cruddur-2023 && grep -rn 'cruddur_emoji\\|renderEmoji' frontend-react-js/src; echo exit=$?",
+        "expect": "exit=1 (class and function names are unused)"
+      }
+    ],
+    "then": "Reply 'STOP 0 complete' with each result and wait for GO."
+  },
+  "edits": [
+    {
+      "file": "frontend-react-js/src/components/ActivityContent.js",
+      "action": "replace the whole file with content (LF, trailing newline exactly as shown)",
+      "content": "import './ActivityContent.css';\n\nimport { Link } from \"react-router-dom\";\nimport { timeAgo, formatTimeExpires } from '../lib/DateTimeFormats';\nimport {ReactComponent as BombIcon} from './svg/bomb.svg';\nimport ProfileAvatar from './ProfileAvatar';\nimport { renderEmoji } from '../lib/emoji';\n\n// Splits a message into plain text, links and #hashtags. split() with a\n// capturing group keeps the matches at the odd indexes. Links come first in\n// the alternation so a '#' inside a URL stays part of the link. Everything is\n// built as React elements, never as an HTML string, so a message cannot\n// inject markup (XSS). Hashtags: backlog #41. Links: backlog #46.\n// Plain-text pieces also get their emoji enlarged 20% (backlog #51).\nconst TOKEN_SPLIT = /(https?:\\/\\/[^\\s<>\"]+|#[\\p{L}\\p{N}_]+)/iu;\nconst LINK_START = /^https?:\\/\\//i;\nconst TRAILING_PUNCT = /[.,!?;:'\"]$/;\nconst LINK_DISPLAY_MAX = 40;\n\n// \"see https://example.com.\" -> the period is sentence punctuation, not part\n// of the link. A closing \")\" is trimmed only when it has no matching \"(\",\n// so Wikipedia-style links such as /wiki/Foo_(bar) stay whole.\nfunction splitTrailing(raw) {\n  let url = raw;\n  let trail = '';\n  for (;;) {\n    const last = url.slice(-1);\n    const unbalanced = last === ')' &&\n      url.split(')').length > url.split('(').length;\n    if (TRAILING_PUNCT.test(url) || unbalanced) {\n      trail = last + trail;\n      url = url.slice(0, -1);\n    } else {\n      return [url, trail];\n    }\n  }\n}\n\nfunction renderLink(raw, key) {\n  const [url, trail] = splitTrailing(raw);\n  let href = null;\n  try {\n    const parsed = new URL(url);\n    // Only web links become clickable; anything else stays plain text.\n    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {\n      href = parsed.href;\n    }\n  } catch (e) {\n    href = null;\n  }\n  if (!href) {\n    return raw;\n  }\n  const bare = Array.from(url.replace(LINK_START, ''));\n  const display = bare.length > LINK_DISPLAY_MAX\n    ? bare.slice(0, LINK_DISPLAY_MAX).join('') + '\\u2026'\n    : bare.join('');\n  return (\n    <span key={key}>\n      <a\n        className='link'\n        href={href}\n        title={url}\n        target='_blank'\n        rel='noopener noreferrer nofollow'\n        onClick={(e) => e.stopPropagation()}\n      >{display}</a>{trail}\n    </span>\n  );\n}\n\nfunction renderMessage(message) {\n  if (typeof message !== 'string' || message === '') {\n    return message;\n  }\n  return message.split(TOKEN_SPLIT).map((part, i) => {\n    if (i % 2 === 0) {\n      return renderEmoji(part, `t${i}`);\n    }\n    if (LINK_START.test(part)) {\n      return renderLink(part, i);\n    }\n    return <span className='hashtag' key={i}>{part}</span>;\n  });\n}\n\nexport default function ActivityContent(props) {\n\n  // formatTimeExpires returns null once the post has expired; the countdown\n  // is then hidden rather than shown as negative minutes (backlog #25).\n  let expires_at;\n  const expires_label = props.activity.expires_at\n    ? formatTimeExpires(props.activity.expires_at)\n    : null;\n  if (expires_label) {\n    expires_at =  <div className=\"expires_at\" title={props.activity.expires_at}>\n                    <BombIcon className='icon' />\n                    <span className='ago'>{expires_label}</span>\n                  </div>\n\n  }\n\n  // Profile feeds list replies on their own, so show which post each one\n  // answers (backlog #29). The API sends reply_to only on the profile feed;\n  // the preview is already cut to 80 characters server-side, and CSS keeps\n  // the line to one row. Plain text, not renderMessage: no links in a preview.\n  let replyTo;\n  const parent = props.activity.reply_to;\n  if (parent && parent.handle) {\n    replyTo = <div className='reply_to' title={parent.preview}>\n                {'\\u21B3 Replying to '}\n                <Link to={`/@`+parent.handle}>@{parent.handle}</Link>\n                {parent.preview ? ': ' + parent.preview : ''}\n              </div>\n  }\n\n  return (\n    <div className='activity_content_wrap'>\n      <div className='activity_avatar'>\n  <ProfileAvatar id={props.activity.cognito_user_id} name={props.activity.display_name} />\n</div>\n      <div className='activity_content'>\n        <div className='activity_meta'>\n          <Link className='activity_identity' to={`/@`+props.activity.handle}>\n            <div className='display_name'>{props.activity.display_name}</div>\n            <div className=\"handle\">@{props.activity.handle}</div>\n          </Link>{/* activity_identity */}\n          <div className='activity_times'>\n            <div className=\"created_at\" title={props.activity.created_at}>\n              <span className='ago'>{timeAgo(props.activity.created_at)}</span> \n            </div>\n            {expires_at}\n          </div>{/* activity_times */}\n        </div>{/* activity_meta */}\n        {replyTo}\n        <div className=\"message\">{renderMessage(props.activity.message)}</div>\n      </div>{/* activity_content */}\n    </div>\n  );\n}\n"
+    },
+    {
+      "file": "frontend-react-js/src/components/MessageItem.js",
+      "action": "replace the whole file with content (LF, trailing newline exactly as shown)",
+      "content": "import './MessageItem.css';\nimport { Link } from \"react-router-dom\";\nimport { timeAgo } from '../lib/DateTimeFormats';\nimport ProfileAvatar from './ProfileAvatar';\nimport { renderEmoji } from '../lib/emoji';\n\nexport default function MessageItem(props) {\n\n  return (\n    <Link className='message_item' to={`/@`+props.message.handle}>\n      <div className='message_avatar'>\n        <ProfileAvatar id={props.message.cognito_user_id} name={props.message.display_name} />\n      </div>\n      <div className='message_content'>\n        <div className='message_meta'>\n          <div className='message_identity'>\n            <div className='display_name'>{props.message.display_name}</div>\n            <div className=\"handle\">@{props.message.handle}</div>\n          </div>{/* activity_identity */}\n        </div>{/* message_meta */}\n        <div className=\"message\">{renderEmoji(props.message.message, 'm')}</div>\n        <div className=\"created_at\" title={props.message.created_at}>\n          <span className='ago'>{timeAgo(props.message.created_at)}</span> \n        </div>{/* created_at */}\n      </div>{/* message_content */}\n    </Link>\n  );\n}\n"
+    },
+    {
+      "file": "frontend-react-js/src/components/MessageGroupItem.js",
+      "action": "replace the whole file with content (LF, trailing newline exactly as shown)",
+      "content": "import './MessageGroupItem.css';\nimport { Link } from \"react-router-dom\";\nimport { timeAgo } from '../lib/DateTimeFormats';\nimport { useParams } from 'react-router-dom';\nimport ProfileAvatar from './ProfileAvatar';\nimport { renderEmoji } from '../lib/emoji';\n\nexport default function MessageGroupItem(props) {\n  const params = useParams();\n\n\n  const classes = () => {\n    let classes = [\"message_group_item\"];\n    if (params.message_group_uuid == props.message_group.uuid){\n      classes.push('active')\n    }\n    return classes.join(' ');\n  }\n\n  return (\n    <Link className={classes()} to={`/messages/`+props.message_group.uuid}>\n      <div className='message_group_avatar'>\n        <ProfileAvatar\n          id={props.message_group.cognito_user_id}\n          name={props.message_group.display_name}\n        />\n      </div>\n      <div className='message_content'>\n        <div className='message_group_meta'>\n          <div className='message_group_identity'>\n            <div className='display_name'>{props.message_group.display_name}</div>\n            <div className=\"handle\">@{props.message_group.handle}</div>\n          </div>{/* activity_identity */}\n        </div>{/* message_meta */}\n        <div className=\"message\">{renderEmoji(props.message_group.message, 'g')}</div>\n        <div className=\"created_at\" title={props.message_group.created_at}>\n          <span className='ago'>{timeAgo(props.message_group.created_at)}</span> \n        </div>{/* created_at */}\n      </div>{/* message_content */}\n    </Link>\n  );\n}\n"
+    },
+    {
+      "file": "frontend-react-js/src/lib/emoji.js",
+      "action": "create the new file with content (LF, trailing newline exactly as shown)",
+      "content": "import './emoji.css';\n\n// Shows emoji 20% larger than the text around them (backlog #51).\n// The text is split into graphemes (what a reader sees as one character), so\n// a family, a skin tone, a flag or a keycap stays one unit and is never cut in\n// half. Runs of emoji share one span. Plain text is returned as plain strings,\n// so React still escapes everything (no HTML string, no XSS).\n// Browsers without Intl.Segmenter get the text back unchanged.\nconst SEGMENTER = (typeof Intl !== 'undefined' && Intl.Segmenter)\n  ? new Intl.Segmenter(undefined, { granularity: 'grapheme' })\n  : null;\n\n// Emoji_Presentation: characters drawn as emoji by default (smileys, balloons).\n// U+FE0F: the \"show as emoji\" selector (a red heart, a victory hand).\n// Regional indicators: flags. U+20E3: keycaps (the boxed 1).\n// Plain digits, #, (c), (r) and (tm) stay normal text. Escapes keep this\n// file pure ASCII so no invisible character can be lost when it is copied.\nconst IS_EMOJI = /\\p{Emoji_Presentation}|\\uFE0F|\\p{Regional_Indicator}|\\u20E3/u;\n\nexport function renderEmoji(text, keyPrefix) {\n  if (typeof text !== 'string' || text === '' || !SEGMENTER) {\n    return text;\n  }\n  const out = [];\n  let plain = '';\n  let emoji = '';\n  const flushEmoji = () => {\n    if (emoji) {\n      out.push(<span className='cruddur_emoji' key={`${keyPrefix}-${out.length}`}>{emoji}</span>);\n      emoji = '';\n    }\n  };\n  for (const { segment } of SEGMENTER.segment(text)) {\n    if (IS_EMOJI.test(segment)) {\n      if (plain) {\n        out.push(plain);\n        plain = '';\n      }\n      emoji += segment;\n    } else {\n      flushEmoji();\n      plain += segment;\n    }\n  }\n  flushEmoji();\n  if (plain) {\n    out.push(plain);\n  }\n  return out;\n}\n"
+    },
+    {
+      "file": "frontend-react-js/src/lib/emoji.css",
+      "action": "create the new file with content (LF, trailing newline exactly as shown)",
+      "content": "/* Emoji 20% larger than the surrounding text (backlog #51). line-height: 1\n   keeps a line that contains an emoji from pushing the lines around it apart. */\n.cruddur_emoji {\n  font-size: 1.2em;\n  line-height: 1;\n}\n"
+    }
+  ],
+  "gates": [
+    {
+      "id": "G1",
+      "cmd": "cd ~/aws-bootcamp-cruddur-2023 && sha256sum frontend-react-js/src/components/ActivityContent.js frontend-react-js/src/components/MessageItem.js frontend-react-js/src/components/MessageGroupItem.js frontend-react-js/src/lib/emoji.js frontend-react-js/src/lib/emoji.css",
+      "expect": {
+        "frontend-react-js/src/components/ActivityContent.js": "86166dc1152e5befccf3921610988454af9f784229aab056738dbda90cc6df9d",
+        "frontend-react-js/src/components/MessageItem.js": "bae650e99cff3e366ff1b7d370fded4994f6e9f38ebb02083ddc533bfb0562dc",
+        "frontend-react-js/src/components/MessageGroupItem.js": "821599250662e5e7604b47f646b3c845cfd3ae0398078f3c288923a572e72d1e",
+        "frontend-react-js/src/lib/emoji.js": "a7a95373d389ce7ac454cfcb5593da55721746a413defad542d02f849b5e2f48",
+        "frontend-react-js/src/lib/emoji.css": "2ea2ca25ab538c66c35d7b08d57e85030e305549e5df08625278d12cb77f05a9"
+      },
+      "on_fail": "Report the diff; only CRLF / trailing-newline may be corrected. Otherwise STOP."
+    },
+    {
+      "id": "G2",
+      "cmd": "cd ~/aws-bootcamp-cruddur-2023 && grep -c $'\\r' frontend-react-js/src/components/ActivityContent.js frontend-react-js/src/components/MessageItem.js frontend-react-js/src/components/MessageGroupItem.js frontend-react-js/src/lib/emoji.js frontend-react-js/src/lib/emoji.css; echo exit=$?",
+      "expect": "all :0 and exit=1"
+    },
+    {
+      "id": "G3",
+      "cmd": "cd ~/aws-bootcamp-cruddur-2023 && GIT_PAGER=cat git diff --numstat",
+      "expect": [
+        "3\t1\tfrontend-react-js/src/components/ActivityContent.js",
+        "2\t1\tfrontend-react-js/src/components/MessageGroupItem.js",
+        "2\t1\tfrontend-react-js/src/components/MessageItem.js"
+      ],
+      "note": "new files are untracked and do not appear here; see G4"
+    },
+    {
+      "id": "G4",
+      "cmd": "cd ~/aws-bootcamp-cruddur-2023 && GIT_PAGER=cat git status --short",
+      "expect": [
+        " M frontend-react-js/src/components/ActivityContent.js",
+        " M frontend-react-js/src/components/MessageGroupItem.js",
+        " M frontend-react-js/src/components/MessageItem.js",
+        "?? _docs/specs/kiro-spec-release-e.json",
+        "?? frontend-react-js/src/lib/emoji.css",
+        "?? frontend-react-js/src/lib/emoji.js"
+      ],
+      "note": "order may differ; exactly these 6 lines"
+    },
+    {
+      "id": "G5",
+      "cmd": "cd ~/aws-bootcamp-cruddur-2023 && grep -rn dangerouslySetInnerHTML frontend-react-js/src; echo exit=$?",
+      "expect": "exit=1"
+    },
+    {
+      "id": "G6",
+      "cmd": "bash -c 'cd ~/aws-bootcamp-cruddur-2023/frontend-react-js && npx --no-install eslint src/lib/emoji.js src/components/ActivityContent.js src/components/MessageItem.js src/components/MessageGroupItem.js; echo exit=$?'",
+      "expect": "exit=0, no errors. Pre-existing warnings on untouched lines (e.g. == in MessageGroupItem.js) are allowed — report verbatim."
+    },
+    {
+      "id": "G7",
+      "cmd": "cd ~/aws-bootcamp-cruddur-2023 && grep -nP '[^\\x00-\\x7F]' frontend-react-js/src/lib/emoji.js frontend-react-js/src/lib/emoji.css; echo exit=$?",
+      "expect": "exit=1 (both new files are pure ASCII)"
+    }
+  ],
+  "tested_by_claude": "Grapheme grouping run in Node 22 (same Intl.Segmenter as browsers): ZWJ families, skin tones, flags, keycaps stay whole; runs of emoji share one span; plain digits, #, ©, ®, ™ and text-style ❤ stay normal text. Rendered in Chromium at 16px: 1.0 vs 1.2 before/after, and a wrapped paragraph confirms line spacing stays even (line-height: 1).",
+  "report": "Paste every STOP 0 and gate command with full output.",
+  "c_after_kiro": {
+    "1_commit": "git add the 3 modified + 2 new files + _docs/specs/kiro-spec-release-e.json; git commit -m 'Release E: emoji 20% larger in posts, replies and DMs (#51)'; git push origin kiro-dev",
+    "2_frontend": "./bin/frontend/build, then:\nREPO=frontend-react-js; CFG=aws/cfn/frontend/config.toml\nNEW=$(aws ecr describe-images --repository-name $REPO --query 'sort_by(imageDetails,&imagePushedAt)[-1].imageDigest' --output text)\naws ecr describe-images --repository-name $REPO --image-ids imageDigest=$NEW --query 'imageDetails[0].[imagePushedAt,imageTags]' --output text\necho \"$NEW\"; echo -n \"${NEW#sha256:}\" | wc -c\ngrep -n EcrImage $CFG\n# CHECK: pushed a minute ago, 64 chars, NOT the current digest (d70d67a7…). Then:\nsed -i \"s|$REPO@sha256:[^']*'|$REPO@$NEW'|\" $CFG\ngrep -n EcrImage $CFG\n./bin/cfn/frontend-deploy",
+    "rollback": "frontend sha256:d70d67a7…f891 (Release D)"
+  },
+  "verify_after_deploy": [
+    "Hard refresh. 'Welcome to the new Crudsters…🫠🥳🥸🎈' — emoji visibly a little larger than the text, #Crud unchanged",
+    "A multi-line post with an emoji: line spacing even",
+    "Messages page: conversation list preview and the open conversation show the larger emoji",
+    "Links and hashtags still work; replies (14px) get emoji 20% larger than 14px"
+  ],
+  "rev2_note": "Rev 2: emoji.js is now pure ASCII. Rev 1 had literal invisible U+FE0F / U+20E3 characters in the regex and emoji in comments (Kiro flagged it at STOP 0); they are now \\uFE0F / \\u20E3 escapes and words. Behaviour is identical (re-tested in Node)."
+}

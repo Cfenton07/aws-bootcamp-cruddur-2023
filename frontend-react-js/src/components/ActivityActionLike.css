@@ -10,3 +10,18 @@
 .activity_item .activity_actions .activity_action_heart.liked .counter {
   color: rgb(149,0,255);
 }
+
+/* Liked by other people but not by me: the outline heart in the lighter
+   link purple, rgb(176,102,255), so it is clearly different from my own
+   solid like. The stroke is in SVG units (viewBox 512 wide, drawn at 18px),
+   so 8 thickens the outline by about a quarter of a pixel: subtle on purpose. */
+.activity_item .activity_actions .activity_action_heart.liked_by_others .icon {
+  fill: rgb(176,102,255);
+  stroke: rgb(176,102,255);
+  stroke-width: 8;
+  stroke-linejoin: round;
+}
+
+.activity_item .activity_actions .activity_action_heart.liked_by_others .counter {
+  color: rgb(176,102,255);
+}
